@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install ".[azure]"
+
+      - name: Run unit tests
+        run: python -m unittest discover -v
+
+      - name: Compile Python
+        run: python -m compileall -q airco_tracker tests
+
+      - name: Validate shell scripts
+        run: bash -n scripts/*.sh
+
+      - name: Compile Bicep templates
+        run: |
+          az bicep install
+          for template in infra/*.bicep; do
+            az bicep build --file "$template" --stdout >/dev/null
+          done

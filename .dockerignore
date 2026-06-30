@@ -1,0 +1,13 @@
+.env
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.egg-info
+build
+dist
+state.json
+tracker.log
+tracker.err.log
+tests
