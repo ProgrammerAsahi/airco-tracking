@@ -36,8 +36,12 @@ def select_alerts(
             (old is None and alert_on_first_seen)
             or (old is not None and not old.get("available", False))
         )
-        within_price = max_price_eur is None or (
-            product.price_eur is not None and product.price_eur <= max_price_eur
+        # Unknown prices remain eligible so a temporary parsing gap cannot hide
+        # newly available stock. The recipient can verify the final price before buying.
+        within_price = (
+            max_price_eur is None
+            or product.price_eur is None
+            or product.price_eur <= max_price_eur
         )
         enough_power = min_btu is None or product.btu is None or product.btu >= min_btu
         if became_available and within_price and enough_power:

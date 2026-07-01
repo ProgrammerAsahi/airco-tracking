@@ -221,7 +221,7 @@ git push -u origin main
 
 Stel filters in via `.env`:
 
-- `MAX_PRICE_EUR=500`: meld alleen producten van maximaal € 500.
+- `MAX_PRICE_EUR=1500`: meld alleen producten van maximaal € 1.500. Producten waarvan de prijs tijdelijk onbekend is, blijven meetellen om gemiste meldingen te voorkomen.
 - `MIN_BTU=7000`: meld geen producten onder 7.000 BTU. Echte airco's waarvan de BTU-waarde niet op de overzichtspagina staat, worden behouden om gemiste meldingen te voorkomen.
 
 ## Onderhoud en winkels toevoegen

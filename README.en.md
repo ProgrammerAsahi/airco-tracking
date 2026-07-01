@@ -221,7 +221,7 @@ git push -u origin main
 
 Configure filters in `.env`:
 
-- `MAX_PRICE_EUR=500`: notify only about products costing at most €500.
+- `MAX_PRICE_EUR=1500`: notify only about products costing at most €1,500. Products whose price is temporarily unavailable remain eligible to avoid missed alerts.
 - `MIN_BTU=7000`: do not notify about products below 7,000 BTU. Genuine air conditioners whose BTU value is not present on the listing page are retained to avoid missed alerts.
 
 ## Maintenance and adding retailers

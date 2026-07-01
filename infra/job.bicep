@@ -14,7 +14,7 @@ param emailTo string
 @description('Five-field UTC cron expression.')
 param cronExpression string = '*/10 * * * *'
 param minBtu string = '5000'
-param maxPriceEur string = ''
+param maxPriceEur string = '1500'
 @allowed([
   'disabled'
   'marketing_api'
