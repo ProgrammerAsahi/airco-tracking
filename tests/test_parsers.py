@@ -6,14 +6,19 @@ import unittest
 
 from bs4 import BeautifulSoup
 
+from airco_tracker.adapters.action import ActionAdapter, _parse_product_page as parse_action_page
+from airco_tracker.adapters.alternate import _parse_product_page as parse_alternate_page
 from airco_tracker.adapters.bol import BolAdapter
 from airco_tracker.adapters.coolblue import CoolblueAdapter
 from airco_tracker.adapters.diy import GammaAdapter, KarweiAdapter
 from airco_tracker.adapters.electroworld import ElectroWorldAdapter
 from airco_tracker.adapters.ep import EpAdapter
+from airco_tracker.adapters.flinq import _parse_product_page as parse_flinq_page
+from airco_tracker.adapters.klarstein import KlarsteinAdapter
 from airco_tracker.adapters.lidl import LidlAdapter
 from airco_tracker.adapters.mediamarkt import MediaMarktAdapter
 from airco_tracker.adapters.praxis import PraxisAdapter
+from airco_tracker.adapters.trotec import TrotecAdapter
 from airco_tracker.adapters.wehkamp import WehkampAdapter
 from airco_tracker.adapters.base import parse_btu, parse_price
 
@@ -324,6 +329,118 @@ class ParserTests(unittest.TestCase):
         self.assertEqual([product.available for product in products], [True, False])
         self.assertEqual(products[0].price_eur, 319.0)
         self.assertEqual(products[0].btu, 9000)
+
+    def test_alternate_reads_schema_product_stock(self) -> None:
+        product = {
+            "@type": "Product",
+            "name": "Bestron AAC9000 Mobiele Airconditioner 9000 BTU",
+            "description": "Mobiele airco met afvoerslang",
+            "offers": {
+                "price": "279.00",
+                "availability": "https://schema.org/InStock",
+                "url": "https://www.alternate.nl/Bestron/AAC9000/html/product/1",
+            },
+        }
+        page = f'<script type="application/ld+json">{json.dumps(product)}</script>'
+        result = parse_alternate_page(page, "https://www.alternate.nl/product/1")
+        self.assertTrue(result.available)
+        self.assertEqual(result.price_eur, 279.0)
+        self.assertEqual(result.btu, 9000)
+
+    def test_trotec_only_counts_immediate_stock(self) -> None:
+        def card(name, url, availability, price, btu):
+            data = {
+                "name": name,
+                "availability_message": availability,
+                "price_range": {"minimum_price": {"final_price": {"value": price}}},
+            }
+            return (
+                f"<div x-data='{json.dumps({'product': data})}'>"
+                f'<a class="product-item-link" href="{url}">{name}</a><span>{btu} BTU</span></div>'
+            ).replace('{"product":', '{ product:')
+
+        html = "".join(
+            [
+                card("Lokale airconditioner PAC 2010", "/shop/pac-2010.html", "Op voorraad", 349.99, 7000),
+                card("Mobiele split-airconditioner PAC-S", "/shop/pac-s.html", "Levertijd: 3-4 weken", 999, 12000),
+                card("Wandairconditioner PAC-W", "/shop/pac-w.html", "Op voorraad", 799, 9000),
+            ]
+        )
+        products = TrotecAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"), "https://nl.trotec.com/shop/mobiele-airco"
+        )
+        self.assertEqual(len(products), 2)
+        self.assertEqual([product.available for product in products], [True, False])
+        self.assertEqual(products[0].price_eur, 349.99)
+        self.assertEqual(products[0].btu, 7000)
+
+    def test_klarstein_uses_server_rendered_stock_attribute(self) -> None:
+        html = """
+        <form class="productTeaser" data-stock="in-stock">
+          <a class="card-product__content-title" href="/Airconditioning/Airco/Mobiele-airco/one.html">
+            Grandbreeze Smart 14000 BTU Mobiele airconditioner Zwart</a>
+          <span class="card-product__content-label">Direct leverbaar</span>
+          <span>849,99 €</span>
+        </form>
+        <form class="productTeaser" data-stock="out-of-stock">
+          <a class="card-product__content-title" href="/Airconditioning/Airco/Mobiele-airco/two.html">
+            Kraftwerk Smart 12000 BTU Mobiele airconditioner Wit</a>
+          <span class="card-product__content-label">Niet beschikbaar</span>
+          <span>729,99 €</span>
+        </form>"""
+        products = KlarsteinAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"), "https://www.klarstein.nl/Airconditioning/Airco/Mobiele-airco/"
+        )
+        self.assertEqual([product.available for product in products], [True, False])
+        self.assertEqual(products[0].price_eur, 849.99)
+        self.assertEqual(products[0].btu, 14000)
+
+    def test_flinq_reads_graph_product_and_current_price(self) -> None:
+        data = {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "Product",
+                    "name": "FlinQ Slimme Mobiele Airco 15000 BTU",
+                    "url": "https://www.flinqproducts.nl/product/flinq-airco/",
+                    "offers": [{
+                        "availability": "https://schema.org/OutOfStock",
+                        "url": "https://www.flinqproducts.nl/product/flinq-airco/",
+                        "priceSpecification": [
+                            {"price": "599.99", "priceCurrency": "EUR"},
+                            {"price": "749.99", "priceType": "https://schema.org/ListPrice"},
+                        ],
+                    }],
+                }
+            ],
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        result = parse_flinq_page(page, "https://www.flinqproducts.nl/product/flinq-airco/")
+        self.assertFalse(result.available)
+        self.assertEqual(result.price_eur, 599.99)
+        self.assertEqual(result.btu, 15000)
+
+    def test_action_treats_expired_deal_as_unavailable(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Mobiele smart airco - wit",
+            "description": "14.000 BTU compressor-airconditioner",
+            "url": "https://shop.action.com/nl-nl/p/1/mobiele-smart-airco-wit",
+            "offers": [{
+                "price": 299,
+                "availability": "https://schema.org/OutOfStock",
+                "url": "https://shop.action.com/nl-nl/p/1/mobiele-smart-airco-wit",
+            }],
+        }
+        page = (
+            f'<script type="application/ld+json">{json.dumps(data)}</script>'
+            "<main><h1>Mobiele smart airco</h1><p>Deal verlopen</p></main>"
+        )
+        result = parse_action_page(page, "https://shop.action.com/nl-nl/p/1/mobiele-smart-airco-wit")
+        self.assertFalse(result.available)
+        self.assertEqual(result.delivery, "Deal verlopen")
+        self.assertEqual(result.price_eur, 299.0)
+        self.assertEqual(result.btu, 14000)
 
     def test_bol_marketing_api_excludes_aircooler_and_reads_offer(self) -> None:
         fetcher = DummyFetcher({

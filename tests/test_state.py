@@ -36,6 +36,23 @@ class StateTests(unittest.TestCase):
         )
         self.assertEqual(alerts, [unknown_price])
 
+    def test_successful_empty_seasonal_site_marks_old_product_unavailable(self) -> None:
+        old = {
+            "products": {
+                "https://alternate.test/airco": {
+                    "site": "Alternate.nl",
+                    "available": True,
+                },
+                "https://failed.test/airco": {
+                    "site": "Failed shop",
+                    "available": True,
+                },
+            }
+        }
+        state = updated_state(old, [], checked_sites={"Alternate.nl"})
+        self.assertFalse(state["products"]["https://alternate.test/airco"]["available"])
+        self.assertTrue(state["products"]["https://failed.test/airco"]["available"])
+
 
 if __name__ == "__main__":
     unittest.main()

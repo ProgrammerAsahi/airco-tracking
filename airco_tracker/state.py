@@ -49,9 +49,30 @@ def select_alerts(
     return alerts
 
 
-def updated_state(old_state: dict[str, Any], products: list[Product]) -> dict[str, Any]:
+def updated_state(
+    old_state: dict[str, Any],
+    products: list[Product],
+    *,
+    checked_sites: set[str] | None = None,
+) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     records = dict(old_state.get("products", {}))
+    seen_urls = {product.url for product in products}
+    if checked_sites is not None:
+        # Seasonal shops may remove sold-out products from their category or
+        # sitemap. Only a successful retailer check may mark a missing product
+        # unavailable; a failed check keeps its previous state.
+        for url, old_record in list(records.items()):
+            if (
+                url not in seen_urls
+                and isinstance(old_record, dict)
+                and old_record.get("site") in checked_sites
+            ):
+                record = dict(old_record)
+                record["available"] = False
+                record["delivery"] = "Niet meer in het actuele assortiment"
+                record["last_seen"] = now
+                records[url] = record
     for product in products:
         record = product.to_dict()
         record["last_seen"] = now

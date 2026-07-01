@@ -17,15 +17,22 @@ Een lichte voorraadtracker voor mobiele airco's in Nederland, geschikt voor loka
 - GAMMA
 - KARWEI
 - Praxis
+- Alternate.nl
+- Trotec
+- Klarstein
+- FlinQ
+- Action Webshop
 - bol.com via de officiële Marketing Catalog API (Affiliate API-inloggegevens vereist)
 
 Er wordt alleen een e-mail verstuurd wanneer een product voor het eerst als bestelbaar wordt gevonden of van niet leverbaar naar leverbaar verandert. Dezelfde melding wordt dus niet elke tien minuten opnieuw verstuurd. Als één winkel niet bereikbaar is, gaan de controles van de andere winkels gewoon door.
 
-De zoekpagina van bol.com wordt niet langer gescrapet: IP-adressen van Azure-datacenters ontvangen HTTP 403 en robots.txt van bol.com beperkt dit zoekpad expliciet. Zolang de officiële API-inloggegevens niet zijn ingesteld, blijft de bol.com-adapter duidelijk uitgeschakeld en blijven de overige negen winkels normaal werken.
+De zoekpagina van bol.com wordt niet langer gescrapet: IP-adressen van Azure-datacenters ontvangen HTTP 403 en robots.txt van bol.com beperkt dit zoekpad expliciet. Zolang de officiële API-inloggegevens niet zijn ingesteld, blijft de bol.com-adapter duidelijk uitgeschakeld en blijven de overige veertien winkels normaal werken.
 
 De voorraad van EP.nl wordt gelezen uit server-side weergegeven productkaarten. Electro World wordt gelezen via de openbare, alleen-lezen productzoekindex die de webwinkel zelf gebruikt; de openbare zoekconfiguratie wordt bij elke uitvoering dynamisch opgehaald. Wehkamp wordt gelezen uit de primaire productgegevens op de categoriepagina. Geen van deze drie integraties vereist een account of geheime inloggegevens. Wehkamp verwijdert uitverkochte producten uit de categorie, waardoor een expliciet lege categorie een geldige status is; zodra een product na aanvulling terugkeert, volgt direct een melding voor nieuw gevonden voorraad.
 
 De door robots.txt beperkte zoekroute van Lidl wordt niet gescrapet. Producten worden ontdekt via Lidl's openbare productsitemap, waarna de JSON-LD-voorraad van elke echte mobiele airco wordt gelezen. GAMMA en KARWEI delen een parser voor server-side weergegeven productkaarten; alleen `ONLINE_AVAILABLE` telt als bezorgbaar, waardoor winkelvoorraad en alleen-afhalen geen melding veroorzaken. Praxis controleert zowel de actuele beschikbaarheid als de bezorgmethoden, meldt alleen producten die op een Nederlands adres kunnen worden bezorgd en sluit split-airco's, aircoolers en accessoires uit.
+
+Alternate.nl, FlinQ en Action Webshop ontdekken nieuwe modellen via de productsitemaps die in hun robots.txt-bestanden zijn gepubliceerd en lezen daarna de voorraad op de productpagina. Action blijft ook bekende verlopen seizoensdeals controleren, zodat een opnieuw geactiveerde URL direct wordt gevonden. Trotec en Klarstein worden gelezen uit server-side weergegeven categoriegegevens. Een levertijd van meerdere weken, voorverkoop of een product dat alleen bestelbaar is, telt bij Trotec niet als directe voorraad: alleen expliciet `Op voorraad` activeert een melding. Klarstein moet een expliciete online voorraadstatus tonen. Alle vijf adapters sluiten aircoolers, ventilatoren en accessoires uit.
 
 ## Azure-architectuur
 

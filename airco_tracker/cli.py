@@ -6,15 +6,20 @@ import logging
 import sys
 
 from .adapters import (
+    ActionAdapter,
+    AlternateAdapter,
     BolAdapter,
     CoolblueAdapter,
     ElectroWorldAdapter,
     EpAdapter,
+    FlinqAdapter,
     GammaAdapter,
     KarweiAdapter,
+    KlarsteinAdapter,
     LidlAdapter,
     MediaMarktAdapter,
     PraxisAdapter,
+    TrotecAdapter,
     WehkampAdapter,
 )
 from .config import Config
@@ -58,6 +63,11 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         GammaAdapter(fetcher),
         KarweiAdapter(fetcher),
         PraxisAdapter(fetcher),
+        AlternateAdapter(fetcher),
+        TrotecAdapter(fetcher),
+        KlarsteinAdapter(fetcher),
+        FlinqAdapter(fetcher),
+        ActionAdapter(fetcher),
     ]
     try:
         config.validate_bol()
@@ -78,10 +88,12 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
             LOG.info("bol.com: disabled until official Marketing Catalog API credentials are configured")
     products: list[Product] = []
     failures: list[str] = []
+    successful_sites: set[str] = set()
     for adapter in adapters:
         try:
             found = adapter.fetch_products()
             products.extend(found)
+            successful_sites.add(adapter.site)
             available = sum(product.available for product in found)
             LOG.info("%s: %d products, %d available", adapter.site, len(found), available)
         except Exception as exc:  # Keep other retailers running.
@@ -121,7 +133,7 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         LOG.info("Sent stock alert for %d products", len(alerts))
     else:
         LOG.info("No new stock; no email sent")
-    state_store.save(updated_state(old_state, products))
+    state_store.save(updated_state(old_state, products, checked_sites=successful_sites))
     return 0
 
 

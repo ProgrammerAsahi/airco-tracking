@@ -17,15 +17,22 @@
 - GAMMA
 - KARWEI
 - Praxis
+- Alternate.nl
+- Trotec
+- Klarstein
+- FlinQ
+- Action Webshop
 - bol.com（通过官方 Marketing Catalog API；需要 Affiliate API 凭据）
 
 它只在商品首次被发现为可购买，或从缺货变为有货时发送邮件；不会每 10 分钟轰炸邮箱。单个零售商失效时，其余站点仍会继续检查。
 
-bol.com 的网页搜索路径不再抓取：Azure 数据中心 IP 会收到 403，而且 bol 的 robots.txt 明确限制该搜索路径。未配置官方 API 凭据时，bol 适配器会明确保持 disabled，其余九家网站不受影响。
+bol.com 的网页搜索路径不再抓取：Azure 数据中心 IP 会收到 403，而且 bol 的 robots.txt 明确限制该搜索路径。未配置官方 API 凭据时，bol 适配器会明确保持 disabled，其余十四家网站不受影响。
 
 EP.nl 通过服务器输出的商品卡识别在线库存；Electro World 使用其网页公开调用的只读商品搜索索引，并在每次运行时动态读取公开搜索配置；Wehkamp 读取分类页的主商品数据。三者均不需要账号或秘密凭据。Wehkamp 会把售罄商品从分类移除，因此明确的空分类是正常状态；商品补货并重新出现时会立即触发首次有货提醒。
 
 Lidl 不抓取 robots.txt 禁止的搜索路径，而是通过其公开商品 sitemap 发现真正的移动空调，再读取商品页的 JSON-LD 库存。GAMMA 和 KARWEI 共用服务器商品卡解析器，只有 `ONLINE_AVAILABLE` 才算可配送；仅门店库存或仅自取不会提醒。Praxis 同时检查当前可用性和送货方式，只有支持荷兰地址配送的商品才会提醒，并排除 split airco、aircooler 和配件。
+
+Alternate.nl、FlinQ 和 Action Webshop 通过 robots.txt 中公布的商品 sitemap 自动发现新型号，再读取商品页库存；Action 还持续检查已知的过期季节商品，以便原链接重新上架时立即发现。Trotec 和 Klarstein 读取服务器输出的分类商品数据。Trotec 的数周交期、预售或“可加入购物车”不会被误判成即时现货，只有明确的 `Op voorraad` 才会提醒；Klarstein 只接受其明确的在线库存字段。五家网站均会排除 aircooler、风扇和空调配件。
 
 ## Azure 架构
 

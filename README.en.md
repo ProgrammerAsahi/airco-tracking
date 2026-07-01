@@ -17,15 +17,22 @@ A lightweight portable air-conditioner stock tracker for the Netherlands, with l
 - GAMMA
 - KARWEI
 - Praxis
+- Alternate.nl
+- Trotec
+- Klarstein
+- FlinQ
+- Action Webshop
 - bol.com through the official Marketing Catalog API (Affiliate API credentials required)
 
 It sends an email only when a product is first found available or changes from unavailable to available. It does not send the same notification every ten minutes. If one retailer fails, checks for the other retailers continue.
 
-The bol.com search webpage is no longer scraped: Azure datacenter IP addresses receive HTTP 403 responses, and bol.com's robots.txt explicitly restricts that search path. Until official API credentials are configured, the bol.com adapter remains explicitly disabled while the other nine retailers continue normally.
+The bol.com search webpage is no longer scraped: Azure datacenter IP addresses receive HTTP 403 responses, and bol.com's robots.txt explicitly restricts that search path. Until official API credentials are configured, the bol.com adapter remains explicitly disabled while the other fourteen retailers continue normally.
 
 EP.nl stock is read from server-rendered product cards. Electro World is read through the public, read-only product search index used by its own storefront, with the public search configuration discovered dynamically on every run. Wehkamp is read from the primary product data on its category page. None of these three integrations requires an account or secret credentials. Wehkamp removes sold-out products from the category, so an explicit empty category is a valid state; a restocked product triggers a first-seen availability alert as soon as it reappears.
 
 Lidl's robots-restricted search route is not scraped. Products are discovered through Lidl's public product sitemap, after which JSON-LD availability is read from each real portable-air-conditioner page. GAMMA and KARWEI share a server-rendered product-tile parser, and only `ONLINE_AVAILABLE` counts as deliverable; store-only stock and collection-only products do not trigger alerts. Praxis checks both current availability and delivery modes, alerts only for products deliverable to a Dutch address, and excludes split air conditioners, air coolers, and accessories.
+
+Alternate.nl, FlinQ, and Action Webshop discover new models through the product sitemaps published in their robots.txt files and then read availability from each product page. Action also keeps checking known expired seasonal deals so a reactivated URL is detected immediately. Trotec and Klarstein are read from server-rendered category product data. Trotec lead times of several weeks, presales, and merely orderable products do not count as immediate stock: only an explicit `Op voorraad` triggers an alert. Klarstein must expose an explicit online in-stock value. All five adapters exclude air coolers, fans, and accessories.
 
 ## Azure architecture
 
