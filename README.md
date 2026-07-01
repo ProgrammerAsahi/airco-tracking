@@ -10,11 +10,16 @@
 
 - Coolblue
 - MediaMarkt NL
+- EP.nl
+- Electro World
+- Wehkamp
 - bol.com（通过官方 Marketing Catalog API；需要 Affiliate API 凭据）
 
 它只在商品首次被发现为可购买，或从缺货变为有货时发送邮件；不会每 10 分钟轰炸邮箱。单个零售商失效时，其余站点仍会继续检查。
 
-bol.com 的网页搜索路径不再抓取：Azure 数据中心 IP 会收到 403，而且 bol 的 robots.txt 明确限制该搜索路径。未配置官方 API 凭据时，bol 适配器会明确保持 disabled，Coolblue 和 MediaMarkt 不受影响。
+bol.com 的网页搜索路径不再抓取：Azure 数据中心 IP 会收到 403，而且 bol 的 robots.txt 明确限制该搜索路径。未配置官方 API 凭据时，bol 适配器会明确保持 disabled，其余五家网站不受影响。
+
+EP.nl 通过服务器输出的商品卡识别在线库存；Electro World 使用其网页公开调用的只读商品搜索索引，并在每次运行时动态读取公开搜索配置；Wehkamp 读取分类页的主商品数据。三者均不需要账号或秘密凭据。Wehkamp 会把售罄商品从分类移除，因此明确的空分类是正常状态；商品补货并重新出现时会立即触发首次有货提醒。
 
 ## Azure 架构
 

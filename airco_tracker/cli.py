@@ -5,7 +5,14 @@ import json
 import logging
 import sys
 
-from .adapters import BolAdapter, CoolblueAdapter, MediaMarktAdapter
+from .adapters import (
+    BolAdapter,
+    CoolblueAdapter,
+    ElectroWorldAdapter,
+    EpAdapter,
+    MediaMarktAdapter,
+    WehkampAdapter,
+)
 from .config import Config
 from .fetch import Fetcher
 from .mailer import build_message, send_message
@@ -37,7 +44,13 @@ def _configure_logging() -> None:
 
 def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
     fetcher = Fetcher(config.request_timeout_seconds)
-    adapters = [CoolblueAdapter(fetcher), MediaMarktAdapter(fetcher)]
+    adapters = [
+        CoolblueAdapter(fetcher),
+        MediaMarktAdapter(fetcher),
+        EpAdapter(fetcher),
+        ElectroWorldAdapter(fetcher),
+        WehkampAdapter(fetcher),
+    ]
     try:
         config.validate_bol()
     except ValueError as exc:

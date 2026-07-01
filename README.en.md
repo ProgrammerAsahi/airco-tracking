@@ -10,11 +10,16 @@ A lightweight portable air-conditioner stock tracker for the Netherlands, with l
 
 - Coolblue
 - MediaMarkt NL
+- EP.nl
+- Electro World
+- Wehkamp
 - bol.com through the official Marketing Catalog API (Affiliate API credentials required)
 
 It sends an email only when a product is first found available or changes from unavailable to available. It does not send the same notification every ten minutes. If one retailer fails, checks for the other retailers continue.
 
-The bol.com search webpage is no longer scraped: Azure datacenter IP addresses receive HTTP 403 responses, and bol.com's robots.txt explicitly restricts that search path. Until official API credentials are configured, the bol.com adapter remains explicitly disabled while Coolblue and MediaMarkt continue normally.
+The bol.com search webpage is no longer scraped: Azure datacenter IP addresses receive HTTP 403 responses, and bol.com's robots.txt explicitly restricts that search path. Until official API credentials are configured, the bol.com adapter remains explicitly disabled while the other five retailers continue normally.
+
+EP.nl stock is read from server-rendered product cards. Electro World is read through the public, read-only product search index used by its own storefront, with the public search configuration discovered dynamically on every run. Wehkamp is read from the primary product data on its category page. None of these three integrations requires an account or secret credentials. Wehkamp removes sold-out products from the category, so an explicit empty category is a valid state; a restocked product triggers a first-seen availability alert as soon as it reappears.
 
 ## Azure architecture
 

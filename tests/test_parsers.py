@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from bs4 import BeautifulSoup
 
 from airco_tracker.adapters.bol import BolAdapter
 from airco_tracker.adapters.coolblue import CoolblueAdapter
+from airco_tracker.adapters.electroworld import ElectroWorldAdapter
+from airco_tracker.adapters.ep import EpAdapter
 from airco_tracker.adapters.mediamarkt import MediaMarktAdapter
+from airco_tracker.adapters.wehkamp import WehkampAdapter
 from airco_tracker.adapters.base import parse_btu, parse_price
 
 
@@ -42,6 +46,26 @@ class DummyFetcher:
         self.session = DummySession(search_payload or {})
 
 
+class CatalogSession:
+    def __init__(self, payload):
+        self.payload = payload
+        self.post_calls = []
+
+    def post(self, url, **kwargs):
+        self.post_calls.append((url, kwargs))
+        return DummyResponse(self.payload)
+
+
+class CatalogFetcher:
+    def __init__(self, page, payload):
+        self.timeout = 25
+        self.page = page
+        self.session = CatalogSession(payload)
+
+    def get(self, url):
+        return self.page
+
+
 class ParserTests(unittest.TestCase):
     def test_dutch_price_and_btu_formats(self) -> None:
         self.assertEqual(parse_price("504 ,- Tijdelijk uitverkocht"), 504.0)
@@ -69,6 +93,106 @@ class ParserTests(unittest.TestCase):
         <span>Helaas geen bezorging mogelijk</span></article>"""
         products = MediaMarktAdapter(DummyFetcher()).parse(BeautifulSoup(html, "html.parser"), "https://www.mediamarkt.nl/")
         self.assertEqual([p.available for p in products], [True, False])
+
+    def test_ep_uses_green_online_stock_marker(self) -> None:
+        html = """
+        <div class="lister-card">
+          <a class="lister-card__title" href="/products/one/1/">One 9000 BTU</a>
+          <div class="prijs"><span>349,95</span></div>
+          <p class="stock is-green"><span title="Morgen in huis">Morgen in huis</span></p>
+        </div>
+        <div class="lister-card">
+          <a class="lister-card__title" href="/products/two/2/">Two 12000 BTU</a>
+          <div class="prijs"><span>499,-</span></div>
+          <p class="stock is-black"><span title="Tijdelijk uitverkocht">Tijdelijk uitverkocht</span></p>
+        </div>"""
+        products = EpAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.ep.nl/producten/categorie-mobiele-airco/",
+        )
+        self.assertEqual([product.available for product in products], [True, False])
+        self.assertEqual(products[0].price_eur, 349.95)
+        self.assertEqual(products[0].btu, 9000)
+        self.assertEqual(products[0].delivery, "Morgen in huis")
+
+    def test_electroworld_reads_public_category_search(self) -> None:
+        config = {
+            "applicationId": "APP123",
+            "apiKey": "public-search-key",
+            "baseIndexName": "prd_electro_world",
+            "request": {"path": "Home /// Airco's /// Mobiele airco's", "level": 2},
+        }
+        encoded = json.dumps(json.dumps(config, separators=(",", ":")))[1:-1]
+        page = f"<script>window.algoliaConfig = JSON.parse('{encoded}')</script>"
+        payload = {
+            "results": [
+                {
+                    "hits": [
+                        {
+                            "name": "Inventum AC901 9000 BTU",
+                            "url": "https://www.electroworld.nl/inventum-ac901",
+                            "in_stock_frontend": True,
+                            "price": {"EUR": {"default": 301}},
+                            "product_usps": ["Koelvermogen: 9000 BTU"],
+                        },
+                        {
+                            "name": "DeLonghi PAC 12000 BTU",
+                            "url": "https://www.electroworld.nl/delonghi-pac",
+                            "in_stock_frontend": False,
+                            "price": {"EUR": {"default": 799}},
+                        },
+                    ]
+                }
+            ]
+        }
+        fetcher = CatalogFetcher(page, payload)
+        products = ElectroWorldAdapter(fetcher).fetch_products()
+        self.assertEqual([product.available for product in products], [True, False])
+        self.assertEqual(products[0].price_eur, 301.0)
+        self.assertEqual(products[0].btu, 9000)
+        request = fetcher.session.post_calls[0]
+        self.assertEqual(request[1]["json"]["requests"][0]["indexName"], "prd_electro_world_products")
+        self.assertIn("categories.level2", request[1]["json"]["requests"][0]["params"])
+
+    def test_wehkamp_reads_only_primary_portable_aircos(self) -> None:
+        data = {
+            "products": [
+                {
+                    "originalTitle": "Inventum mobiele airco 9000 BTU",
+                    "pdpUrl": "/inventum-airco-123/",
+                    "availabilityText": "morgen in huis",
+                    "itemsInStock": 0,
+                    "pricing": {"price": 30999},
+                },
+                {
+                    "originalTitle": "Mini aircooler 2000 BTU",
+                    "pdpUrl": "/mini-aircooler-456/",
+                    "availabilityText": "morgen in huis",
+                    "itemsInStock": 2,
+                    "pricing": {"price": 4999},
+                },
+            ],
+            "total": 2,
+            "optional": None,
+        }
+        raw = json.dumps(data, separators=(",", ":")).replace("null", "undefined")
+        html = f"<script>window.__INITIAL_DATA__={raw};</script>"
+        products = WehkampAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.wehkamp.nl/huishoudelijke-apparatuur-aircos/",
+        )
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].price_eur, 309.99)
+        self.assertEqual(products[0].btu, 9000)
+
+    def test_wehkamp_explicit_empty_category_is_valid(self) -> None:
+        html = '<script>window.__INITIAL_DATA__={"products":[],"total":0};</script>'
+        products = WehkampAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.wehkamp.nl/huishoudelijke-apparatuur-aircos/",
+        )
+        self.assertEqual(products, [])
 
     def test_bol_marketing_api_excludes_aircooler_and_reads_offer(self) -> None:
         fetcher = DummyFetcher({

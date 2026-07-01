@@ -48,6 +48,9 @@ class CliTests(unittest.TestCase):
         with (
             patch("airco_tracker.cli.CoolblueAdapter", _SuccessAdapter),
             patch("airco_tracker.cli.MediaMarktAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.EpAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.ElectroWorldAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.WehkampAdapter", _SuccessAdapter),
             patch("airco_tracker.cli.BolAdapter", side_effect=AssertionError("bol should be disabled")),
             patch("airco_tracker.cli.build_state_store", return_value=_StateStore()),
             redirect_stdout(io.StringIO()),
@@ -70,6 +73,9 @@ class CliTests(unittest.TestCase):
         with (
             patch("airco_tracker.cli.CoolblueAdapter", _SuccessAdapter),
             patch("airco_tracker.cli.MediaMarktAdapter", _FailingAdapter),
+            patch("airco_tracker.cli.EpAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.ElectroWorldAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.WehkampAdapter", _SuccessAdapter),
             patch("airco_tracker.cli.BolAdapter", _FailingAdapter),
             patch("airco_tracker.cli.build_state_store", return_value=_StateStore()),
             redirect_stdout(io.StringIO()),
@@ -89,6 +95,9 @@ class CliTests(unittest.TestCase):
         with (
             patch("airco_tracker.cli.CoolblueAdapter", _FailingAdapter),
             patch("airco_tracker.cli.MediaMarktAdapter", _FailingAdapter),
+            patch("airco_tracker.cli.EpAdapter", _FailingAdapter),
+            patch("airco_tracker.cli.ElectroWorldAdapter", _FailingAdapter),
+            patch("airco_tracker.cli.WehkampAdapter", _FailingAdapter),
             patch("airco_tracker.cli.BolAdapter", _FailingAdapter),
             redirect_stdout(io.StringIO()),
         ):

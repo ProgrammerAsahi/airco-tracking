@@ -10,11 +10,16 @@ Een lichte voorraadtracker voor mobiele airco's in Nederland, geschikt voor loka
 
 - Coolblue
 - MediaMarkt NL
+- EP.nl
+- Electro World
+- Wehkamp
 - bol.com via de officiële Marketing Catalog API (Affiliate API-inloggegevens vereist)
 
 Er wordt alleen een e-mail verstuurd wanneer een product voor het eerst als bestelbaar wordt gevonden of van niet leverbaar naar leverbaar verandert. Dezelfde melding wordt dus niet elke tien minuten opnieuw verstuurd. Als één winkel niet bereikbaar is, gaan de controles van de andere winkels gewoon door.
 
-De zoekpagina van bol.com wordt niet langer gescrapet: IP-adressen van Azure-datacenters ontvangen HTTP 403 en robots.txt van bol.com beperkt dit zoekpad expliciet. Zolang de officiële API-inloggegevens niet zijn ingesteld, blijft de bol.com-adapter duidelijk uitgeschakeld en blijven Coolblue en MediaMarkt normaal werken.
+De zoekpagina van bol.com wordt niet langer gescrapet: IP-adressen van Azure-datacenters ontvangen HTTP 403 en robots.txt van bol.com beperkt dit zoekpad expliciet. Zolang de officiële API-inloggegevens niet zijn ingesteld, blijft de bol.com-adapter duidelijk uitgeschakeld en blijven de overige vijf winkels normaal werken.
+
+De voorraad van EP.nl wordt gelezen uit server-side weergegeven productkaarten. Electro World wordt gelezen via de openbare, alleen-lezen productzoekindex die de webwinkel zelf gebruikt; de openbare zoekconfiguratie wordt bij elke uitvoering dynamisch opgehaald. Wehkamp wordt gelezen uit de primaire productgegevens op de categoriepagina. Geen van deze drie integraties vereist een account of geheime inloggegevens. Wehkamp verwijdert uitverkochte producten uit de categorie, waardoor een expliciet lege categorie een geldige status is; zodra een product na aanvulling terugkeert, volgt direct een melding voor nieuw gevonden voorraad.
 
 ## Azure-architectuur
 
