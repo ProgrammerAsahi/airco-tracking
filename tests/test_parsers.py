@@ -474,6 +474,84 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(fetcher.session.token_calls[0][1]["auth"], ("client", "secret"))
         self.assertEqual(fetcher.session.search_calls[0][1]["params"]["country-code"], "NL")
 
+    def test_wehkamp_long_lead_time_is_unavailable(self) -> None:
+        data = {
+            "products": [
+                {
+                    "originalTitle": "Inventum mobiele airco 9000 BTU",
+                    "pdpUrl": "/inventum-airco-123/",
+                    "availabilityText": "Binnen 3-5 weken leverbaar",
+                    "itemsInStock": 0,
+                    "pricing": {"price": 30999},
+                },
+            ],
+            "total": 1,
+        }
+        raw = json.dumps(data, separators=(",", ":")).replace("null", "undefined")
+        html = f"<script>window.__INITIAL_DATA__={raw};</script>"
+        products = WehkampAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.wehkamp.nl/huishoudelijke-apparatuur-aircos/",
+        )
+        self.assertEqual(len(products), 1)
+        self.assertFalse(products[0].available)
+
+    def test_wehkamp_keeps_monoblock_portable_airco(self) -> None:
+        # "monoblock" (single-unit) is the genuine portable compressor form
+        # factor and must NOT be excluded (only "split" is fixed-installation).
+        data = {
+            "products": [
+                {
+                    "originalTitle": "Qlima monoblock airconditioner 12000 BTU",
+                    "pdpUrl": "/qlima-monoblock-1/",
+                    "availabilityText": "morgen in huis",
+                    "itemsInStock": 5,
+                    "pricing": {"price": 49900},
+                },
+            ],
+            "total": 1,
+        }
+        raw = json.dumps(data, separators=(",", ":")).replace("null", "undefined")
+        html = f"<script>window.__INITIAL_DATA__={raw};</script>"
+        products = WehkampAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.wehkamp.nl/huishoudelijke-apparatuur-aircos/",
+        )
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].btu, 12000)
+
+    def test_lidl_parses_graph_wrapped_product(self) -> None:
+        # Lidl now reuses schema.product_json_ld which supports @graph nesting.
+        product_url = "https://www.lidl.nl/p/test-mobiele-airco-7000-btu/p2002"
+        sitemap = gzip.compress(
+            f"""<?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>{product_url}</loc></url>
+            </urlset>""".encode()
+        )
+        product_data = {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "Product",
+                    "name": "Mobiele airco 7000 BTU",
+                    "brand": {"name": "TRONIC"},
+                    "offers": {
+                        "price": 199.00,
+                        "availability": "https://schema.org/InStock",
+                        "url": product_url,
+                    },
+                }
+            ],
+        }
+        page = f'<script type="application/ld+json">{json.dumps(product_data)}</script>'
+        products = LidlAdapter(SitemapFetcher(sitemap, {product_url: page})).fetch_products()
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].price_eur, 199.0)
+        self.assertEqual(products[0].btu, 7000)
+
 
 if __name__ == "__main__":
     unittest.main()

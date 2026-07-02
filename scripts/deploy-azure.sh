@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
 LOCATION="${AZURE_LOCATION:-westeurope}"
 PREFIX="${AZURE_PREFIX:-aircontrack}"
-EMAIL_TO="${EMAIL_TO:-asahi.lee.eu@outlook.com}"
+EMAIL_TO="${EMAIL_TO:-you@example.com}"
 IMAGE_TAG="${IMAGE_TAG:-bootstrap-$(date -u +%Y%m%d%H%M%S)}"
 
 command -v az >/dev/null || { echo "Azure CLI (az) is required." >&2; exit 1; }

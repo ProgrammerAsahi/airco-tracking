@@ -5,6 +5,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .i18n import SUPPORTED_LANGS, supported_lang
+
 
 # The installed package lives inside .venv/site-packages. Runtime data belongs
 # to the project working directory (the LaunchAgent sets it explicitly).
@@ -50,6 +52,7 @@ class Config:
     email_backend: str
     email_to: str
     email_from: str
+    email_lang: str
     smtp_host: str
     smtp_port: int
     smtp_security: str
@@ -81,6 +84,7 @@ class Config:
             email_backend=os.getenv("EMAIL_BACKEND", "smtp").strip().lower(),
             email_to=os.getenv("EMAIL_TO", "").strip(),
             email_from=os.getenv("EMAIL_FROM", "").strip(),
+            email_lang=os.getenv("EMAIL_LANG", "zh").strip().lower(),
             smtp_host=os.getenv("SMTP_HOST", "").strip(),
             smtp_port=int(os.getenv("SMTP_PORT", "465")),
             smtp_security=os.getenv("SMTP_SECURITY", "ssl").strip().lower(),
@@ -105,6 +109,10 @@ class Config:
         )
 
     def validate_email(self) -> None:
+        if not supported_lang(self.email_lang):
+            raise ValueError(
+                f"EMAIL_LANG must be one of {', '.join(SUPPORTED_LANGS)} (got {self.email_lang!r})"
+            )
         if self.email_backend == "azure_communication":
             missing = [
                 name

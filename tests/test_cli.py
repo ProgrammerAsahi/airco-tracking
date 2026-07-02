@@ -4,7 +4,7 @@ import io
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from airco_tracker.cli import check
 from airco_tracker.models import Product
@@ -28,6 +28,18 @@ class _FailingAdapter:
 
     def fetch_products(self):
         raise RuntimeError("403 Forbidden")
+
+
+class _AvailableAdapter:
+    """Returns a product that is in stock — eligible for an alert on first run."""
+
+    site = "Stocked shop"
+
+    def __init__(self, _fetcher, *args, **kwargs) -> None:
+        pass
+
+    def fetch_products(self):
+        return [Product(self.site, "Airco", "https://shop.test/1", True, 399.0, "Morgen", 7000)]
 
 
 class _StateStore:
@@ -129,6 +141,72 @@ class CliTests(unittest.TestCase):
             redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(check(config, dry_run=True, show_all=False), 2)
+
+    def _config_with_alerts(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            request_timeout_seconds=1,
+            alert_on_first_seen=True,
+            max_price_eur=None,
+            min_btu=None,
+            bol_backend="disabled",
+            email_lang="zh",
+            validate_bol=lambda: None,
+        )
+
+    def test_dry_run_neither_emails_nor_saves_state(self) -> None:
+        config = self._config_with_alerts()
+        store = MagicMock()
+        store.load.return_value = {"version": 1, "products": {}}
+        with (
+            patch("airco_tracker.cli.CoolblueAdapter", _AvailableAdapter),
+            patch("airco_tracker.cli.MediaMarktAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.EpAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.ElectroWorldAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.WehkampAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.LidlAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.GammaAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.KarweiAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.PraxisAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.AlternateAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.TrotecAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.KlarsteinAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.FlinqAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.ActionAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.send_message") as mock_send,
+            patch("airco_tracker.cli.build_state_store", return_value=store),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(check(config, dry_run=True, show_all=False), 0)
+        mock_send.assert_not_called()
+        store.save.assert_not_called()
+
+    def test_non_dry_run_emails_and_saves_state(self) -> None:
+        config = self._config_with_alerts()
+        store = MagicMock()
+        store.load.return_value = {"version": 1, "products": {}}
+        with (
+            patch("airco_tracker.cli.CoolblueAdapter", _AvailableAdapter),
+            patch("airco_tracker.cli.MediaMarktAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.EpAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.ElectroWorldAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.WehkampAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.LidlAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.GammaAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.KarweiAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.PraxisAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.AlternateAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.TrotecAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.KlarsteinAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.FlinqAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.ActionAdapter", _SuccessAdapter),
+            patch("airco_tracker.cli.send_message") as mock_send,
+            patch("airco_tracker.cli.build_message", return_value="msg"),
+            patch("airco_tracker.cli.build_state_store", return_value=store),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(check(config, dry_run=False, show_all=False), 0)
+        mock_send.assert_called_once()
+        store.save.assert_called_once()
 
 
 if __name__ == "__main__":

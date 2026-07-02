@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-ProgrammerAsahi/airco-tracking-nl}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
-EMAIL_TO="${EMAIL_TO:-asahi.lee.eu@outlook.com}"
+EMAIL_TO="${EMAIL_TO:-you@example.com}"
 
 command -v az >/dev/null || { echo "Azure CLI (az) is required." >&2; exit 1; }
 az account show >/dev/null || { echo "Run 'az login' first." >&2; exit 1; }

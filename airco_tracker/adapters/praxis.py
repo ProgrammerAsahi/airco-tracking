@@ -110,16 +110,17 @@ def _parse_product(item: Any, page_url: str) -> Product | None:
 
 def _is_portable_airco(name: str) -> bool:
     lower = name.lower()
-    return not any(
-        term in lower
-        for term in (
-            "aircooler",
-            "luchtkoeler",
-            "ventilator",
-            "split airco",
-            "mini-split",
-            "mini split",
-        )
+    excluded = (
+        "aircooler",
+        "luchtkoeler",
+        "ventilator",
+        "split airco",
+        "mini-split",
+        "mini split",
+    )
+    positive = ("airco", "airconditioning", "aircondition")
+    return not any(term in lower for term in excluded) and any(
+        term in lower for term in positive
     )
 
 

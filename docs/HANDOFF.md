@@ -1,6 +1,6 @@
 # Airco Tracker NL — current handoff
 
-Last updated: 2026-07-01 (Europe/Amsterdam)
+Last updated: 2026-07-02 (Europe/Amsterdam)
 
 ## Current objective
 
@@ -10,16 +10,33 @@ Expand reliable portable-air-conditioner coverage for Dutch delivery while keepi
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Last deployed commit: `d9ec150` (`Add cross-agent project handoff`; application code is unchanged from `8efaec7`)
+- Last deployed commit: pending (this round of changes not yet deployed)
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Azure Container Apps job: `airco-tracker-job`
 - Schedule: every 10 minutes
-- Current deployed image tag: `d9ec1507ae1313ed776de0f0913ea8c0e30e408b`
 - State: Azure Blob Storage (`airco-tracker/state.json`)
 - Notifications: Azure Communication Services Email
 - Secrets: Azure Key Vault through Managed Identity
-- Last verified retailer execution after application commit `8efaec7`: succeeded; all five newly added adapters ran without errors and no false stock email was sent. The documentation-only image for `d9ec150` was subsequently deployed successfully.
+
+## Recently completed (2026-07-02)
+
+Systematic review and repair of accuracy, maintainability, i18n, tests, and infrastructure:
+
+- **Wehkamp adapter**: removed erroneous `monoblock` exclusion (monoblock is genuine portable form factor); added multi-week lead-time detection (`"weken"`) so preorders do not trigger false alerts.
+- **Praxis adapter**: added positive keyword requirement (`airco`/`airconditioning`/`aircondition`) to `_is_portable_airco`, previously relied solely on negative exclusions.
+- **Lidl adapter**: replaced self-implemented JSON-LD parser with shared `schema.py` functions (`product_json_ld`/`first_offer`/`offer_price`/`schema_in_stock`), fixing `@graph` support gap and removing duplication.
+- **ElectroWorld**: `_positive_int` threshold corrected from `>=0` to `>0` to match semantics.
+- **Fetcher**: User-Agent version now reads from package metadata (`importlib.metadata`) instead of hardcoded `0.1`.
+- **Email i18n**: new `airco_tracker/i18n.py` with zh/nl/en translations; `EMAIL_LANG` config (default `zh`); `mailer.py` uses `translate()`; `job.bicep`, `.env.example`, and deploy scripts updated; three READMEs synced.
+- **Tests**: added `tests/test_fetch.py` (5 tests), dry-run safety assertions in `tests/test_cli.py` (2 tests), multilingual email test in `tests/test_cloud_backends.py`, and 3 new parser tests (Wehkamp lead-time/monoblock, Lidl @graph). Total: 37 tests.
+- **Deploy verification**: `scripts/deploy-application.sh` now waits for the Container Apps job execution result and exits non-zero on failure.
+- **Infrastructure**: Key Vault `softDeleteRetentionInDays` raised from 7 to 90 and `enablePurgeProtection` enabled (irreversible). Communication Owner and OIDC Contributor roles retained as-is (documented as acceptable: ACS data-plane RBAC is hard to verify; OIDC needs Contributor for deployment).
+- **Hygiene**: personal email address replaced with `you@example.com` placeholders in deploy scripts and test fixtures. Version bumped to `0.7.0`.
+
+Not changed (documented decisions):
+- 6 sitemap/API adapters do not inherit `Adapter` base class — pure style issue, no functional impact, refactor risk exceeds benefit.
+- Communication Services Owner role and GitHub OIDC Contributor role retained (see above).
 
 ## Supported retailers
 
@@ -77,10 +94,10 @@ Optional/credential-gated:
 
 ## Verification snapshot
 
-- Unit tests after the latest retailer expansion: 26 passed.
-- Live local dry-run after commit `8efaec7`: Alternate 0, Trotec 13, Klarstein 18, FlinQ 2, Action Webshop 1; all five reported zero immediate stock at that time.
-- GitHub Actions deployment run `28544655345` for commit `d9ec150`: succeeded.
-- Azure job provisioning state: succeeded; scheduled trigger active.
+- Unit tests after this repair round: 37 passed (was 26).
+- Live local dry-run pending deployment of this commit.
+- Previous verified retailer execution after application commit `8efaec7`: Alternate 0, Trotec 13, Klarstein 18, FlinQ 2, Action Webshop 1; all five reported zero immediate stock at that time.
+- Previous GitHub Actions deployment run `28544655345` for commit `d9ec150`: succeeded.
 
 ## Updating this handoff
 

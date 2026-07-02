@@ -3,7 +3,8 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
-EMAIL_TO="${EMAIL_TO:-asahi.lee.eu@outlook.com}"
+EMAIL_TO="${EMAIL_TO:-you@example.com}"
+EMAIL_LANG="${EMAIL_LANG:-zh}"
 BOL_BACKEND="${BOL_BACKEND:-disabled}"
 KEY_VAULT_SECRET_MAP="${KEY_VAULT_SECRET_MAP:-}"
 IMAGE_TAG="${IMAGE_TAG:-$(git -C "$PROJECT_DIR" rev-parse --short=12 HEAD 2>/dev/null || date -u +manual-%Y%m%d%H%M%S)}"
@@ -48,13 +49,53 @@ az deployment group create \
     keyVaultUrl="$KEY_VAULT_URL" \
     emailFrom="$EMAIL_FROM" \
     emailTo="$EMAIL_TO" \
+    emailLang="$EMAIL_LANG" \
     bolBackend="$BOL_BACKEND" \
     keyVaultEnvMap="$KEY_VAULT_SECRET_MAP" \
   --output none
 
-az containerapp job start \
-  --name airco-tracker-job \
-  --resource-group "$RESOURCE_GROUP" \
-  --output none
+# Start a verification run and wait for its result so a failed deployment
+# surfaces as a non-zero exit code instead of silently reporting success.
+EXECUTION_NAME="$(
+  az containerapp job start \
+    --name airco-tracker-job \
+    --resource-group "$RESOURCE_GROUP" \
+    --query name \
+    --output tsv
+)"
+
+if [ -z "$EXECUTION_NAME" ]; then
+  echo "Failed to start verification execution." >&2
+  exit 1
+fi
+
+echo "Verification execution: $EXECUTION_NAME"
+echo "Waiting for execution to complete..."
+
+DEADLINE=$(( $(date +%s) + 480 ))  # job replicaTimeout=300s + margin
+while true; do
+  STATUS="$(
+    az containerapp job execution show \
+      --name airco-tracker-job \
+      --resource-group "$RESOURCE_GROUP" \
+      --job-execution-name "$EXECUTION_NAME" \
+      --query properties.status \
+      --output tsv 2>/dev/null || true
+  )"
+  if [ "$STATUS" = "Succeeded" ]; then
+    echo "Verification succeeded."
+    break
+  fi
+  if [ "$STATUS" = "Failed" ]; then
+    echo "Verification execution failed. View logs:" >&2
+    echo "  az containerapp job logs show -n airco-tracker-job -g $RESOURCE_GROUP --job-execution-name $EXECUTION_NAME" >&2
+    exit 1
+  fi
+  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    echo "Verification execution timed out after 8 minutes (status: ${STATUS:-unknown})." >&2
+    exit 1
+  fi
+  sleep 10
+done
 
 echo "Deployed $IMAGE"

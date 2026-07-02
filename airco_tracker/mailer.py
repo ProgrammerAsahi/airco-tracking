@@ -6,41 +6,47 @@ import ssl
 from email.message import EmailMessage
 
 from .config import Config
+from .i18n import translate
 from .models import Product
 
 
 def build_message(config: Config, products: list[Product], *, test: bool = False) -> EmailMessage:
+    lang = config.email_lang
     message = EmailMessage()
     message["From"] = config.email_from
     message["To"] = config.email_to
-    message["Subject"] = (
-        "[Airco tracker] 邮件测试成功"
-        if test
-        else f"🔥 {len(products)} 台便携空调恢复库存"
-    )
     if test:
-        message.set_content("Airco Tracker NL 邮件配置正常。")
-        message.add_alternative("<p><strong>Airco Tracker NL</strong> 邮件配置正常。</p>", subtype="html")
+        message["Subject"] = translate(lang, "subject_test")
+        message.set_content(translate(lang, "test_body"))
+        message.add_alternative(translate(lang, "test_body_html"), subtype="html")
         return message
 
-    lines = ["检测到以下可配送到荷兰的便携空调：", ""]
+    message["Subject"] = translate(lang, "subject_alert", count=len(products))
+    price_unknown = translate(lang, "price_unknown")
+    view_link = translate(lang, "view_link")
+    delivery_fallback = translate(lang, "delivery_in_stock")
+
+    lines = [translate(lang, "body_intro"), ""]
     cards: list[str] = []
     for product in products:
-        price = f"€{product.price_eur:,.2f}" if product.price_eur is not None else "价格未知"
+        price = f"€{product.price_eur:,.2f}" if product.price_eur is not None else price_unknown
         power = f" · {product.btu} BTU" if product.btu else ""
-        delivery = product.delivery or "页面显示可购买"
+        delivery = product.delivery or delivery_fallback
         lines.extend([f"{product.site} — {product.name}", f"{price}{power} · {delivery}", product.url, ""])
         cards.append(
             "<li style='margin-bottom:18px'>"
             f"<strong>{html.escape(product.site)} — {html.escape(product.name)}</strong><br>"
             f"{html.escape(price + power)} · {html.escape(delivery)}<br>"
-            f"<a href='{html.escape(product.url, quote=True)}'>立即查看并下单</a></li>"
+            f"<a href='{html.escape(product.url, quote=True)}'>{html.escape(view_link)}</a></li>"
         )
-    lines.append("库存变化很快，请在购买前再次确认价格和配送日期。")
+    footer = translate(lang, "body_footer")
+    lines.append(footer)
     message.set_content("\n".join(lines))
     message.add_alternative(
-        "<h2>便携空调恢复库存</h2><ul>" + "".join(cards) + "</ul>"
-        "<p>库存变化很快，请在购买前再次确认价格和配送日期。</p>",
+        f"<h2>{html.escape(translate(lang, 'html_title'))}</h2><ul>"
+        + "".join(cards)
+        + "</ul>"
+        + f"<p>{html.escape(footer)}</p>",
         subtype="html",
     )
     return message

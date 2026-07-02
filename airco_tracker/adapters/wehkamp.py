@@ -62,8 +62,12 @@ def _parse_product(item: Any, page_url: str) -> Product | None:
         return None
     delivery = str(item.get("availabilityText") or "").strip()
     stock = _nonnegative_int(item.get("itemsInStock"))
-    unavailable = "uitverkocht" in delivery.lower()
-    available = not unavailable and (stock > 0 or bool(delivery))
+    delivery_lower = delivery.lower()
+    unavailable = "uitverkocht" in delivery_lower
+    # Multi-week lead times (e.g. "Binnen 3-5 weken leverbaar") are preorders,
+    # not orderable stock, and must not trigger an alert (AGENTS.md).
+    long_lead_time = "weken" in delivery_lower
+    available = not unavailable and not long_lead_time and (stock > 0 or bool(delivery))
     return Product(
         site="Wehkamp",
         name=name,
@@ -77,7 +81,9 @@ def _parse_product(item: Any, page_url: str) -> Product | None:
 
 def _is_portable_airco(name: str, btu: int | None) -> bool:
     lower = name.lower()
-    if any(term in lower for term in ("aircooler", "luchtkoeler", "ventilator", "split", "monoblock")):
+    # "split" units are fixed-installation; "monoblock" (single-unit) is the
+    # genuine portable compressor form factor and must NOT be excluded.
+    if any(term in lower for term in ("aircooler", "luchtkoeler", "ventilator", "split")):
         return False
     return (
         "airconditioner" in lower

@@ -22,7 +22,8 @@ class CloudBackendTests(unittest.TestCase):
     def test_acs_payload_contains_both_bodies_and_recipient(self) -> None:
         config = SimpleNamespace(
             email_from="DoNotReply@example.azurecomm.net",
-            email_to="asahi.lee.eu@outlook.com",
+            email_to="recipient@example.com",
+            email_lang="zh",
         )
         product = Product(
             "Shop",
@@ -39,6 +40,21 @@ class CloudBackendTests(unittest.TestCase):
         self.assertEqual(payload["senderAddress"], config.email_from)
         self.assertIn("Airco 7000 BTU", payload["content"]["plainText"])
         self.assertIn("<h2>", payload["content"]["html"])
+
+    def test_build_message_supports_three_languages(self) -> None:
+        product = Product("Shop", "Airco 7000 BTU", "https://shop.test/airco", True, 399.0, "Morgen", 7000)
+        for lang, subject_fragment in (
+            ("zh", "台便携空调"),
+            ("nl", "mobiele airco"),
+            ("en", "portable air conditioners"),
+        ):
+            config = SimpleNamespace(
+                email_from="DoNotReply@example.azurecomm.net",
+                email_to="recipient@example.com",
+                email_lang=lang,
+            )
+            message = build_message(config, [product])
+            self.assertIn(subject_fragment, message["Subject"])
 
 
 if __name__ == "__main__":

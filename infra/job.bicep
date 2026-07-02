@@ -10,6 +10,12 @@ param communicationServiceName string
 param keyVaultUrl string
 param emailFrom string
 param emailTo string
+@allowed([
+  'zh'
+  'nl'
+  'en'
+])
+param emailLang string = 'zh'
 
 @description('Five-field UTC cron expression.')
 param cronExpression string = '*/10 * * * *'
@@ -77,6 +83,7 @@ resource job 'Microsoft.App/jobs@2025-01-01' = {
             { name: 'EMAIL_BACKEND', value: 'azure_communication' }
             { name: 'EMAIL_TO', value: emailTo }
             { name: 'EMAIL_FROM', value: emailFrom }
+            { name: 'EMAIL_LANG', value: emailLang }
             { name: 'ACS_ENDPOINT', value: 'https://${communicationServiceName}.communication.azure.com' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVaultUrl }
             { name: 'STATE_BACKEND', value: 'azure_blob' }

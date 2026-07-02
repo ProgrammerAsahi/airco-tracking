@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import gzip
-import json
 import logging
 from typing import Any
 from xml.etree import ElementTree
@@ -11,6 +10,7 @@ from bs4 import BeautifulSoup
 from ..fetch import Fetcher
 from ..models import Product
 from .base import canonical_url, parse_btu
+from .schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
 
 LOG = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def _product_urls(content: bytes) -> list[str]:
 
 def _parse_product_page(page: str, page_url: str) -> Product:
     soup = BeautifulSoup(page, "html.parser")
-    data = _product_json_ld(soup)
+    data = product_json_ld(soup)
     name = str(data.get("name", "")).strip()
     brand = data.get("brand")
     if isinstance(brand, dict):
@@ -75,44 +75,17 @@ def _parse_product_page(page: str, page_url: str) -> Product:
     brand_name = str(brand or "").strip()
     if brand_name and brand_name.lower() not in name.lower():
         name = f"{brand_name} {name}".strip()
-    offers = data.get("offers")
-    if isinstance(offers, list):
-        offer = next((item for item in offers if isinstance(item, dict)), {})
-    elif isinstance(offers, dict):
-        offer = offers
-    else:
-        offer = {}
+    offer = first_offer(data)
     if not name or not offer:
         raise RuntimeError("Lidl product data did not contain a name and offer")
-    availability = str(offer.get("availability", ""))
-    available = availability.rstrip("/").lower().endswith("instock")
+    available = schema_in_stock(offer)
     description = str(data.get("description", ""))
     return Product(
         site="Lidl",
         name=name,
         url=canonical_url(page_url, str(offer.get("url") or page_url)),
         available=available,
-        price_eur=_optional_float(offer.get("price")),
+        price_eur=offer_price(offer),
         delivery="Online op voorraad" if available else "Online uitverkocht",
         btu=parse_btu(f"{name} {description}"),
     )
-
-
-def _product_json_ld(soup: BeautifulSoup) -> dict[str, Any]:
-    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
-        try:
-            data = json.loads(script.string or script.get_text())
-        except json.JSONDecodeError:
-            continue
-        candidates = data if isinstance(data, list) else [data]
-        for candidate in candidates:
-            if isinstance(candidate, dict) and candidate.get("@type") == "Product":
-                return candidate
-    raise RuntimeError("Lidl page did not contain Product JSON-LD")
-
-
-def _optional_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None

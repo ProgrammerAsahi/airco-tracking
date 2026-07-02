@@ -72,6 +72,8 @@ cp .env.example .env
 
 Bewerk `.env` en vul het e-mailadres van de ontvanger en de SMTP-instellingen in. Gmail-gebruikers moeten tweestapsverificatie inschakelen en een app-wachtwoord aanmaken; gebruik niet het normale accountwachtwoord.
 
+Optioneel: stel `EMAIL_LANG` in (standaard `zh`): `zh` voor Chinees, `nl` voor Nederlands, `en` voor Engels.
+
 Voer de opdrachten vanuit de projectmap uit. Als dat niet mogelijk is, stel dan `AIRCO_TRACKER_HOME=~/airco-tracking-nl` in.
 
 ### 2. Controleren

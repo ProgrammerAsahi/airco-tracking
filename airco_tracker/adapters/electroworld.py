@@ -138,4 +138,4 @@ def _positive_int(value: Any, *, default: int) -> int:
         parsed = int(value)
     except (TypeError, ValueError):
         return default
-    return parsed if parsed >= 0 else default
+    return parsed if parsed > 0 else default

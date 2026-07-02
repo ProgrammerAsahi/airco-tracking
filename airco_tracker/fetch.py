@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from importlib.metadata import PackageNotFoundError, version
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -8,6 +9,13 @@ from urllib3.util.retry import Retry
 
 
 LOG = logging.getLogger(__name__)
+
+
+def _package_version() -> str:
+    try:
+        return version("airco-tracker-nl")
+    except PackageNotFoundError:  # Running from source without install.
+        return "0.0.0+dev"
 
 
 class Fetcher:
@@ -29,7 +37,7 @@ class Fetcher:
                 "User-Agent": (
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                     "AppleWebKit/537.36 Chrome/124 Safari/537.36 "
-                    "AircoTrackerNL/0.1"
+                    f"AircoTrackerNL/{_package_version()}"
                 ),
                 "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.7",
             }
