@@ -10,7 +10,7 @@ Expand reliable portable-air-conditioner coverage for Dutch delivery while keepi
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Last deployed commit: pending (this round of changes not yet deployed)
+- Last deployed commit: `ce0aa11` (`Restore executable mode on deploy scripts`; application code changes from `781ebc9`)
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Azure Container Apps job: `airco-tracker-job`
@@ -31,7 +31,7 @@ Systematic review and repair of accuracy, maintainability, i18n, tests, and infr
 - **Email i18n**: new `airco_tracker/i18n.py` with zh/nl/en translations; `EMAIL_LANG` config (default `zh`); `mailer.py` uses `translate()`; `job.bicep`, `.env.example`, and deploy scripts updated; three READMEs synced.
 - **Tests**: added `tests/test_fetch.py` (5 tests), dry-run safety assertions in `tests/test_cli.py` (2 tests), multilingual email test in `tests/test_cloud_backends.py`, and 3 new parser tests (Wehkamp lead-time/monoblock, Lidl @graph). Total: 37 tests.
 - **Deploy verification**: `scripts/deploy-application.sh` now waits for the Container Apps job execution result and exits non-zero on failure.
-- **Infrastructure**: Key Vault `softDeleteRetentionInDays` raised from 7 to 90 and `enablePurgeProtection` enabled (irreversible). Communication Owner and OIDC Contributor roles retained as-is (documented as acceptable: ACS data-plane RBAC is hard to verify; OIDC needs Contributor for deployment).
+- **Infrastructure**: Key Vault `enablePurgeProtection` enabled (irreversible). `softDeleteRetentionInDays` remains at 7 days — Azure does not allow modifying this property after creation, so the planned 90-day extension could not be applied. Communication Owner and OIDC Contributor roles retained as-is (documented as acceptable: ACS data-plane RBAC is hard to verify; OIDC needs Contributor for deployment).
 - **Hygiene**: personal email address replaced with `you@example.com` placeholders in deploy scripts and test fixtures. Version bumped to `0.7.0`.
 
 Not changed (documented decisions):
@@ -95,9 +95,9 @@ Optional/credential-gated:
 ## Verification snapshot
 
 - Unit tests after this repair round: 37 passed (was 26).
-- Live local dry-run pending deployment of this commit.
-- Previous verified retailer execution after application commit `8efaec7`: Alternate 0, Trotec 13, Klarstein 18, FlinQ 2, Action Webshop 1; all five reported zero immediate stock at that time.
-- Previous GitHub Actions deployment run `28544655345` for commit `d9ec150`: succeeded.
+- Live local dry-run after commit `781ebc9`: all 14 retailers ran without errors. Counts: Coolblue 11/0, MediaMarkt 5/1, EP 7/0, Electro World 3/0, Wehkamp 1/1, Lidl 5/0, GAMMA 3/0, KARWEI 2/0, Praxis 9/1, Alternate 0/0, Trotec 13/0, Klarstein 18/0, FlinQ 2/0, Action 1/0.
+- GitHub Actions deployment run `28585347734` for commit `ce0aa11`: succeeded. Deploy verification execution `airco-tracker-job-utl4kwg`: succeeded.
+- Foundation Bicep deployment: succeeded. Key Vault purge protection enabled (verified via `az keyvault show`).
 
 ## Updating this handoff
 

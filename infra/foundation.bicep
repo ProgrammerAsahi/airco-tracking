@@ -104,7 +104,7 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
       family: 'A'
       name: 'standard'
     }
-    softDeleteRetentionInDays: 90
+    softDeleteRetentionInDays: 7
     enablePurgeProtection: true
     tenantId: tenant().tenantId
   }
