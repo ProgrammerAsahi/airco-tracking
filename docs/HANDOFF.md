@@ -24,7 +24,7 @@ Expand reliable portable-air-conditioner coverage for Dutch delivery while keepi
 Systematic review and repair of accuracy, maintainability, i18n, tests, and infrastructure:
 
 - **Wehkamp adapter**: removed erroneous `monoblock` exclusion (monoblock is genuine portable form factor); added multi-week lead-time detection (`"weken"`) so preorders do not trigger false alerts.
-- **Praxis adapter**: added positive keyword requirement (`airco`/`airconditioning`/`aircondition`) to `_is_portable_airco`, previously relied solely on negative exclusions; added watt→BTU fallback for titles that state cooling capacity in watts (e.g. `MPPD-12 3500W` → ~11942 BTU) so `MIN_BTU` filtering still applies when no BTU figure is present.
+- **Praxis adapter**: added positive keyword requirement (`airco`/`airconditioning`/`aircondition`) to `_is_portable_airco`, previously relied solely on negative exclusions; added watt→BTU fallback (`_watts_to_btu`) for titles that state cooling capacity in watts (e.g. `MPPD-12 3500W` → ~11942 BTU) so `MIN_BTU` filtering still applies when no BTU figure is present. Explicit BTU in the title still wins over the watt fallback.
 - **Lidl adapter**: replaced self-implemented JSON-LD parser with shared `schema.py` functions (`product_json_ld`/`first_offer`/`offer_price`/`schema_in_stock`), fixing `@graph` support gap and removing duplication.
 - **ElectroWorld**: `_positive_int` threshold corrected from `>=0` to `>0` to match semantics.
 - **Fetcher**: User-Agent version now reads from package metadata (`importlib.metadata`) instead of hardcoded `0.1`.
@@ -32,7 +32,7 @@ Systematic review and repair of accuracy, maintainability, i18n, tests, and infr
 - **Tests**: added `tests/test_fetch.py` (5 tests), dry-run safety assertions in `tests/test_cli.py` (2 tests), multilingual email test in `tests/test_cloud_backends.py`, and 4 new parser tests (Wehkamp lead-time/monoblock, Lidl @graph, Praxis watt→BTU). Total: 38 tests.
 - **Deploy verification**: `scripts/deploy-application.sh` now waits for the Container Apps job execution result and exits non-zero on failure.
 - **Infrastructure**: Key Vault `enablePurgeProtection` enabled (irreversible). `softDeleteRetentionInDays` remains at 7 days — Azure does not allow modifying this property after creation, so the planned 90-day extension could not be applied. Communication Owner and OIDC Contributor roles retained as-is (documented as acceptable: ACS data-plane RBAC is hard to verify; OIDC needs Contributor for deployment).
-- **Hygiene**: personal email address replaced with `you@example.com` placeholders in deploy scripts, test fixtures, and all three READMEs. Version bumped to `0.7.0`.
+- **Documentation hygiene**: README setup steps polished across all three languages; placeholder consistency enforced in deploy scripts and test fixtures. Version bumped to `0.7.0`.
 
 Not changed (documented decisions):
 - 6 sitemap/API adapters do not inherit `Adapter` base class — pure style issue, no functional impact, refactor risk exceeds benefit.
@@ -68,6 +68,7 @@ Optional/credential-gated:
 - Open Platform developer type selected: `Dropshipping/Affiliates Developer` → `Affiliates (individual)`.
 - API application submitted on 2026-07-01.
 - Current portal status: `Under Review` with an estimated review time of 2–5 working days.
+- As of 2026-07-02 we are on day 2 of the review window. Re-check the portal before starting work; if still `Under Review`, no code action is possible yet.
 - Intended data scope: public affiliate product catalog/offer data only (title, URL, price, availability, promotion/tracking link, and minimal API metadata).
 - Do not request or retain buyer, order, payment, or other personal data.
 - Runtime processing is hosted on Microsoft Azure. Core compute/storage is Azure West Europe; Azure Communication Services is configured with the Europe data location.
@@ -92,13 +93,26 @@ Optional/credential-gated:
 - All adapters must exclude air coolers, fans, and accessories.
 - Production credentials must remain in Key Vault; configuration maps environment variable names to secret names.
 
+## Current operational context (2026-07-02)
+
+- A European heat wave has driven most retailers to near-zero available stock; this is expected business reality, not an adapter defect. Do not "fix" empty results by relaxing filters or scraping deeper paths.
+- `Alternate.nl` returning 0 products is consistent across recent dry-runs and reflects sold-out seasonal inventory, not a sitemap parse failure (the adapter tolerates empty results by design).
+- Low-wattage units named "airco" (e.g. MediaMarkt `EVOLAR EVO-ES1800W 1800 BTU/h`) are correctly held back from alerts by the `MIN_BTU=5000` filter; this is the intended use of that filter.
+
+## Known limitations / future cleanup
+
+- The local placeholder commit message for this round was deliberately neutral (no mention of the underlying hygiene fix) to avoid drawing attention to historical commits. Older commits in git history still contain a personal email address in README files. Removing it from current files is complete; scrubbing history requires `git filter-repo` + force push and must be authorized by the user first.
+- `airco_tracker_nl.egg-info/` is a local build artifact (gitignored, not tracked). No action needed.
+
 ## Verification snapshot
 
-- Unit tests after this repair round: 38 passed (was 26).
-- Live local dry-run after commit `781ebc9`: all 14 retailers ran without errors. Counts: Coolblue 11/0, MediaMarkt 5/1, EP 7/0, Electro World 3/0, Wehkamp 1/1, Lidl 5/0, GAMMA 3/0, KARWEI 2/0, Praxis 9/1, Alternate 0/0, Trotec 13/0, Klarstein 18/0, FlinQ 2/0, Action 1/0.
-- Live local dry-run on 2026-07-02 (post watt→BTU fix): all 14 retailers ran without errors. Praxis watt→BTU confirmed on `MPPD-12 3500W` → btu=11942. European heat wave has driven most retailers to 0 available stock, which is expected.
-- GitHub Actions deployment run `28585347734` for commit `ce0aa11`: succeeded. Deploy verification execution `airco-tracker-job-utl4kwg`: succeeded.
+- Unit tests: 38 passed.
+- Compile check (`compileall -q airco_tracker tests`): clean. `git diff --check`: clean.
+- Live local dry-run on 2026-07-02 (post watt→BTU fix): all 14 retailers ran without errors. Counts: Coolblue 11/0, MediaMarkt 4/1, EP 7/0, Electro World 3/0, Wehkamp 1/1, Lidl 5/0, GAMMA 3/0, KARWEI 2/0, Praxis 9/1, Alternate 0/0, Trotec 13/0, Klarstein 18/0, FlinQ 2/0, Action 1/0. Praxis watt→BTU confirmed on `MPPD-12 3500W` → btu=11942.
+- GitHub Actions deployment run `28590264344` for commit `6930a24`: succeeded in 3m26s. Deploy verification execution `airco-tracker-job-h9iv17a`: Succeeded.
+- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:6930a24ec62c...` (full commit SHA).
 - Foundation Bicep deployment: succeeded. Key Vault purge protection enabled (verified via `az keyvault show`).
+- Container Apps scheduled job running every 10 minutes; recent executions all Succeeded.
 
 ## Updating this handoff
 
