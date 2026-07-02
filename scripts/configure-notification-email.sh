@@ -1,37 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
-LOCATION="${AZURE_LOCATION:-westeurope}"
-PREFIX="${AZURE_PREFIX:-aircontrack}"
-EMAIL_TO="${EMAIL_TO:-you@example.com}"
-IMAGE_TAG="${IMAGE_TAG:-bootstrap-$(date -u +%Y%m%d%H%M%S)}"
+GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-ProgrammerAsahi/airco-tracking-nl}"
+EMAIL_LANG="${EMAIL_LANG:-zh}"
+EMAIL_TO="${EMAIL_TO:-}"
 
 command -v az >/dev/null || { echo "Azure CLI (az) is required." >&2; exit 1; }
+command -v gh >/dev/null || { echo "GitHub CLI (gh) is required." >&2; exit 1; }
 az account show >/dev/null || { echo "Run 'az login' first." >&2; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo "Run 'gh auth login' first." >&2; exit 1; }
 
-if [[ -z "$EMAIL_TO" || "$EMAIL_TO" == "you@example.com" || "$EMAIL_TO" != *@* ]]; then
-  echo "Set EMAIL_TO to the notification address before deploying." >&2
+if [[ -z "$EMAIL_TO" ]]; then
+  EMAIL_TO="$(gh variable get EMAIL_TO --repo "$GITHUB_REPOSITORY" 2>/dev/null || true)"
+fi
+if [[ -z "$EMAIL_TO" ]]; then
+  read -r -s -p "Notification email address: " EMAIL_TO
+  echo
+fi
+if [[ -z "$EMAIL_TO" || "$EMAIL_TO" != *@* ]]; then
+  echo "A valid notification email address is required." >&2
   exit 1
 fi
-
-az provider register --namespace Microsoft.App --wait
-az provider register --namespace Microsoft.Communication --wait
-az provider register --namespace Microsoft.ContainerRegistry --wait
-az provider register --namespace Microsoft.KeyVault --wait
-az provider register --namespace Microsoft.ManagedIdentity --wait
-az provider register --namespace Microsoft.OperationalInsights --wait
-az provider register --namespace Microsoft.Storage --wait
-
-az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
-
-az deployment group create \
-  --name airco-foundation \
-  --resource-group "$RESOURCE_GROUP" \
-  --template-file "$PROJECT_DIR/infra/foundation.bicep" \
-  --parameters prefix="$PREFIX" location="$LOCATION" \
-  --output none
 
 KEY_VAULT_URL="$(
   az deployment group show \
@@ -44,6 +34,7 @@ KEY_VAULT_NAME="${KEY_VAULT_URL#https://}"
 KEY_VAULT_NAME="${KEY_VAULT_NAME%%.*}"
 KEY_VAULT_ID="$(az keyvault show --name "$KEY_VAULT_NAME" --query id --output tsv)"
 USER_OBJECT_ID="$(az ad signed-in-user show --query id --output tsv)"
+
 ROLE_ASSIGNMENT_ID="$(az role assignment list \
   --assignee "$USER_OBJECT_ID" \
   --scope "$KEY_VAULT_ID" \
@@ -85,17 +76,12 @@ for attempt in {1..12}; do
   sleep 10
 done
 unset EMAIL_TO
-if [[ "$CREATED_ROLE_ASSIGNMENT" == "true" ]]; then
-  az role assignment delete --ids "$ROLE_ASSIGNMENT_ID" --only-show-errors
-fi
-trap - EXIT
 
-echo "Foundation complete. Building and deploying the application..."
-AZURE_RESOURCE_GROUP="$RESOURCE_GROUP" \
-KEY_VAULT_SECRET_MAP="EMAIL_TO=notification-email" \
-IMAGE_TAG="$IMAGE_TAG" \
-  "$PROJECT_DIR/scripts/deploy-application.sh"
+gh variable set KEY_VAULT_SECRET_MAP \
+  --repo "$GITHUB_REPOSITORY" \
+  --body "EMAIL_TO=notification-email"
+gh variable set EMAIL_LANG --repo "$GITHUB_REPOSITORY" --body "$EMAIL_LANG"
+gh variable delete EMAIL_TO --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || true
 
-echo "Deployment complete."
-echo "List executions: az containerapp job execution list -n airco-tracker-job -g $RESOURCE_GROUP -o table"
-echo "View logs: az containerapp job logs show -n airco-tracker-job -g $RESOURCE_GROUP --follow"
+echo "Notification email stored in Azure Key Vault."
+echo "GitHub Actions now stores only the Key Vault mapping and EMAIL_LANG=$EMAIL_LANG."

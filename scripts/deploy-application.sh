@@ -3,10 +3,8 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
-EMAIL_TO="${EMAIL_TO:-you@example.com}"
 EMAIL_LANG="${EMAIL_LANG:-zh}"
-BOL_BACKEND="${BOL_BACKEND:-disabled}"
-KEY_VAULT_SECRET_MAP="${KEY_VAULT_SECRET_MAP:-}"
+KEY_VAULT_SECRET_MAP="${KEY_VAULT_SECRET_MAP:-EMAIL_TO=notification-email}"
 IMAGE_TAG="${IMAGE_TAG:-$(git -C "$PROJECT_DIR" rev-parse --short=12 HEAD 2>/dev/null || date -u +manual-%Y%m%d%H%M%S)}"
 
 command -v az >/dev/null || { echo "Azure CLI (az) is required." >&2; exit 1; }
@@ -48,9 +46,7 @@ az deployment group create \
     communicationServiceName="$ACS_NAME" \
     keyVaultUrl="$KEY_VAULT_URL" \
     emailFrom="$EMAIL_FROM" \
-    emailTo="$EMAIL_TO" \
     emailLang="$EMAIL_LANG" \
-    bolBackend="$BOL_BACKEND" \
     keyVaultEnvMap="$KEY_VAULT_SECRET_MAP" \
   --output none
 

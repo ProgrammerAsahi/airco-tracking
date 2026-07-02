@@ -8,16 +8,20 @@ import sys
 from .adapters import (
     ActionAdapter,
     AlternateAdapter,
-    BolAdapter,
     CoolblueAdapter,
+    CreateStoreAdapter,
+    DelonghiAdapter,
     ElectroWorldAdapter,
     EpAdapter,
+    ExpertAdapter,
     FlinqAdapter,
     GammaAdapter,
     KarweiAdapter,
+    KampeerwereldAdapter,
     KlarsteinAdapter,
     LidlAdapter,
     MediaMarktAdapter,
+    ObelinkAdapter,
     PraxisAdapter,
     TrotecAdapter,
     WehkampAdapter,
@@ -52,6 +56,8 @@ def _configure_logging() -> None:
 
 
 def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
+    if not dry_run:
+        config.validate_email()
     fetcher = Fetcher(config.request_timeout_seconds)
     adapters = [
         CoolblueAdapter(fetcher),
@@ -68,24 +74,12 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         KlarsteinAdapter(fetcher),
         FlinqAdapter(fetcher),
         ActionAdapter(fetcher),
+        ExpertAdapter(fetcher),
+        DelonghiAdapter(fetcher),
+        ObelinkAdapter(fetcher),
+        KampeerwereldAdapter(fetcher),
+        CreateStoreAdapter(fetcher),
     ]
-    try:
-        config.validate_bol()
-    except ValueError as exc:
-        LOG.warning("bol.com: disabled because its API configuration is incomplete: %s", exc)
-    else:
-        if config.bol_backend == "marketing_api":
-            adapters.append(
-                BolAdapter(
-                    fetcher,
-                    config.bol_client_id,
-                    config.bol_client_secret,
-                    search_term=config.bol_search_term,
-                    max_pages=config.bol_max_pages,
-                )
-            )
-        else:
-            LOG.info("bol.com: disabled until official Marketing Catalog API credentials are configured")
     products: list[Product] = []
     failures: list[str] = []
     successful_sites: set[str] = set()
@@ -141,19 +135,17 @@ def doctor(config: Config) -> int:
     store = build_state_store(config)
     state = store.load()
     config.validate_email()
-    config.validate_bol()
     summary = {
         "app_env": config.app_env,
         "email_backend": config.email_backend,
-        "email_to": config.email_to,
+        "email_to_configured": bool(config.email_to),
         "email_from": config.email_from,
+        "email_lang": config.email_lang,
         "state_backend": config.state_backend,
         "known_products": len(state.get("products", {})),
         "azure_storage_account_url": config.azure_storage_account_url or None,
         "acs_endpoint": config.acs_endpoint or None,
         "key_vault_enabled": bool(config.azure_key_vault_url),
-        "bol_backend": config.bol_backend,
-        "bol_credentials_configured": bool(config.bol_client_id and config.bol_client_secret),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0

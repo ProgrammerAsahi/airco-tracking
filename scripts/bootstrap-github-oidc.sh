@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-ProgrammerAsahi/airco-tracking-nl}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
-EMAIL_TO="${EMAIL_TO:-you@example.com}"
+EMAIL_LANG="${EMAIL_LANG:-zh}"
 
 command -v az >/dev/null || { echo "Azure CLI (az) is required." >&2; exit 1; }
 az account show >/dev/null || { echo "Run 'az login' first." >&2; exit 1; }
@@ -40,9 +40,8 @@ if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
   gh variable set AZURE_TENANT_ID --repo "$GITHUB_REPOSITORY" --body "$AZURE_TENANT_ID"
   gh variable set AZURE_SUBSCRIPTION_ID --repo "$GITHUB_REPOSITORY" --body "$AZURE_SUBSCRIPTION_ID"
   gh variable set AZURE_RESOURCE_GROUP --repo "$GITHUB_REPOSITORY" --body "$RESOURCE_GROUP"
-  gh variable set EMAIL_TO --repo "$GITHUB_REPOSITORY" --body "$EMAIL_TO"
-  gh variable set BOL_BACKEND --repo "$GITHUB_REPOSITORY" --body "disabled"
-  gh variable set KEY_VAULT_SECRET_MAP --repo "$GITHUB_REPOSITORY" --body ""
+  gh variable set EMAIL_LANG --repo "$GITHUB_REPOSITORY" --body "$EMAIL_LANG"
+  gh variable set KEY_VAULT_SECRET_MAP --repo "$GITHUB_REPOSITORY" --body "EMAIL_TO=notification-email"
   echo "GitHub Actions variables configured for $GITHUB_REPOSITORY."
 else
   echo "GitHub CLI is unavailable or not logged in. Add these repository Actions variables manually:"
@@ -50,9 +49,8 @@ else
   echo "AZURE_TENANT_ID=$AZURE_TENANT_ID"
   echo "AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID"
   echo "AZURE_RESOURCE_GROUP=$RESOURCE_GROUP"
-  echo "EMAIL_TO=$EMAIL_TO"
-  echo "BOL_BACKEND=disabled"
-  echo "KEY_VAULT_SECRET_MAP="
+  echo "EMAIL_LANG=$EMAIL_LANG"
+  echo "KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email"
 fi
 
 echo "OIDC trust is restricted to $GITHUB_REPOSITORY on branch $GITHUB_BRANCH."

@@ -29,13 +29,13 @@ def load_dotenv(path: Path = ROOT / ".env") -> None:
         os.environ.setdefault(key, value)
 
 
-def _optional_float(name: str) -> float | None:
-    value = os.getenv(name, "").strip()
+def _optional_float(name: str, default: str = "") -> float | None:
+    value = os.getenv(name, default).strip()
     return float(value) if value else None
 
 
-def _optional_int(name: str) -> int | None:
-    value = os.getenv(name, "").strip()
+def _optional_int(name: str, default: str = "") -> int | None:
+    value = os.getenv(name, default).strip()
     return int(value) if value else None
 
 
@@ -69,11 +69,6 @@ class Config:
     azure_storage_blob: str
     acs_endpoint: str
     azure_key_vault_url: str
-    bol_backend: str
-    bol_client_id: str
-    bol_client_secret: str
-    bol_search_term: str
-    bol_max_pages: int
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -90,8 +85,8 @@ class Config:
             smtp_security=os.getenv("SMTP_SECURITY", "ssl").strip().lower(),
             smtp_username=os.getenv("SMTP_USERNAME", "").strip(),
             smtp_password=os.getenv("SMTP_PASSWORD", ""),
-            max_price_eur=_optional_float("MAX_PRICE_EUR"),
-            min_btu=_optional_int("MIN_BTU"),
+            max_price_eur=_optional_float("MAX_PRICE_EUR", "1500"),
+            min_btu=_optional_int("MIN_BTU", "7000"),
             alert_on_first_seen=_bool("ALERT_ON_FIRST_SEEN", True),
             request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT_SECONDS", "25")),
             state_backend=os.getenv("STATE_BACKEND", "local").strip().lower(),
@@ -101,11 +96,6 @@ class Config:
             azure_storage_blob=os.getenv("AZURE_STORAGE_BLOB", "state.json").strip(),
             acs_endpoint=os.getenv("ACS_ENDPOINT", "").strip(),
             azure_key_vault_url=os.getenv("AZURE_KEY_VAULT_URL", "").strip(),
-            bol_backend=os.getenv("BOL_BACKEND", "disabled").strip().lower(),
-            bol_client_id=os.getenv("BOL_CLIENT_ID", "").strip(),
-            bol_client_secret=os.getenv("BOL_CLIENT_SECRET", ""),
-            bol_search_term=os.getenv("BOL_SEARCH_TERM", "mobiele airco").strip(),
-            bol_max_pages=max(1, int(os.getenv("BOL_MAX_PAGES", "5"))),
         )
 
     def validate_email(self) -> None:
@@ -151,23 +141,6 @@ class Config:
             raise ValueError("STATE_BACKEND must be local or azure_blob")
         if not self.azure_storage_account_url:
             raise ValueError("AZURE_STORAGE_ACCOUNT_URL is required for azure_blob state")
-
-    def validate_bol(self) -> None:
-        if self.bol_backend == "disabled":
-            return
-        if self.bol_backend != "marketing_api":
-            raise ValueError("BOL_BACKEND must be disabled or marketing_api")
-        missing = [
-            name
-            for name, value in {
-                "BOL_CLIENT_ID": self.bol_client_id,
-                "BOL_CLIENT_SECRET": self.bol_client_secret,
-            }.items()
-            if not value
-        ]
-        if missing:
-            raise ValueError("Missing bol.com Marketing Catalog API configuration: " + ", ".join(missing))
-
 
 def _load_key_vault_secrets() -> None:
     """Optionally hydrate named environment variables from Key Vault.

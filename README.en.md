@@ -22,17 +22,23 @@ A lightweight portable air-conditioner stock tracker for the Netherlands, with l
 - Klarstein
 - FlinQ
 - Action Webshop
-- bol.com through the official Marketing Catalog API (Affiliate API credentials required)
+- Expert.nl
+- De'Longhi Netherlands
+- Obelink
+- Kampeerwereld
+- Create Netherlands
 
 It sends an email only when a product is first found available or changes from unavailable to available. It does not send the same notification every ten minutes. If one retailer fails, checks for the other retailers continue.
-
-The bol.com search webpage is no longer scraped: Azure datacenter IP addresses receive HTTP 403 responses, and bol.com's robots.txt explicitly restricts that search path. Until official API credentials are configured, the bol.com adapter remains explicitly disabled while the other fourteen retailers continue normally.
 
 EP.nl stock is read from server-rendered product cards. Electro World is read through the public, read-only product search index used by its own storefront, with the public search configuration discovered dynamically on every run. Wehkamp is read from the primary product data on its category page. None of these three integrations requires an account or secret credentials. Wehkamp removes sold-out products from the category, so an explicit empty category is a valid state; a restocked product triggers a first-seen availability alert as soon as it reappears.
 
 Lidl's robots-restricted search route is not scraped. Products are discovered through Lidl's public product sitemap, after which JSON-LD availability is read from each real portable-air-conditioner page. GAMMA and KARWEI share a server-rendered product-tile parser, and only `ONLINE_AVAILABLE` counts as deliverable; store-only stock and collection-only products do not trigger alerts. Praxis checks both current availability and delivery modes, alerts only for products deliverable to a Dutch address, and excludes split air conditioners, air coolers, and accessories.
 
 Alternate.nl, FlinQ, and Action Webshop discover new models through the product sitemaps published in their robots.txt files and then read availability from each product page. Action also keeps checking known expired seasonal deals so a reactivated URL is detected immediately. Trotec and Klarstein are read from server-rendered category product data. Trotec lead times of several weeks, presales, and merely orderable products do not count as immediate stock: only an explicit `Op voorraad` triggers an alert. Klarstein must expose an explicit online in-stock value. All five adapters exclude air coolers, fans, and accessories.
+
+Expert counts only products that can actually be ordered online; store-only stock never triggers an alert. De'Longhi reads the official JSON-LD on each product page and treats `Breng mij op de hoogte` as unavailable. Obelink and Kampeerwereld keep checking known seasonal products even when they disappear from category pages. Create treats both `Presale` and `Verzending vanaf` as unavailable until immediate dispatch is possible.
+
+Conrad.nl is not enabled yet: ordinary requests from both Azure and local execution receive Cloudflare HTTP 403. Conrad offers an official Price & Availability API through its Developer Portal, but access must be requested separately. This project does not bypass anti-bot protection.
 
 ## Azure architecture
 
@@ -42,22 +48,10 @@ The production environment uses:
 Container Apps Scheduled Job
   ├─ Managed Identity → Blob Storage (stock state)
   ├─ Managed Identity → Communication Services Email (notifications)
-  └─ Managed Identity → Key Vault (optional third-party credentials)
+  └─ Managed Identity → Key Vault (recipient address and optional third-party credentials)
 ```
 
-Azure mode stores no mailbox password, Storage key, Communication Services key, or ACR password. The recipient address and the BTU and price filters are not secrets and are supplied as normal configuration. Key Vault is reserved for third-party credentials that cannot be eliminated.
-
-### Enable the official bol.com API
-
-The bol Marketing Catalog API provides official product search, the best offer for the Netherlands, prices, and delivery descriptions. First join the bol Affiliate Program and create a Client ID and Client Secret in the Open API section of the Affiliate Portal. Never paste these credentials into source code, GitHub variables, or chat messages.
-
-After the code has been deployed, run locally:
-
-```bash
-./scripts/configure-bol-api.sh
-```
-
-The script prompts for the Client Secret without displaying it, stores both credentials in Azure Key Vault, configures only non-sensitive GitHub Actions variables, and starts a deployment. At runtime, the container reads the secrets through Managed Identity.
+Azure mode stores no mailbox password, Storage key, Communication Services key, or ACR password. The recipient address is stored as the `notification-email` secret in Key Vault; GitHub stores only the `EMAIL_TO=notification-email` mapping. Price and BTU limits remain ordinary environment configuration.
 
 ## Run locally
 
@@ -176,9 +170,15 @@ If Docker is installed:
 
 `.dockerignore` explicitly excludes `.env`, state, and log files, so local credentials cannot enter the image.
 
-### Optional Key Vault secret loading
+### Key Vault secret loading
 
-Azure mode is passwordless by default, so Key Vault starts empty. If a retailer later requires an API key, create a Key Vault secret and configure:
+To replace the production notification address without committing it or storing it in GitHub, run:
+
+```bash
+./scripts/configure-notification-email.sh
+```
+
+The script reads the existing GitHub value during migration or prompts without echo, stores it as `notification-email` in Key Vault, and removes the old GitHub value. If a retailer later requires an API key, create another Key Vault secret and extend the mapping:
 
 ```text
 AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
@@ -206,18 +206,19 @@ az login
 gh auth login
 
 cd ~/airco-tracking-nl
-./scripts/deploy-azure.sh
+EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
 ```
 
-If `gh` is unavailable or not logged in, the bootstrap script prints the following five values. Add them manually under **Settings → Secrets and variables → Actions → Variables**:
+If `gh` is unavailable or not logged in, the bootstrap script prints the following six values. Add them manually under **Settings → Secrets and variables → Actions → Variables**:
 
 ```text
 AZURE_CLIENT_ID
 AZURE_TENANT_ID
 AZURE_SUBSCRIPTION_ID
 AZURE_RESOURCE_GROUP
-EMAIL_TO
+EMAIL_LANG
+KEY_VAULT_SECRET_MAP
 ```
 
 These values are identifiers or ordinary configuration, not passwords. Do not create or upload `AZURE_CREDENTIALS`, a Client Secret, or a subscription access token.

@@ -4,43 +4,27 @@ Last updated: 2026-07-02 (Europe/Amsterdam)
 
 ## Current objective
 
-Expand reliable portable-air-conditioner coverage for Dutch delivery while keeping credentials out of source control. The immediate pending task is the official AliExpress Affiliate/Open Platform integration after API approval.
+Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure and sends an email only for first-seen or newly-restocked products.
 
-## Repository and production state
+The current development round adds five active retailers, migrates the notification recipient from GitHub configuration to Azure Key Vault, standardises the filters at EUR 1,500 and 7,000 BTU, and removes an unusable retailer integration. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+
+## Repository and production
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Last deployed commit: `6930a24` (`Polish README setup steps; add Praxis watt-to-BTU fallback`)
+- Working-tree baseline: `02cae9e`
+- Last verified production image: commit `6930a24`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
-- Azure Container Apps job: `airco-tracker-job`
-- Schedule: every 10 minutes
-- State: Azure Blob Storage (`airco-tracker/state.json`)
+- Container Apps job: `airco-tracker-job`
+- Schedule: `*/10 * * * *` (UTC)
+- State: Azure Blob Storage, `airco-tracker/state.json`
 - Notifications: Azure Communication Services Email
-- Secrets: Azure Key Vault through Managed Identity
+- Runtime identity: user-assigned Managed Identity
 
-## Recently completed (2026-07-02)
+## Active retailers
 
-Systematic review and repair of accuracy, maintainability, i18n, tests, and infrastructure:
-
-- **Wehkamp adapter**: removed erroneous `monoblock` exclusion (monoblock is genuine portable form factor); added multi-week lead-time detection (`"weken"`) so preorders do not trigger false alerts.
-- **Praxis adapter**: added positive keyword requirement (`airco`/`airconditioning`/`aircondition`) to `_is_portable_airco`, previously relied solely on negative exclusions; added watt→BTU fallback (`_watts_to_btu`) for titles that state cooling capacity in watts (e.g. `MPPD-12 3500W` → ~11942 BTU) so `MIN_BTU` filtering still applies when no BTU figure is present. Explicit BTU in the title still wins over the watt fallback.
-- **Lidl adapter**: replaced self-implemented JSON-LD parser with shared `schema.py` functions (`product_json_ld`/`first_offer`/`offer_price`/`schema_in_stock`), fixing `@graph` support gap and removing duplication.
-- **ElectroWorld**: `_positive_int` threshold corrected from `>=0` to `>0` to match semantics.
-- **Fetcher**: User-Agent version now reads from package metadata (`importlib.metadata`) instead of hardcoded `0.1`.
-- **Email i18n**: new `airco_tracker/i18n.py` with zh/nl/en translations; `EMAIL_LANG` config (default `zh`); `mailer.py` uses `translate()`; `job.bicep`, `.env.example`, and deploy scripts updated; three READMEs synced.
-- **Tests**: added `tests/test_fetch.py` (5 tests), dry-run safety assertions in `tests/test_cli.py` (2 tests), multilingual email test in `tests/test_cloud_backends.py`, and 4 new parser tests (Wehkamp lead-time/monoblock, Lidl @graph, Praxis watt→BTU). Total: 38 tests.
-- **Deploy verification**: `scripts/deploy-application.sh` now waits for the Container Apps job execution result and exits non-zero on failure.
-- **Infrastructure**: Key Vault `enablePurgeProtection` enabled (irreversible). `softDeleteRetentionInDays` remains at 7 days — Azure does not allow modifying this property after creation, so the planned 90-day extension could not be applied. Communication Owner and OIDC Contributor roles retained as-is (documented as acceptable: ACS data-plane RBAC is hard to verify; OIDC needs Contributor for deployment).
-- **Documentation hygiene**: README setup steps polished across all three languages; placeholder consistency enforced in deploy scripts and test fixtures. Version bumped to `0.7.0`.
-
-Not changed (documented decisions):
-- 6 sitemap/API adapters do not inherit `Adapter` base class — pure style issue, no functional impact, refactor risk exceeds benefit.
-- Communication Services Owner role and GitHub OIDC Contributor role retained (see above).
-
-## Supported retailers
-
-Active without private credentials:
+The application currently registers 19 credential-free adapters:
 
 - Coolblue
 - MediaMarkt NL
@@ -56,64 +40,71 @@ Active without private credentials:
 - Klarstein
 - FlinQ
 - Action Webshop
+- Expert.nl
+- De'Longhi Netherlands
+- Obelink
+- Kampeerwereld
+- Create Netherlands
 
-Optional/credential-gated:
+New-retailer stock semantics:
 
-- bol.com: official Marketing Catalog API adapter exists but production remains disabled until official API credentials are configured. Do not restore webpage scraping; Azure IPs receive 403 and the search route is robots-restricted.
-- AliExpress: no adapter has been implemented yet. Use the official Affiliate/Open Platform API only.
+- Expert: only explicit online saleability counts; local-store-only stock is unavailable.
+- De'Longhi: product JSON-LD is authoritative, but `Breng mij op de hoogte` forces unavailable.
+- Obelink and Kampeerwereld: known seasonal URLs remain checked after products disappear from category pages.
+- Kampeerwereld: `Exclusief in winkel` never counts as deliverable.
+- Create: `Presale` and future `Verzending vanaf` dates are unavailable.
+
+## Conrad status
+
+Conrad.nl is intentionally not registered. Its storefront and robots endpoint return Cloudflare HTTP 403 to the project's normal browser identity from local and Azure execution. Conrad's Developer Portal offers an official Price & Availability API and explicitly supports stock-monitoring use cases, but access is request-gated. Do not bypass the anti-bot layer. The next valid step is to request official API access and implement an adapter only after credentials and current official documentation are available.
+
+## Configuration and secret model
+
+- `MAX_PRICE_EUR=1500`
+- `MIN_BTU=7000`
+- `EMAIL_LANG=zh` in production (`zh`, `nl`, and `en` are supported)
+- The production recipient is stored as Key Vault secret `notification-email`.
+- GitHub stores only `KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email`; it does not store the address.
+- Migration completed on 2026-07-02: the old GitHub `EMAIL_TO` variable was deleted, `EMAIL_LANG=zh` was set, and the temporary Key Vault Secrets Officer assignment was confirmed absent after the write.
+- `scripts/configure-notification-email.sh` migrates the old GitHub value or prompts without echo, temporarily grants the signed-in user Key Vault Secrets Officer, writes the secret, removes the temporary role, and deletes the old GitHub variable.
+- The Container Apps Managed Identity has Key Vault Secrets User and hydrates `EMAIL_TO` at runtime.
+- SMTP credentials remain local-only in `.env`; Azure uses passwordless Communication Services.
 
 ## AliExpress external status
 
 - Affiliate account approved on 2026-07-01.
-- Open Platform developer type selected: `Dropshipping/Affiliates Developer` → `Affiliates (individual)`.
+- Open Platform developer type: `Dropshipping/Affiliates Developer` → `Affiliates (individual)`.
 - API application submitted on 2026-07-01.
-- Current portal status: `Under Review` with an estimated review time of 2–5 working days.
-- As of 2026-07-02 we are on day 2 of the review window. Re-check the portal before starting work; if still `Under Review`, no code action is possible yet.
-- Intended data scope: public affiliate product catalog/offer data only (title, URL, price, availability, promotion/tracking link, and minimal API metadata).
-- Do not request or retain buyer, order, payment, or other personal data.
-- Runtime processing is hosted on Microsoft Azure. Core compute/storage is Azure West Europe; Azure Communication Services is configured with the Europe data location.
+- Last observed status: `Under Review`, estimated 2–5 working days.
+- No AliExpress adapter or secret configuration exists yet.
+- Use only official Affiliate/Open Platform APIs after approval; never retain buyer, order, payment, or other personal data.
 
 ## Next steps after AliExpress approval
 
-1. Ask the user to open the API page and identify the approved app/key screen. Do not request screenshots containing an App Secret.
-2. Verify the current official Affiliate API authentication/signing and product-search endpoints from primary AliExpress documentation.
-3. Design an `AliExpressAdapter` that searches portable/compressor air conditioners, filters out air coolers/accessories, enforces Dutch deliverability when the API exposes it, and uses the existing `MAX_PRICE_EUR`/`MIN_BTU` alert filters.
-4. Add configuration fields and validation with a disabled-by-default backend, similar to bol.com.
-5. Add a hidden-input setup script (for example `scripts/configure-aliexpress-api.sh`) that writes secrets directly to Azure Key Vault and configures only non-sensitive GitHub Actions variables.
-6. Add parser/API tests using synthetic responses; never put real credentials or captured private responses in fixtures.
-7. Run the full test suite and local live dry-run, then deploy through the existing GitHub Actions pipeline if the user authorizes it.
-8. Confirm the production image SHA and inspect one Container Apps job execution for the AliExpress retailer count.
+1. Inspect the approved app/key page without copying an App Secret into chat or source control.
+2. Verify signing, product-search, availability, and Dutch-delivery fields from current official documentation.
+3. Implement a disabled-by-default API adapter with synthetic response tests.
+4. Store credentials directly in Key Vault through a hidden-input setup script.
+5. Run the full unit suite and live dry-run before enabling production.
 
-## Known behavior and safeguards
+## Safeguards and known behaviour
 
-- Retailers are isolated: one failure does not stop other checks.
-- Missing seasonal products are marked unavailable only when that retailer completed successfully, allowing a later restock transition without treating a failed request as stock loss.
-- Trotec multi-week lead times are not immediate stock.
-- Action expired deals are kept as known URLs so reactivation can be detected.
-- All adapters must exclude air coolers, fans, and accessories.
-- Production credentials must remain in Key Vault; configuration maps environment variable names to secret names.
-
-## Current operational context (2026-07-02)
-
-- A European heat wave has driven most retailers to near-zero available stock; this is expected business reality, not an adapter defect. Do not "fix" empty results by relaxing filters or scraping deeper paths.
-- `Alternate.nl` returning 0 products is consistent across recent dry-runs and reflects sold-out seasonal inventory, not a sitemap parse failure (the adapter tolerates empty results by design).
-- Low-wattage units named "airco" (e.g. MediaMarkt `EVOLAR EVO-ES1800W 1800 BTU/h`) are correctly held back from alerts by the `MIN_BTU=5000` filter; this is the intended use of that filter.
-
-## Known limitations / future cleanup
-
-- The local placeholder commit message for this round was deliberately neutral (no mention of the underlying hygiene fix) to avoid drawing attention to historical commits. Older commits in git history still contain a personal email address in README files. Removing it from current files is complete; scrubbing history requires `git filter-repo` + force push and must be authorized by the user first.
-- `airco_tracker_nl.egg-info/` is a local build artifact (gitignored, not tracked). No action needed.
+- Retailers are isolated; one failure does not stop successful checks.
+- State is updated only for retailers that completed successfully.
+- Unknown price or BTU is retained to avoid false negatives; known values are filtered at EUR 1,500 and 7,000 BTU.
+- Air coolers, fans, dehumidifiers, window kits, hoses, and other accessories must not alert.
+- Multi-week lead times, presales, store-only stock, and collection-only stock are unavailable.
+- A non-dry production check validates email configuration before fetching retailers, so a missing Key Vault recipient fails deployment verification immediately.
+- `doctor` reports whether the recipient is configured without printing the address.
 
 ## Verification snapshot
 
-- Unit tests: 38 passed.
-- Compile check (`compileall -q airco_tracker tests`): clean. `git diff --check`: clean.
-- Live local dry-run on 2026-07-02 (post watt→BTU fix): all 14 retailers ran without errors. Counts: Coolblue 11/0, MediaMarkt 4/1, EP 7/0, Electro World 3/0, Wehkamp 1/1, Lidl 5/0, GAMMA 3/0, KARWEI 2/0, Praxis 9/1, Alternate 0/0, Trotec 13/0, Klarstein 18/0, FlinQ 2/0, Action 1/0. Praxis watt→BTU confirmed on `MPPD-12 3500W` → btu=11942.
-- GitHub Actions deployment run `28590264344` for commit `6930a24`: succeeded in 3m26s. Deploy verification execution `airco-tracker-job-h9iv17a`: Succeeded.
-- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:6930a24ec62c...` (full commit SHA).
-- Foundation Bicep deployment: succeeded. Key Vault purge protection enabled (verified via `az keyvault show`).
-- Container Apps scheduled job running every 10 minutes; recent executions all Succeeded.
+- Unit tests: 44 passed after the five new parser fixtures, shared defaults test, Create deduplication test, and Python 3.9-compatible adapter patch helper were added.
+- Shell syntax: clean.
+- `git diff --check`: clean.
+- Final installed-version dry-run: all 19 registered retailers completed. New-site counts were Expert 11/0, De'Longhi 11/0, Obelink 13/1, Kampeerwereld 5/1, and Create 2/0. The two available camping units were 5,100 and 3,200 BTU and were correctly filtered out; a EUR 1,999 MediaMarkt unit was also filtered out. Only the Wehkamp 7,000 BTU / EUR 225 product qualified for an alert.
+- Azure recipient migration: complete. GitHub push and production execution verification remain for this working round; replace this line with concrete evidence after completion.
 
 ## Updating this handoff
 
-Replace stale status rather than appending a diary. Always update the date, deployed commit, external review state, next concrete action, and verification evidence. Never include secret values, tokens, passwords, or unnecessary personal information.
+Replace stale status instead of appending a diary. Always record the deployed commit, active retailer count, external API review state, exact verification evidence, and next concrete action. Never include email addresses, secret values, tokens, passwords, or unnecessary personal information.

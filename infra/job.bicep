@@ -9,7 +9,6 @@ param storageAccountName string
 param communicationServiceName string
 param keyVaultUrl string
 param emailFrom string
-param emailTo string
 @allowed([
   'zh'
   'nl'
@@ -19,14 +18,9 @@ param emailLang string = 'zh'
 
 @description('Five-field UTC cron expression.')
 param cronExpression string = '*/10 * * * *'
-param minBtu string = '5000'
+param minBtu string = '7000'
 param maxPriceEur string = '1500'
-@allowed([
-  'disabled'
-  'marketing_api'
-])
-param bolBackend string = 'disabled'
-param keyVaultEnvMap string = ''
+param keyVaultEnvMap string = 'EMAIL_TO=notification-email'
 
 resource containerEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: containerEnvironmentName
@@ -81,7 +75,6 @@ resource job 'Microsoft.App/jobs@2025-01-01' = {
           env: [
             { name: 'APP_ENV', value: 'azure' }
             { name: 'EMAIL_BACKEND', value: 'azure_communication' }
-            { name: 'EMAIL_TO', value: emailTo }
             { name: 'EMAIL_FROM', value: emailFrom }
             { name: 'EMAIL_LANG', value: emailLang }
             { name: 'ACS_ENDPOINT', value: 'https://${communicationServiceName}.communication.azure.com' }
@@ -95,9 +88,6 @@ resource job 'Microsoft.App/jobs@2025-01-01' = {
             { name: 'MAX_PRICE_EUR', value: maxPriceEur }
             { name: 'ALERT_ON_FIRST_SEEN', value: 'true' }
             { name: 'REQUEST_TIMEOUT_SECONDS', value: '25' }
-            { name: 'BOL_BACKEND', value: bolBackend }
-            { name: 'BOL_SEARCH_TERM', value: 'mobiele airco' }
-            { name: 'BOL_MAX_PAGES', value: '5' }
             { name: 'KEY_VAULT_SECRET_MAP', value: keyVaultEnvMap }
           ]
           resources: {

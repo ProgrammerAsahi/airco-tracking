@@ -22,17 +22,23 @@
 - Klarstein
 - FlinQ
 - Action Webshop
-- bol.com（通过官方 Marketing Catalog API；需要 Affiliate API 凭据）
+- Expert.nl
+- De’Longhi 荷兰直营店
+- Obelink
+- Kampeerwereld
+- Create 荷兰站
 
 它只在商品首次被发现为可购买，或从缺货变为有货时发送邮件；不会每 10 分钟轰炸邮箱。单个零售商失效时，其余站点仍会继续检查。
-
-bol.com 的网页搜索路径不再抓取：Azure 数据中心 IP 会收到 403，而且 bol 的 robots.txt 明确限制该搜索路径。未配置官方 API 凭据时，bol 适配器会明确保持 disabled，其余十四家网站不受影响。
 
 EP.nl 通过服务器输出的商品卡识别在线库存；Electro World 使用其网页公开调用的只读商品搜索索引，并在每次运行时动态读取公开搜索配置；Wehkamp 读取分类页的主商品数据。三者均不需要账号或秘密凭据。Wehkamp 会把售罄商品从分类移除，因此明确的空分类是正常状态；商品补货并重新出现时会立即触发首次有货提醒。
 
 Lidl 不抓取 robots.txt 禁止的搜索路径，而是通过其公开商品 sitemap 发现真正的移动空调，再读取商品页的 JSON-LD 库存。GAMMA 和 KARWEI 共用服务器商品卡解析器，只有 `ONLINE_AVAILABLE` 才算可配送；仅门店库存或仅自取不会提醒。Praxis 同时检查当前可用性和送货方式，只有支持荷兰地址配送的商品才会提醒，并排除 split airco、aircooler 和配件。
 
 Alternate.nl、FlinQ 和 Action Webshop 通过 robots.txt 中公布的商品 sitemap 自动发现新型号，再读取商品页库存；Action 还持续检查已知的过期季节商品，以便原链接重新上架时立即发现。Trotec 和 Klarstein 读取服务器输出的分类商品数据。Trotec 的数周交期、预售或“可加入购物车”不会被误判成即时现货，只有明确的 `Op voorraad` 才会提醒；Klarstein 只接受其明确的在线库存字段。五家网站均会排除 aircooler、风扇和空调配件。
+
+Expert 只有明确可在线下单时才算有货，仅门店库存不会提醒；De’Longhi 读取商品页官方 JSON-LD，`Breng mij op de hoogte` 视为缺货；Obelink 和 Kampeerwereld 会持续检查已知季节商品，即使它们暂时从分类页消失；Create 的 `Presale` 和 `Verzending vanaf` 都不会触发提醒。
+
+Conrad.nl 暂未启用：普通网页从 Azure 和本地请求都会收到 Cloudflare 403。Conrad 官方 Developer Portal 提供 Price & Availability API，但需要单独申请访问；本项目不会绕过其反爬保护。
 
 ## Azure 架构
 
@@ -42,22 +48,10 @@ Alternate.nl、FlinQ 和 Action Webshop 通过 robots.txt 中公布的商品 sit
 Container Apps Scheduled Job
   ├─ Managed Identity → Blob Storage（库存状态）
   ├─ Managed Identity → Communication Services Email（通知）
-  └─ Managed Identity → Key Vault（可选第三方密钥）
+  └─ Managed Identity → Key Vault（收件地址和第三方密钥）
 ```
 
-Azure 模式不保存邮箱密码、Storage Key、Communication Services Key 或 ACR 密码。收件地址、BTU 和价格限制不是秘密，作为普通环境配置传入。Key Vault 只为未来无法消除的第三方密钥预留。
-
-### 启用 bol.com 官方 API
-
-bol 的 Marketing Catalog API 提供官方商品搜索、NL 最佳报价、价格和配送描述。先申请 bol Affiliate Program，并在 Affiliate Portal 的 Open API 区域创建 Client ID 和 Client Secret。不要把凭据粘贴到代码、GitHub Variables 或聊天中。
-
-代码部署后，在本机运行：
-
-```bash
-./scripts/configure-bol-api.sh
-```
-
-脚本会隐藏输入 Client Secret，将两项凭据写入 Azure Key Vault，设置不敏感的 GitHub Actions 变量，并触发一次部署。容器运行时再通过 Managed Identity 读取秘密。
+Azure 模式不保存邮箱密码、Storage Key、Communication Services Key 或 ACR 密码。收件地址作为 `notification-email` secret 存在 Key Vault；GitHub 只保存 `EMAIL_TO=notification-email` 映射。价格和 BTU 限制作为普通环境配置传入。
 
 ## 本地运行
 
@@ -177,13 +171,19 @@ az containerapp job logs show \
 
 `.dockerignore` 明确排除了 `.env`、状态和日志，任何本地密码都不会进入镜像。
 
-### 可选 Key Vault 密钥加载
+### Key Vault 配置加载
 
-Azure 默认模式完全无密码，因此 Key Vault 初始为空。若将来某个网站需要 API Key，可在 Key Vault 建立 secret，并设置：
+生产收件地址保存在 Key Vault，不进入源码或 GitHub Variables。已有部署可运行以下脚本迁移或更换地址：
+
+```bash
+./scripts/configure-notification-email.sh
+```
+
+容器通过以下映射和 Managed Identity 读取：
 
 ```text
 AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
-KEY_VAULT_SECRET_MAP=PARTNER_API_KEY=partner-api-key
+KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email
 ```
 
 程序通过 Managed Identity 读取，secret 不进入代码、镜像或 Bicep 参数。
@@ -207,18 +207,19 @@ az login
 gh auth login
 
 cd ~/airco-tracking-nl
-./scripts/deploy-azure.sh
+EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
 ```
 
-若 `gh` 未安装或未登录，引导脚本会打印以下五个值，请在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 中手动建立：
+若 `gh` 未安装或未登录，引导脚本会打印以下六个值，请在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 中手动建立：
 
 ```text
 AZURE_CLIENT_ID
 AZURE_TENANT_ID
 AZURE_SUBSCRIPTION_ID
 AZURE_RESOURCE_GROUP
-EMAIL_TO
+EMAIL_LANG
+KEY_VAULT_SECRET_MAP
 ```
 
 这些都是标识符或普通配置，不是密码。不要创建或上传 `AZURE_CREDENTIALS`、Client Secret、Subscription Access Token。

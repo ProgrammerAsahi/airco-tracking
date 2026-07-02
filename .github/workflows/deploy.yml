@@ -52,8 +52,7 @@ jobs:
       - name: Build and deploy immutable image
         env:
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          EMAIL_TO: ${{ vars.EMAIL_TO }}
-          BOL_BACKEND: ${{ vars.BOL_BACKEND }}
+          EMAIL_LANG: ${{ vars.EMAIL_LANG }}
           KEY_VAULT_SECRET_MAP: ${{ vars.KEY_VAULT_SECRET_MAP }}
           IMAGE_TAG: ${{ github.sha }}
         run: ./scripts/deploy-application.sh

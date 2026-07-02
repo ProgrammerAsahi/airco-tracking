@@ -22,17 +22,23 @@ Een lichte voorraadtracker voor mobiele airco's in Nederland, geschikt voor loka
 - Klarstein
 - FlinQ
 - Action Webshop
-- bol.com via de officiële Marketing Catalog API (Affiliate API-inloggegevens vereist)
+- Expert.nl
+- De'Longhi Nederland
+- Obelink
+- Kampeerwereld
+- Create Nederland
 
 Er wordt alleen een e-mail verstuurd wanneer een product voor het eerst als bestelbaar wordt gevonden of van niet leverbaar naar leverbaar verandert. Dezelfde melding wordt dus niet elke tien minuten opnieuw verstuurd. Als één winkel niet bereikbaar is, gaan de controles van de andere winkels gewoon door.
-
-De zoekpagina van bol.com wordt niet langer gescrapet: IP-adressen van Azure-datacenters ontvangen HTTP 403 en robots.txt van bol.com beperkt dit zoekpad expliciet. Zolang de officiële API-inloggegevens niet zijn ingesteld, blijft de bol.com-adapter duidelijk uitgeschakeld en blijven de overige veertien winkels normaal werken.
 
 De voorraad van EP.nl wordt gelezen uit server-side weergegeven productkaarten. Electro World wordt gelezen via de openbare, alleen-lezen productzoekindex die de webwinkel zelf gebruikt; de openbare zoekconfiguratie wordt bij elke uitvoering dynamisch opgehaald. Wehkamp wordt gelezen uit de primaire productgegevens op de categoriepagina. Geen van deze drie integraties vereist een account of geheime inloggegevens. Wehkamp verwijdert uitverkochte producten uit de categorie, waardoor een expliciet lege categorie een geldige status is; zodra een product na aanvulling terugkeert, volgt direct een melding voor nieuw gevonden voorraad.
 
 De door robots.txt beperkte zoekroute van Lidl wordt niet gescrapet. Producten worden ontdekt via Lidl's openbare productsitemap, waarna de JSON-LD-voorraad van elke echte mobiele airco wordt gelezen. GAMMA en KARWEI delen een parser voor server-side weergegeven productkaarten; alleen `ONLINE_AVAILABLE` telt als bezorgbaar, waardoor winkelvoorraad en alleen-afhalen geen melding veroorzaken. Praxis controleert zowel de actuele beschikbaarheid als de bezorgmethoden, meldt alleen producten die op een Nederlands adres kunnen worden bezorgd en sluit split-airco's, aircoolers en accessoires uit.
 
 Alternate.nl, FlinQ en Action Webshop ontdekken nieuwe modellen via de productsitemaps die in hun robots.txt-bestanden zijn gepubliceerd en lezen daarna de voorraad op de productpagina. Action blijft ook bekende verlopen seizoensdeals controleren, zodat een opnieuw geactiveerde URL direct wordt gevonden. Trotec en Klarstein worden gelezen uit server-side weergegeven categoriegegevens. Een levertijd van meerdere weken, voorverkoop of een product dat alleen bestelbaar is, telt bij Trotec niet als directe voorraad: alleen expliciet `Op voorraad` activeert een melding. Klarstein moet een expliciete online voorraadstatus tonen. Alle vijf adapters sluiten aircoolers, ventilatoren en accessoires uit.
+
+Expert telt uitsluitend producten die werkelijk online kunnen worden besteld; alleen winkelvoorraad veroorzaakt nooit een melding. De'Longhi leest de officiële JSON-LD op iedere productpagina en behandelt `Breng mij op de hoogte` als niet leverbaar. Obelink en Kampeerwereld blijven bekende seizoensproducten controleren, ook wanneer die tijdelijk uit categoriepagina's verdwijnen. Create behandelt zowel `Presale` als `Verzending vanaf` als niet direct leverbaar.
+
+Conrad.nl is nog niet ingeschakeld: gewone verzoeken vanuit zowel Azure als lokale uitvoering ontvangen Cloudflare HTTP 403. Conrad biedt via het Developer Portal een officiële Price & Availability API, maar toegang moet afzonderlijk worden aangevraagd. Dit project omzeilt geen anti-botbeveiliging.
 
 ## Azure-architectuur
 
@@ -42,22 +48,10 @@ De productieomgeving gebruikt:
 Container Apps Scheduled Job
   ├─ Managed Identity → Blob Storage (voorraadstatus)
   ├─ Managed Identity → Communication Services Email (meldingen)
-  └─ Managed Identity → Key Vault (optionele externe inloggegevens)
+  └─ Managed Identity → Key Vault (ontvanger en optionele externe inloggegevens)
 ```
 
-In Azure worden geen e-mailwachtwoord, Storage key, Communication Services key of ACR-wachtwoord opgeslagen. Het e-mailadres van de ontvanger en de BTU- en prijsfilters zijn geen geheimen en worden als normale configuratie meegegeven. Key Vault is uitsluitend bedoeld voor externe inloggegevens die niet kunnen worden vermeden.
-
-### De officiële bol.com-API inschakelen
-
-De bol Marketing Catalog API biedt officiële productzoekresultaten, het beste Nederlandse aanbod, prijzen en bezorginformatie. Meld je eerst aan voor het bol Affiliate Programma en maak in het onderdeel Open API van het Affiliate Portal een Client ID en Client Secret aan. Plaats deze gegevens nooit in broncode, GitHub Variables of chatberichten.
-
-Voer na de implementatie lokaal uit:
-
-```bash
-./scripts/configure-bol-api.sh
-```
-
-Het script vraagt om het Client Secret zonder dit op het scherm te tonen, slaat beide gegevens op in Azure Key Vault, stelt alleen niet-gevoelige GitHub Actions-variabelen in en start een implementatie. Tijdens de uitvoering leest de container de geheimen via Managed Identity.
+In Azure worden geen e-mailwachtwoord, Storage key, Communication Services key of ACR-wachtwoord opgeslagen. Het e-mailadres van de ontvanger staat als het geheim `notification-email` in Key Vault; GitHub bewaart alleen de koppeling `EMAIL_TO=notification-email`. Prijs- en BTU-limieten blijven gewone omgevingsconfiguratie.
 
 ## Lokaal uitvoeren
 
@@ -176,9 +170,15 @@ Als Docker is geïnstalleerd:
 
 `.dockerignore` sluit `.env`, status- en logbestanden expliciet uit, zodat lokale wachtwoorden niet in de image terechtkomen.
 
-### Optioneel geheimen uit Key Vault laden
+### Geheimen uit Key Vault laden
 
-Azure werkt standaard volledig zonder wachtwoorden, daarom is Key Vault aanvankelijk leeg. Als een winkel later een API-key vereist, maak dan een Key Vault secret aan en stel het volgende in:
+Voer dit uit om het productieadres te wijzigen zonder het te committen of in GitHub op te slaan:
+
+```bash
+./scripts/configure-notification-email.sh
+```
+
+Het script leest tijdens de migratie de bestaande GitHub-waarde of vraagt er zonder echo om, bewaart deze als `notification-email` in Key Vault en verwijdert de oude GitHub-waarde. Als een winkel later een API-key vereist, maak dan een extra Key Vault secret en breid de koppeling uit:
 
 ```text
 AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
@@ -206,18 +206,19 @@ az login
 gh auth login
 
 cd ~/airco-tracking-nl
-./scripts/deploy-azure.sh
+EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
 ```
 
-Als `gh` niet beschikbaar of niet aangemeld is, toont het configuratiescript de volgende vijf waarden. Voeg ze handmatig toe onder **Settings → Secrets and variables → Actions → Variables**:
+Als `gh` niet beschikbaar of niet aangemeld is, toont het configuratiescript de volgende zes waarden. Voeg ze handmatig toe onder **Settings → Secrets and variables → Actions → Variables**:
 
 ```text
 AZURE_CLIENT_ID
 AZURE_TENANT_ID
 AZURE_SUBSCRIPTION_ID
 AZURE_RESOURCE_GROUP
-EMAIL_TO
+EMAIL_LANG
+KEY_VAULT_SECRET_MAP
 ```
 
 Dit zijn identificaties of normale configuratiewaarden, geen wachtwoorden. Maak of upload geen `AZURE_CREDENTIALS`, Client Secret of toegangstoken voor het abonnement.

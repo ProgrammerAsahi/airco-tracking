@@ -2,12 +2,35 @@ from __future__ import annotations
 
 import io
 import unittest
-from contextlib import redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from airco_tracker.cli import check
 from airco_tracker.models import Product
+
+
+ADAPTER_NAMES = (
+    "CoolblueAdapter",
+    "MediaMarktAdapter",
+    "EpAdapter",
+    "ElectroWorldAdapter",
+    "WehkampAdapter",
+    "LidlAdapter",
+    "GammaAdapter",
+    "KarweiAdapter",
+    "PraxisAdapter",
+    "AlternateAdapter",
+    "TrotecAdapter",
+    "KlarsteinAdapter",
+    "FlinqAdapter",
+    "ActionAdapter",
+    "ExpertAdapter",
+    "DelonghiAdapter",
+    "ObelinkAdapter",
+    "KampeerwereldAdapter",
+    "CreateStoreAdapter",
+)
 
 
 class _SuccessAdapter:
@@ -47,32 +70,27 @@ class _StateStore:
         return {"version": 1, "products": {}}
 
 
+@contextmanager
+def _patched_adapters(default, **overrides):
+    """Patch all adapters without exceeding Python 3.9's nesting limit."""
+    with ExitStack() as stack:
+        for name in ADAPTER_NAMES:
+            stack.enter_context(
+                patch(f"airco_tracker.cli.{name}", overrides.get(name, default))
+            )
+        yield
+
+
 class CliTests(unittest.TestCase):
-    def test_disabled_bol_is_not_instantiated(self) -> None:
+    def test_all_retailers_succeed(self) -> None:
         config = SimpleNamespace(
             request_timeout_seconds=1,
             alert_on_first_seen=True,
             max_price_eur=None,
             min_btu=None,
-            bol_backend="disabled",
-            validate_bol=lambda: None,
         )
         with (
-            patch("airco_tracker.cli.CoolblueAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.MediaMarktAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.EpAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.ElectroWorldAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.WehkampAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.LidlAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.GammaAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.KarweiAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.PraxisAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.AlternateAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.TrotecAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.KlarsteinAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.FlinqAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.ActionAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.BolAdapter", side_effect=AssertionError("bol should be disabled")),
+            _patched_adapters(_SuccessAdapter),
             patch("airco_tracker.cli.build_state_store", return_value=_StateStore()),
             redirect_stdout(io.StringIO()),
         ):
@@ -84,29 +102,13 @@ class CliTests(unittest.TestCase):
             alert_on_first_seen=True,
             max_price_eur=None,
             min_btu=None,
-            bol_backend="marketing_api",
-            bol_client_id="client",
-            bol_client_secret="secret",
-            bol_search_term="mobiele airco",
-            bol_max_pages=1,
-            validate_bol=lambda: None,
         )
         with (
-            patch("airco_tracker.cli.CoolblueAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.MediaMarktAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.EpAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.ElectroWorldAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.WehkampAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.LidlAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.GammaAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.KarweiAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.PraxisAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.AlternateAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.TrotecAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.KlarsteinAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.FlinqAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.ActionAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.BolAdapter", _FailingAdapter),
+            _patched_adapters(
+                _SuccessAdapter,
+                MediaMarktAdapter=_FailingAdapter,
+                KampeerwereldAdapter=_FailingAdapter,
+            ),
             patch("airco_tracker.cli.build_state_store", return_value=_StateStore()),
             redirect_stdout(io.StringIO()),
         ):
@@ -115,29 +117,9 @@ class CliTests(unittest.TestCase):
     def test_all_retailer_failures_are_fatal(self) -> None:
         config = SimpleNamespace(
             request_timeout_seconds=1,
-            bol_backend="marketing_api",
-            bol_client_id="client",
-            bol_client_secret="secret",
-            bol_search_term="mobiele airco",
-            bol_max_pages=1,
-            validate_bol=lambda: None,
         )
         with (
-            patch("airco_tracker.cli.CoolblueAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.MediaMarktAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.EpAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.ElectroWorldAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.WehkampAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.LidlAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.GammaAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.KarweiAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.PraxisAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.AlternateAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.TrotecAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.KlarsteinAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.FlinqAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.ActionAdapter", _FailingAdapter),
-            patch("airco_tracker.cli.BolAdapter", _FailingAdapter),
+            _patched_adapters(_FailingAdapter),
             redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(check(config, dry_run=True, show_all=False), 2)
@@ -148,9 +130,8 @@ class CliTests(unittest.TestCase):
             alert_on_first_seen=True,
             max_price_eur=None,
             min_btu=None,
-            bol_backend="disabled",
             email_lang="zh",
-            validate_bol=lambda: None,
+            validate_email=lambda: None,
         )
 
     def test_dry_run_neither_emails_nor_saves_state(self) -> None:
@@ -158,20 +139,7 @@ class CliTests(unittest.TestCase):
         store = MagicMock()
         store.load.return_value = {"version": 1, "products": {}}
         with (
-            patch("airco_tracker.cli.CoolblueAdapter", _AvailableAdapter),
-            patch("airco_tracker.cli.MediaMarktAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.EpAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.ElectroWorldAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.WehkampAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.LidlAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.GammaAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.KarweiAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.PraxisAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.AlternateAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.TrotecAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.KlarsteinAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.FlinqAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.ActionAdapter", _SuccessAdapter),
+            _patched_adapters(_SuccessAdapter, CoolblueAdapter=_AvailableAdapter),
             patch("airco_tracker.cli.send_message") as mock_send,
             patch("airco_tracker.cli.build_state_store", return_value=store),
             redirect_stdout(io.StringIO()),
@@ -185,20 +153,7 @@ class CliTests(unittest.TestCase):
         store = MagicMock()
         store.load.return_value = {"version": 1, "products": {}}
         with (
-            patch("airco_tracker.cli.CoolblueAdapter", _AvailableAdapter),
-            patch("airco_tracker.cli.MediaMarktAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.EpAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.ElectroWorldAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.WehkampAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.LidlAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.GammaAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.KarweiAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.PraxisAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.AlternateAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.TrotecAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.KlarsteinAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.FlinqAdapter", _SuccessAdapter),
-            patch("airco_tracker.cli.ActionAdapter", _SuccessAdapter),
+            _patched_adapters(_SuccessAdapter, CoolblueAdapter=_AvailableAdapter),
             patch("airco_tracker.cli.send_message") as mock_send,
             patch("airco_tracker.cli.build_message", return_value="msg"),
             patch("airco_tracker.cli.build_state_store", return_value=store),

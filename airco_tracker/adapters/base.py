@@ -17,7 +17,7 @@ PRICE_PATTERNS = (
     re.compile(r"\b([\d.]{2,})\s*[,.]\s*(\d{2})\b"),
     re.compile(r"\b([\d.]{2,})\s*,?\s*[-–]"),
 )
-BTU_RE = re.compile(r"(?<![\d.])(\d{1,2}[. ]\d{3}|\d{3,5})(?!\d)\s*BTU\b", re.I)
+BTU_RE = re.compile(r"(?<![\d.,])(\d{1,2}[., ]\d{3}|\d{3,5})(?!\d)\s*BTU\b", re.I)
 
 
 def clean_text(node: Tag) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import html as html_module
 import json
 import unittest
 
@@ -8,15 +9,19 @@ from bs4 import BeautifulSoup
 
 from airco_tracker.adapters.action import ActionAdapter, _parse_product_page as parse_action_page
 from airco_tracker.adapters.alternate import _parse_product_page as parse_alternate_page
-from airco_tracker.adapters.bol import BolAdapter
 from airco_tracker.adapters.coolblue import CoolblueAdapter
+from airco_tracker.adapters.create_store import CreateStoreAdapter, _parse_card as parse_create_card
+from airco_tracker.adapters.delonghi import _parse_product_page as parse_delonghi_page
 from airco_tracker.adapters.diy import GammaAdapter, KarweiAdapter
 from airco_tracker.adapters.electroworld import ElectroWorldAdapter
 from airco_tracker.adapters.ep import EpAdapter
+from airco_tracker.adapters.expert import ExpertAdapter
 from airco_tracker.adapters.flinq import _parse_product_page as parse_flinq_page
 from airco_tracker.adapters.klarstein import KlarsteinAdapter
+from airco_tracker.adapters.kampeerwereld import _parse_product_page as parse_kampeerwereld_page
 from airco_tracker.adapters.lidl import LidlAdapter
 from airco_tracker.adapters.mediamarkt import MediaMarktAdapter
+from airco_tracker.adapters.obelink import _parse_product_page as parse_obelink_page
 from airco_tracker.adapters.praxis import PraxisAdapter
 from airco_tracker.adapters.trotec import TrotecAdapter
 from airco_tracker.adapters.wehkamp import WehkampAdapter
@@ -107,6 +112,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(parse_price("De prijs is '499' euro en '99' cent"), 499.99)
         self.assertEqual(parse_btu("14K BTU/h"), 14000)
         self.assertEqual(parse_btu("14.000 BTU/h"), 14000)
+        self.assertEqual(parse_btu("10,500 BTU/u"), 10500)
 
     def test_coolblue_out_of_stock_and_available(self) -> None:
         html = """
@@ -483,37 +489,133 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(result.price_eur, 299.0)
         self.assertEqual(result.btu, 14000)
 
-    def test_bol_marketing_api_excludes_aircooler_and_reads_offer(self) -> None:
-        fetcher = DummyFetcher({
-            "totalPages": 1,
-            "results": [
+    def test_expert_requires_online_saleability(self) -> None:
+        payload = {
+            "items": [
                 {
-                    "title": "Mini Aircooler Mobiele Airco",
-                    "url": "https://www.bol.com/nl/nl/p/9300000000001/",
-                    "offer": {"price": 49.95, "deliveryDescription": "Op voorraad"},
+                    "name": "Inventum mobiele airco 9000 BTU",
+                    "url": "https://www.expert.nl/inventum-airco",
+                    "final_price_incl_tax": 399,
+                    "not_saleable": False,
+                    "status_in_stock": 1,
+                    "in_stock": 1,
+                    "display_name": "Mobiele airco",
                 },
                 {
-                    "title": "Echte Mobiele Airco 7000 BTU",
-                    "description": "Werkt met afvoerslang naar buiten",
-                    "url": "https://www.bol.com/nl/nl/p/9300000000002/",
-                    "offer": {"price": 299.0, "deliveryDescription": "Morgen in huis"},
+                    "name": "Eurom mobiele airco 12000 BTU",
+                    "url": "https://www.expert.nl/eurom-airco",
+                    "final_price_incl_tax": 499,
+                    "not_saleable": True,
+                    "status_in_stock": 1,
+                    "in_stock": 1,
+                    "display_name": "Mobiele airco",
                 },
                 {
-                    "title": "Tweede Mobiele Airco 9000 BTU",
-                    "bolProductId": 9300000000003,
+                    "name": "Eurom Window-Way out",
+                    "url": "https://www.expert.nl/window-kit",
+                    "final_price_incl_tax": 49.95,
+                    "not_saleable": False,
+                    "status_in_stock": 1,
+                    "in_stock": 1,
+                    "description": "Raamkit voor mobiele airco",
                 },
-            ],
-        })
-        products = BolAdapter(fetcher, "client", "secret").fetch_products()
+            ]
+        }
+        raw = html_module.escape(json.dumps(payload), quote=True)
+        page = f'<catalog-category-view :catalog-data="{raw}"></catalog-category-view>'
+        products = ExpertAdapter(CatalogFetcher(page, {})).fetch_products()
         self.assertEqual(len(products), 2)
-        self.assertTrue(products[0].available)
-        self.assertEqual(products[0].btu, 7000)
-        self.assertEqual(products[0].price_eur, 299.0)
-        self.assertEqual(products[0].delivery, "Morgen in huis")
-        self.assertFalse(products[1].available)
-        self.assertEqual(products[1].url, "https://www.bol.com/nl/nl/p/9300000000003/")
-        self.assertEqual(fetcher.session.token_calls[0][1]["auth"], ("client", "secret"))
-        self.assertEqual(fetcher.session.search_calls[0][1]["params"]["country-code"], "NL")
+        self.assertEqual([product.available for product in products], [True, False])
+        self.assertEqual(products[0].btu, 9000)
+
+    def test_delonghi_uses_schema_stock_and_notify_state(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Pinguino mobiele airconditioner 12000 BTU",
+            "offers": {
+                "price": 999.90,
+                "availability": "https://schema.org/InStock",
+                "url": "https://www.delonghi.com/nl-nl/p/pinguino.html",
+            },
+        }
+        page = (
+            f'<script type="application/ld+json">{json.dumps(data)}</script>'
+            "<main><p>Breng mij op de hoogte</p></main>"
+        )
+        product = parse_delonghi_page(page, "https://www.delonghi.com/nl-nl/p/pinguino.html")
+        self.assertFalse(product.available)
+        self.assertEqual(product.price_eur, 999.9)
+        self.assertEqual(product.btu, 12000)
+
+    def test_obelink_reads_product_graph_offer(self) -> None:
+        data = {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "Product",
+                    "name": "Inventum AC901 mobiele airco",
+                    "description": "9000 BTU met afvoerslang",
+                    "url": "https://www.obelink.nl/inventum-ac-901-mobiele-airco.html",
+                    "offers": {
+                        "price": 319,
+                        "availability": "https://schema.org/InStock",
+                    },
+                }
+            ],
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_obelink_page(page, "https://www.obelink.nl/inventum-ac-901-mobiele-airco.html")
+        self.assertTrue(product.available)
+        self.assertEqual(product.price_eur, 319.0)
+        self.assertEqual(product.btu, 9000)
+
+    def test_kampeerwereld_rejects_store_only_stock(self) -> None:
+        page = """
+        <h1 class="product-detail-name">Eurom AC 7001 Mobiele Airco</h1>
+        <div class="product-detail-price">€ 189,00</div>
+        <div class="product-detail-stock-container"><span>Op voorraad</span></div>
+        <div class="product-detail-description-text">Koelvermogen 7000 BTU</div>
+        <p>Exclusief in winkel</p>
+        """
+        product = parse_kampeerwereld_page(page, "https://www.kampeerwereld.nl/airco/1")
+        self.assertFalse(product.available)
+        self.assertEqual(product.price_eur, 189.0)
+        self.assertEqual(product.btu, 7000)
+
+    def test_create_presale_is_not_available(self) -> None:
+        page = """
+        <div class="c-product-card">
+          <span class="c-product-tag__label">Presale</span>
+          <h2 class="c-product-card__title">
+            <a href="/nl/product.html">SILKAIR Mobiele airco 9000 BTU</a>
+          </h2>
+          <div class="c-product-card__price--final">309,95</div>
+          <span>Verzending vanaf 26/07/2026</span>
+        </div>
+        """
+        card = BeautifulSoup(page, "html.parser").select_one(".c-product-card")
+        product = parse_create_card(card, "https://www.create-store.com/nl/3939-kopen-mobiele-airco")
+        self.assertIsNotNone(product)
+        self.assertFalse(product.available)
+        self.assertEqual(product.price_eur, 309.95)
+        self.assertEqual(product.btu, 9000)
+
+    def test_create_deduplicates_responsive_product_cards(self) -> None:
+        page = """
+        <div class="c-product-card">
+          <h2 class="c-product-card__title"><a href="/nl/product.html">SILKAIR Mobiele airco 9000 BTU</a></h2>
+          <div class="c-product-card__price--final">339,95</div>
+          <span>Verzending binnen 48 uur</span>
+        </div>
+        <div class="c-product-card">
+          <h2 class="c-product-card__title"><a href="/nl/product.html">SILKAIR Mobiele airco 9000 BTU</a></h2>
+          <div class="c-product-card__price--final">309,95</div>
+          <span>Verzending binnen 48 uur</span>
+        </div>
+        """
+        products = CreateStoreAdapter(CatalogFetcher(page, {})).fetch_products()
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0].price_eur, 309.95)
 
     def test_wehkamp_long_lead_time_is_unavailable(self) -> None:
         data = {
