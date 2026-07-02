@@ -134,7 +134,7 @@ Deploy with:
 
 ```bash
 cd ~/airco-tracking-nl
-EMAIL_TO=asahi.lee.eu@outlook.com ./scripts/deploy-azure.sh
+EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ```
 
 The script:

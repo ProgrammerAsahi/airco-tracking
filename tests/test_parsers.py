@@ -330,6 +330,47 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(products[0].price_eur, 319.0)
         self.assertEqual(products[0].btu, 9000)
 
+    def test_praxis_converts_watt_rating_to_btu(self) -> None:
+        # Praxis titles often state cooling capacity in watts (e.g. 3500W)
+        # instead of BTU. The adapter should convert so MIN_BTU filtering works.
+        state = {
+            "translations": {"html": "<b>test</b>"},
+            "products": {
+                "quantity": 2,
+                "collection": [
+                    {
+                        "title": "Sencys mobiele airconditioner MPPD-12 3500W",
+                        "link": "/mobiele-airco/1",
+                        "regular": {"price": 560},
+                        "deliveryModes": [{"code": "SHDPOSTNLPRAXIS"}],
+                        "availabilityStatus": "Thuisbezorgd",
+                        "availabilityStatusMultiple": ["Online op voorraad"],
+                        "disableStatus": {"isDisabled": False},
+                    },
+                    {
+                        "title": "Sencys mobiele airco 7000 BTU",
+                        "link": "/mobiele-airco/2",
+                        "regular": {"price": 319},
+                        "deliveryModes": [{"code": "SHDPOSTNLPRAXIS"}],
+                        "availabilityStatus": "Thuisbezorgd",
+                        "availabilityStatusMultiple": ["Online op voorraad"],
+                        "disableStatus": {"isDisabled": False},
+                    },
+                ],
+            },
+        }
+        raw = json.dumps(state, separators=(",", ":")).replace("<", r"\x3c")
+        html = f'<script>window["__PRELOADED_STATE_listerFragment__"] = {raw};</script>'
+        products = PraxisAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.praxis.nl/verwarmingen-airco-s/airco-s/mobiele-airco-s/he057/",
+        )
+        self.assertEqual(len(products), 2)
+        # 3500 W * 3.412 ≈ 11942 BTU
+        self.assertEqual(products[0].btu, 11942)
+        # Explicit BTU in the title wins over the watt fallback.
+        self.assertEqual(products[1].btu, 7000)
+
     def test_alternate_reads_schema_product_stock(self) -> None:
         product = {
             "@type": "Product",

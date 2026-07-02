@@ -135,7 +135,7 @@ tail -f ~/airco-tracking-nl/tracker.log ~/airco-tracking-nl/tracker.err.log
 
 ```bash
 cd ~/airco-tracking-nl
-EMAIL_TO=asahi.lee.eu@outlook.com ./scripts/deploy-azure.sh
+EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ```
 
 脚本会：

@@ -24,15 +24,15 @@ Expand reliable portable-air-conditioner coverage for Dutch delivery while keepi
 Systematic review and repair of accuracy, maintainability, i18n, tests, and infrastructure:
 
 - **Wehkamp adapter**: removed erroneous `monoblock` exclusion (monoblock is genuine portable form factor); added multi-week lead-time detection (`"weken"`) so preorders do not trigger false alerts.
-- **Praxis adapter**: added positive keyword requirement (`airco`/`airconditioning`/`aircondition`) to `_is_portable_airco`, previously relied solely on negative exclusions.
+- **Praxis adapter**: added positive keyword requirement (`airco`/`airconditioning`/`aircondition`) to `_is_portable_airco`, previously relied solely on negative exclusions; added watt→BTU fallback for titles that state cooling capacity in watts (e.g. `MPPD-12 3500W` → ~11942 BTU) so `MIN_BTU` filtering still applies when no BTU figure is present.
 - **Lidl adapter**: replaced self-implemented JSON-LD parser with shared `schema.py` functions (`product_json_ld`/`first_offer`/`offer_price`/`schema_in_stock`), fixing `@graph` support gap and removing duplication.
 - **ElectroWorld**: `_positive_int` threshold corrected from `>=0` to `>0` to match semantics.
 - **Fetcher**: User-Agent version now reads from package metadata (`importlib.metadata`) instead of hardcoded `0.1`.
 - **Email i18n**: new `airco_tracker/i18n.py` with zh/nl/en translations; `EMAIL_LANG` config (default `zh`); `mailer.py` uses `translate()`; `job.bicep`, `.env.example`, and deploy scripts updated; three READMEs synced.
-- **Tests**: added `tests/test_fetch.py` (5 tests), dry-run safety assertions in `tests/test_cli.py` (2 tests), multilingual email test in `tests/test_cloud_backends.py`, and 3 new parser tests (Wehkamp lead-time/monoblock, Lidl @graph). Total: 37 tests.
+- **Tests**: added `tests/test_fetch.py` (5 tests), dry-run safety assertions in `tests/test_cli.py` (2 tests), multilingual email test in `tests/test_cloud_backends.py`, and 4 new parser tests (Wehkamp lead-time/monoblock, Lidl @graph, Praxis watt→BTU). Total: 38 tests.
 - **Deploy verification**: `scripts/deploy-application.sh` now waits for the Container Apps job execution result and exits non-zero on failure.
 - **Infrastructure**: Key Vault `enablePurgeProtection` enabled (irreversible). `softDeleteRetentionInDays` remains at 7 days — Azure does not allow modifying this property after creation, so the planned 90-day extension could not be applied. Communication Owner and OIDC Contributor roles retained as-is (documented as acceptable: ACS data-plane RBAC is hard to verify; OIDC needs Contributor for deployment).
-- **Hygiene**: personal email address replaced with `you@example.com` placeholders in deploy scripts and test fixtures. Version bumped to `0.7.0`.
+- **Hygiene**: personal email address replaced with `you@example.com` placeholders in deploy scripts, test fixtures, and all three READMEs. Version bumped to `0.7.0`.
 
 Not changed (documented decisions):
 - 6 sitemap/API adapters do not inherit `Adapter` base class — pure style issue, no functional impact, refactor risk exceeds benefit.
@@ -94,8 +94,9 @@ Optional/credential-gated:
 
 ## Verification snapshot
 
-- Unit tests after this repair round: 37 passed (was 26).
+- Unit tests after this repair round: 38 passed (was 26).
 - Live local dry-run after commit `781ebc9`: all 14 retailers ran without errors. Counts: Coolblue 11/0, MediaMarkt 5/1, EP 7/0, Electro World 3/0, Wehkamp 1/1, Lidl 5/0, GAMMA 3/0, KARWEI 2/0, Praxis 9/1, Alternate 0/0, Trotec 13/0, Klarstein 18/0, FlinQ 2/0, Action 1/0.
+- Live local dry-run on 2026-07-02 (post watt→BTU fix): all 14 retailers ran without errors. Praxis watt→BTU confirmed on `MPPD-12 3500W` → btu=11942. European heat wave has driven most retailers to 0 available stock, which is expected.
 - GitHub Actions deployment run `28585347734` for commit `ce0aa11`: succeeded. Deploy verification execution `airco-tracker-job-utl4kwg`: succeeded.
 - Foundation Bicep deployment: succeeded. Key Vault purge protection enabled (verified via `az keyvault show`).
 
