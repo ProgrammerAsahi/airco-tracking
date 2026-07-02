@@ -10,7 +10,7 @@ Expand reliable portable-air-conditioner coverage for Dutch delivery while keepi
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Last deployed commit: `ce0aa11` (`Restore executable mode on deploy scripts`; application code changes from `781ebc9`)
+- Last deployed commit: `6930a24` (`Polish README setup steps; add Praxis watt-to-BTU fallback`)
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Azure Container Apps job: `airco-tracker-job`
