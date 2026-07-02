@@ -12,8 +12,8 @@ The current development round adds five active retailers, migrates the notificat
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Working-tree baseline: `02cae9e`
-- Last verified production image: commit `6930a24`
+- Feature commit: `99a6cf0f138af48bb8129f6a9aa8a3b862f94547`
+- Last verified production image: commit `99a6cf0f138af48bb8129f6a9aa8a3b862f94547`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Container Apps job: `airco-tracker-job`
@@ -103,7 +103,10 @@ Conrad.nl is intentionally not registered. Its storefront and robots endpoint re
 - Shell syntax: clean.
 - `git diff --check`: clean.
 - Final installed-version dry-run: all 19 registered retailers completed. New-site counts were Expert 11/0, De'Longhi 11/0, Obelink 13/1, Kampeerwereld 5/1, and Create 2/0. The two available camping units were 5,100 and 3,200 BTU and were correctly filtered out; a EUR 1,999 MediaMarkt unit was also filtered out. Only the Wehkamp 7,000 BTU / EUR 225 product qualified for an alert.
-- Azure recipient migration: complete. GitHub push and production execution verification remain for this working round; replace this line with concrete evidence after completion.
+- Azure recipient migration: complete. Current Container Apps configuration contains no plain `EMAIL_TO`; it contains `EMAIL_LANG=zh`, `MIN_BTU=7000`, `MAX_PRICE_EUR=1500`, and `KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email`.
+- GitHub Actions run `28607362989`: succeeded in 3m43s. Verification execution `airco-tracker-job-opfacjh`: Succeeded. Its Azure logs show all 19 retailer summaries and end with `No new stock; no email sent`.
+- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:99a6cf0f138af48bb8129f6a9aa8a3b862f94547`.
+- Expected per-product warnings remain for one De'Longhi URL without an offer, one retired Obelink URL, and two Kampeerwereld URLs returning HTTP 410. Their adapters still completed with 11, 13, and 5 parsed products respectively; these warnings do not mark the retailer check as failed.
 
 ## Updating this handoff
 
