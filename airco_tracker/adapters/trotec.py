@@ -39,7 +39,7 @@ class TrotecAdapter(Adapter):
                 available=delivery.lower() == "op voorraad",
                 price_eur=price,
                 delivery=delivery or None,
-                btu=parse_btu(text),
+                btu=parse_btu(text) or _model_btu(name),
             )
         return list(products.values())
 
@@ -59,6 +59,23 @@ def _is_airconditioner(name: str) -> bool:
     lower = name.lower()
     excluded = ("wandairconditioner", "raamafdichting", "airlock", "accessoire")
     return "aircondition" in lower and not any(term in lower for term in excluded)
+
+
+_MODEL_CAPACITIES = (
+    (re.compile(r"\bPAC-C\s*1500\b", re.I), 5000),
+    (re.compile(r"\bPAC\s*(?:2015|2016|2020|2100)\b", re.I), 7000),
+    (re.compile(r"\bPAC\s*(?:2600|2620)\b", re.I), 9000),
+    (re.compile(r"\bPAC\s*3000\b", re.I), 10000),
+    (re.compile(r"\bPAC(?:-S)?\s*(?:3500|3501|3510)\b", re.I), 12000),
+    (re.compile(r"\bPAC\s*(?:3910|4100)\b", re.I), 14000),
+)
+
+
+def _model_btu(name: str) -> int | None:
+    for pattern, btu in _MODEL_CAPACITIES:
+        if pattern.search(name):
+            return btu
+    return None
 
 
 def _nested_float(data: dict[str, Any], *keys: str) -> float | None:

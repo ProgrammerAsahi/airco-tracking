@@ -7,7 +7,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from ..models import Product
-from .base import Adapter, canonical_url, parse_btu
+from .base import Adapter, canonical_url, enrich_available_btu, parse_btu
 
 
 class WehkampAdapter(Adapter):
@@ -20,7 +20,7 @@ class WehkampAdapter(Adapter):
         # restock will reappear as a first-seen available product.
         page_url = self.urls[0]
         soup = BeautifulSoup(self.fetcher.get(page_url), "html.parser")
-        return self.parse(soup, page_url)
+        return enrich_available_btu(self.fetcher, self.parse(soup, page_url))
 
     def parse(self, soup: BeautifulSoup, page_url: str) -> list[Product]:
         data = _initial_data(soup)

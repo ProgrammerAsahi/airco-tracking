@@ -3,7 +3,7 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 
 from ..models import Product
-from .base import Adapter, canonical_url, clean_text, parse_btu
+from .base import Adapter, canonical_url, clean_text, parse_btu, parse_watt_rating_btu
 
 
 class DiyStoreAdapter(Adapter):
@@ -35,7 +35,7 @@ class DiyStoreAdapter(Adapter):
                 available=available,
                 price_eur=price_eur,
                 delivery=_delivery(state),
-                btu=parse_btu(text),
+                btu=parse_btu(text) or parse_watt_rating_btu(name),
             )
         return list(products.values())
 

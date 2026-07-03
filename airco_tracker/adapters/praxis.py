@@ -7,7 +7,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from ..models import Product
-from .base import Adapter, canonical_url, parse_btu
+from .base import Adapter, canonical_url, parse_btu, parse_watt_rating_btu
 
 
 class PraxisAdapter(Adapter):
@@ -104,7 +104,7 @@ def _parse_product(item: Any, page_url: str) -> Product | None:
         available=available,
         price_eur=_price(item.get("regular")),
         delivery="; ".join([status, *details]) or None,
-        btu=parse_btu(name) or _watts_to_btu(name),
+        btu=parse_btu(name) or parse_watt_rating_btu(name),
     )
 
 
@@ -122,22 +122,6 @@ def _is_portable_airco(name: str) -> bool:
     return not any(term in lower for term in excluded) and any(
         term in lower for term in positive
     )
-
-
-# Praxis product titles often state the cooling capacity in watts instead of
-# BTU (e.g. "MPPD-12 3500W"). Convert so MIN_BTU filtering still applies.
-_WATT_RE = re.compile(r"(\d{1,2}[.,]?\d{3}|\d{3,5})\s*W\b", re.I)
-_MIN_WATTS = 1000  # below this a "W" figure is not a real airco cooling output
-
-
-def _watts_to_btu(text: str) -> int | None:
-    match = _WATT_RE.search(text)
-    if not match:
-        return None
-    watts = int(re.sub(r"\D", "", match.group(1)))
-    if watts < _MIN_WATTS:
-        return None
-    return round(watts * 3.412)
 
 
 def _price(value: Any) -> float | None:

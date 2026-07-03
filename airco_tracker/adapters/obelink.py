@@ -7,19 +7,11 @@ from bs4 import BeautifulSoup
 
 from ..fetch import Fetcher
 from ..models import Product
-from .base import parse_btu
+from .base import parse_btu, parse_cooling_watts_btu, parse_product_page_btu
 from .schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
 
 LOG = logging.getLogger(__name__)
-
-# Obelink's second-chance pages can omit the BTU sentence that is present on
-# the corresponding new-product page.  ArcticMove model names encode their
-# cooling capacity in watts (for example ArcticMove 1500 = 5100 BTU), so this
-# narrow fallback keeps MIN_BTU filtering effective without treating arbitrary
-# electrical-consumption figures as cooling capacity.
-_ARCTICMOVE_WATTS_RE = re.compile(r"\barcticmove\s+(\d{4,5})(?:\s*w)?\b", re.I)
-
 
 class ObelinkAdapter:
     site = "Obelink"
@@ -81,16 +73,12 @@ def _parse_product_page(page: str, page_url: str) -> Product:
         available=available,
         price_eur=offer_price(offer),
         delivery="Online op voorraad" if available else "Niet online op voorraad",
-        btu=parse_btu(f"{name} {description}") or _arcticmove_btu(name),
+        btu=(
+            parse_btu(f"{name} {description}")
+            or parse_cooling_watts_btu(f"{name} {description}")
+            or parse_product_page_btu(page)
+        ),
     )
-
-
-def _arcticmove_btu(name: str) -> int | None:
-    match = _ARCTICMOVE_WATTS_RE.search(name)
-    if not match:
-        return None
-    watts = int(match.group(1))
-    return round(watts * 3.412)
 
 
 def _is_portable_airco(name: str) -> bool:

@@ -6,7 +6,14 @@ from bs4 import BeautifulSoup
 
 from ..fetch import Fetcher
 from ..models import Product
-from .base import canonical_url, clean_text, parse_btu, parse_price
+from .base import (
+    canonical_url,
+    clean_text,
+    parse_btu,
+    parse_cooling_watts_btu,
+    parse_price,
+    parse_product_page_btu,
+)
 from .schema import first_offer, offer_price, product_json_ld, schema_in_stock
 from .sitemap import sitemap_locations
 
@@ -79,7 +86,11 @@ def _parse_product_page(page: str, page_url: str) -> Product:
         available=available,
         price_eur=offer_price(offer),
         delivery="Op voorraad" if available else "Niet op voorraad",
-        btu=parse_btu(f"{name} {description}"),
+        btu=(
+            parse_btu(f"{name} {description}")
+            or parse_cooling_watts_btu(description)
+            or parse_product_page_btu(page)
+        ),
     )
 
 
@@ -98,5 +109,5 @@ def _parse_product_html(soup: BeautifulSoup, page_url: str) -> Product:
         available=available,
         price_eur=parse_price(text),
         delivery="Op voorraad" if available else "Niet op voorraad",
-        btu=parse_btu(text),
+        btu=parse_btu(text) or parse_cooling_watts_btu(text),
     )

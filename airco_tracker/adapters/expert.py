@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 
 from ..fetch import Fetcher
 from ..models import Product
-from .base import parse_btu
+from .base import enrich_available_btu, parse_btu, parse_cooling_watts_btu
 
 
 class ExpertAdapter:
@@ -42,7 +42,8 @@ class ExpertAdapter:
         if not isinstance(items, list):
             raise RuntimeError("Expert catalog data did not contain products")
         products = [_parse_product(item) for item in items]
-        return [product for product in products if product is not None]
+        parsed = [product for product in products if product is not None]
+        return enrich_available_btu(self.fetcher, parsed)
 
 
 def _parse_product(item: Any) -> Product | None:
@@ -73,7 +74,7 @@ def _parse_product(item: Any) -> Product | None:
         available=available,
         price_eur=_float(item.get("final_price_incl_tax") or item.get("price")),
         delivery="Online bestelbaar" if available else "Niet online bestelbaar",
-        btu=parse_btu(f"{name} {details}"),
+        btu=parse_btu(f"{name} {details}") or parse_cooling_watts_btu(details),
     )
 
 

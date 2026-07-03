@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 from ..fetch import Fetcher
 from ..models import Product
-from .base import canonical_url, clean_text, parse_btu, parse_price
+from .base import canonical_url, clean_text, enrich_available_btu, parse_btu, parse_price
 
 
 class CreateStoreAdapter:
@@ -29,7 +29,7 @@ class CreateStoreAdapter:
             previous = unique.get(product.url)
             if previous is None or _lower_price(product, previous):
                 unique[product.url] = product
-        return list(unique.values())
+        return enrich_available_btu(self.fetcher, list(unique.values()))
 
 
 def _parse_card(card: BeautifulSoup, page_url: str) -> Product | None:

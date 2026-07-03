@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 
 from ..fetch import Fetcher
 from ..models import Product
-from .base import clean_text, parse_btu
+from .base import clean_text, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
 from .schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
 
@@ -86,5 +86,9 @@ def _parse_product_page(page: str, page_url: str) -> Product:
         available=available,
         price_eur=offer_price(offer),
         delivery="Levering binnen 2-4 werkdagen" if available else "Niet op voorraad",
-        btu=parse_btu(f"{name} {description} {text}"),
+        btu=(
+            parse_btu(f"{name} {description} {text}")
+            or parse_cooling_watts_btu(f"{description} {text}")
+            or parse_product_page_btu(page)
+        ),
     )

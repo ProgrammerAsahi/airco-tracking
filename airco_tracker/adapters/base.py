@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
+import logging
 import re
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup, Tag
 
 from ..fetch import Fetcher
 from ..models import Product
+from .schema import product_json_ld
 
 
+LOG = logging.getLogger(__name__)
 PRICE_PATTERNS = (
     re.compile(r"(?:€|EUR)\s*([\d.]+)\s*[,.]\s*(\d{2})", re.I),
     re.compile(r"(?:€|EUR)\s*([\d.]+)\s*,?\s*[-–]", re.I),
@@ -18,6 +23,43 @@ PRICE_PATTERNS = (
     re.compile(r"\b([\d.]{2,})\s*,?\s*[-–]"),
 )
 BTU_RE = re.compile(r"(?<![\d.,])(\d{1,2}[., ]\d{3}|\d{3,5})(?!\d)\s*BTU\b", re.I)
+BTU_AFTER_LABEL_RE = re.compile(
+    r"(?:koelcapaciteit|koelvermogen|maximaal\s+koelvermogen)"
+    r"[^\d]{0,40}\bBTU(?:\s*/\s*[hu])?[^\d]{0,15}"
+    r"(\d{1,2}[., ]\d{3}|\d{3,5})(?!\d)",
+    re.I,
+)
+COOLING_LABEL = r"(?:koelvermogen|koelcapaciteit|cooling\s+capacity)"
+COOLING_WATTS_AFTER_RE = re.compile(
+    rf"{COOLING_LABEL}.{{0,50}}?(\d+(?:[.,]\d+)?)\s*(kW|Watt|W)\b",
+    re.I,
+)
+COOLING_WATTS_BEFORE_RE = re.compile(
+    rf"(\d+(?:[.,]\d+)?)\s*(kW|Watt|W)\b.{{0,50}}?{COOLING_LABEL}",
+    re.I,
+)
+LABELED_BTU_PATTERNS = (
+    re.compile(
+        rf"{COOLING_LABEL}.{{0,60}}?"
+        r"(\d{1,2}[., ]\d{3}|\d{3,5})(?!\d)\s*BTU\b",
+        re.I,
+    ),
+    re.compile(
+        r"(?<![\d.,])(\d{1,2}[., ]\d{3}|\d{3,5})(?!\d)\s*BTU(?:\s*/\s*[hu])?"
+        rf".{{0,40}}?{COOLING_LABEL}",
+        re.I,
+    ),
+    BTU_AFTER_LABEL_RE,
+)
+WATT_RATING_RE = re.compile(r"(\d{1,2}[.,]?\d{3}|\d{3,5})\s*W\b", re.I)
+KNOWN_MODEL_BTU = (
+    (re.compile(r"\barcticmove\s+1500(?:\s*w)?\b", re.I), 5118),
+    (re.compile(r"\bqlima\s+p\s*3020\b", re.I), 6824),
+    (re.compile(r"\bqlima\s+p\s*326\b", re.I), 9000),
+    (re.compile(r"\bqlima\s+p\s*335\b", re.I), 12000),
+    (re.compile(r"\bcomfee\b.*?smart\s*cool\s+12[. ]?000\b", re.I), 12000),
+    (re.compile(r"\bcomfee\b.*?\b9000\s+pro\b", re.I), 9000),
+)
 
 
 def clean_text(node: Tag) -> str:
@@ -44,7 +86,77 @@ def parse_btu(text: str) -> int | None:
     if match:
         return int(re.sub(r"\D", "", match.group(1)))
     shorthand = re.search(r"\b(\d{1,2})K\s*BTU\b", text, re.I)
-    return int(shorthand.group(1)) * 1000 if shorthand else None
+    if shorthand:
+        return int(shorthand.group(1)) * 1000
+    after_label = BTU_AFTER_LABEL_RE.search(text)
+    if after_label:
+        return int(re.sub(r"\D", "", after_label.group(1)))
+    for pattern, btu in KNOWN_MODEL_BTU:
+        if pattern.search(text):
+            return btu
+    return None
+
+
+def parse_cooling_watts_btu(text: str) -> int | None:
+    """Convert only explicitly labelled cooling-capacity watts to BTU/h."""
+    match = COOLING_WATTS_AFTER_RE.search(text) or COOLING_WATTS_BEFORE_RE.search(text)
+    if not match:
+        return None
+    value = float(match.group(1).replace(",", "."))
+    watts = value * 1000 if match.group(2).lower() == "kw" else value
+    if not 300 <= watts <= 10_000:
+        return None
+    return round(watts * 3.412)
+
+
+def parse_watt_rating_btu(text: str) -> int | None:
+    """Convert a trusted product-title cooling rating such as ``3500W``."""
+    match = WATT_RATING_RE.search(text)
+    if not match:
+        return None
+    watts = int(re.sub(r"\D", "", match.group(1)))
+    if not 1000 <= watts <= 6000:
+        return None
+    return round(watts * 3.412)
+
+
+def parse_product_page_btu(page: str) -> int | None:
+    """Read product-specific structured data, then labelled visible specs."""
+    soup = BeautifulSoup(page, "html.parser")
+    try:
+        data = product_json_ld(soup)
+    except RuntimeError:
+        data = {}
+    if data:
+        structured = json.dumps(data, ensure_ascii=False)
+        parsed = parse_btu(structured) or parse_cooling_watts_btu(structured)
+        if parsed is not None:
+            return parsed
+
+    main = soup.find("main") or soup
+    text = clean_text(main)
+    for pattern in LABELED_BTU_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return int(re.sub(r"\D", "", match.group(1)))
+    return parse_cooling_watts_btu(text)
+
+
+def enrich_available_btu(fetcher: Fetcher, products: list[Product]) -> list[Product]:
+    """Fetch details only for alert-eligible products whose BTU is unknown."""
+    enriched: list[Product] = []
+    for product in products:
+        if not product.available or product.btu is not None:
+            enriched.append(product)
+            continue
+        try:
+            btu = parse_product_page_btu(fetcher.get(product.url))
+        except Exception as exc:
+            LOG.warning("BTU enrichment failed for %s: %s", product.url, exc)
+            enriched.append(product)
+            continue
+        enriched.append(replace(product, btu=btu) if btu is not None else product)
+    return enriched
 
 
 def product_context(link: Tag, href_fragment: str, markers: tuple[str, ...]) -> Tag:
@@ -101,7 +213,7 @@ class Adapter(ABC):
                 products[product.url] = product
         if not products:
             raise RuntimeError(f"{self.site}: parser found no products; site markup may have changed")
-        return list(products.values())
+        return enrich_available_btu(self.fetcher, list(products.values()))
 
     @abstractmethod
     def parse(self, soup: BeautifulSoup, page_url: str) -> list[Product]:

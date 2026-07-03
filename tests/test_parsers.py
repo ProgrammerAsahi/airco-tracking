@@ -25,7 +25,14 @@ from airco_tracker.adapters.obelink import _parse_product_page as parse_obelink_
 from airco_tracker.adapters.praxis import PraxisAdapter
 from airco_tracker.adapters.trotec import TrotecAdapter
 from airco_tracker.adapters.wehkamp import WehkampAdapter
-from airco_tracker.adapters.base import parse_btu, parse_price
+from airco_tracker.adapters.base import (
+    enrich_available_btu,
+    parse_btu,
+    parse_cooling_watts_btu,
+    parse_price,
+    parse_product_page_btu,
+)
+from airco_tracker.models import Product
 
 
 class DummyResponse:
@@ -113,6 +120,43 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(parse_btu("14K BTU/h"), 14000)
         self.assertEqual(parse_btu("14.000 BTU/h"), 14000)
         self.assertEqual(parse_btu("10,500 BTU/u"), 10500)
+        self.assertEqual(parse_btu("Koelcapaciteit (BTU/u) 10 000"), 10000)
+
+    def test_explicit_cooling_watts_are_converted_but_input_power_is_not(self) -> None:
+        self.assertEqual(parse_cooling_watts_btu("Koelcapaciteit 1495 W"), 5101)
+        self.assertEqual(parse_cooling_watts_btu("Met 3,5 kW koelvermogen"), 11942)
+        self.assertIsNone(parse_cooling_watts_btu("Stroomverbruik 1500 W"))
+
+    def test_known_low_capacity_models_are_inferred(self) -> None:
+        self.assertEqual(parse_btu("Obelink ArcticMove 1500 tentairco"), 5118)
+        self.assertEqual(parse_btu("Qlima P 3020 Mobiele Airco"), 6824)
+        self.assertEqual(parse_btu("COMFEE Mobiele airco 9000 Pro met APP"), 9000)
+        self.assertEqual(parse_btu("COMFEE Mobiele aircoSmart Cool 12.000 Plus"), 12000)
+
+    def test_product_page_parser_reads_labelled_specs(self) -> None:
+        page = """
+        <main><dl><dt>Maximaal koelvermogen (BTU)</dt><dd>9400 BTU</dd></dl></main>
+        """
+        self.assertEqual(parse_product_page_btu(page), 9400)
+
+    def test_btu_enrichment_fetches_only_available_unknown_products(self) -> None:
+        class DetailFetcher:
+            def __init__(self) -> None:
+                self.urls = []
+
+            def get(self, url):
+                self.urls.append(url)
+                return "<main>Koelcapaciteit 2000 Watt</main>"
+
+        fetcher = DetailFetcher()
+        available = Product("Shop", "Airco", "https://shop.test/available", True)
+        unavailable = Product("Shop", "Airco", "https://shop.test/unavailable", False)
+        known = Product("Shop", "Airco", "https://shop.test/known", True, btu=9000)
+        products = enrich_available_btu(fetcher, [available, unavailable, known])
+        self.assertEqual(fetcher.urls, [available.url])
+        self.assertEqual(products[0].btu, 6824)
+        self.assertIsNone(products[1].btu)
+        self.assertEqual(products[2].btu, 9000)
 
     def test_coolblue_out_of_stock_and_available(self) -> None:
         html = """
@@ -291,6 +335,18 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(products[0].price_eur, 299.0)
             self.assertEqual(products[0].btu, 9000)
 
+    def test_gamma_and_karwei_convert_qlima_title_watts(self) -> None:
+        html = """
+        <article class="js-product-tile" data-state="ONLINE_AVAILABLE">
+          <a class="click-mask" href="/assortiment/qlima/p/B1"
+             title="Qlima mobiele airconditioner P 3020 wit 2000W"></a>
+          <meta itemprop="price" content="279.00">
+        </article>"""
+        soup = BeautifulSoup(html, "html.parser")
+        for adapter in (GammaAdapter(DummyFetcher()), KarweiAdapter(DummyFetcher())):
+            products = adapter.parse(soup, "https://shop.test/")
+            self.assertEqual(products[0].btu, 6824)
+
     def test_praxis_requires_current_home_delivery(self) -> None:
         state = {
             "translations": {"html": "<b>test</b>"},
@@ -420,6 +476,22 @@ class ParserTests(unittest.TestCase):
         self.assertEqual([product.available for product in products], [True, False])
         self.assertEqual(products[0].price_eur, 349.99)
         self.assertEqual(products[0].btu, 7000)
+
+    def test_trotec_infers_verified_model_capacity_when_card_omits_btu(self) -> None:
+        data = {
+            "name": "Camping-airconditioner PAC-C 1500 SH WiFi",
+            "availability_message": "Op voorraad",
+            "price_range": {"minimum_price": {"final_price": {"value": 579.99}}},
+        }
+        html = (
+            f"<div x-data='{json.dumps({'product': data})}'>"
+            '<a class="product-item-link" href="/shop/pac-c-1500.html">Airco</a></div>'
+        ).replace('{"product":', "{ product:")
+        products = TrotecAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://nl.trotec.com/shop/mobiele-airco",
+        )
+        self.assertEqual(products[0].btu, 5000)
 
     def test_klarstein_uses_server_rendered_stock_attribute(self) -> None:
         html = """
@@ -587,6 +659,37 @@ class ParserTests(unittest.TestCase):
             "https://www.obelink.nl/tweedekans-arcticmove-1500w.html",
         )
         self.assertEqual(product.btu, 5118)
+
+    def test_obelink_converts_explicit_cooling_capacity_watts(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Mestic SPA-5000 split airco",
+            "description": "Met een koelcapaciteit van 1495 Watt.",
+            "offers": {
+                "price": 539,
+                "availability": "https://schema.org/OutOfStock",
+            },
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_obelink_page(page, "https://www.obelink.nl/mestic-spa-5000.html")
+        self.assertEqual(product.btu, 5101)
+
+    def test_obelink_reads_cooling_capacity_from_specification_table(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Eurom AC7000 split airco",
+            "description": "Een split airco voor de caravan.",
+            "offers": {
+                "price": 599,
+                "availability": "https://schema.org/OutOfStock",
+            },
+        }
+        page = (
+            f'<script type="application/ld+json">{json.dumps(data)}</script>'
+            "<main><table><tr><th>Koelcapaciteit</th><td>2000 W</td></tr></table></main>"
+        )
+        product = parse_obelink_page(page, "https://www.obelink.nl/eurom-ac7000.html")
+        self.assertEqual(product.btu, 6824)
 
     def test_kampeerwereld_rejects_store_only_stock(self) -> None:
         page = """

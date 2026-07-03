@@ -5,7 +5,7 @@ import re
 from typing import Any
 from urllib.parse import urlencode
 
-from .base import parse_btu
+from .base import enrich_available_btu, parse_btu, parse_cooling_watts_btu
 from ..fetch import Fetcher
 from ..models import Product
 
@@ -71,7 +71,8 @@ class ElectroWorldAdapter:
         if not isinstance(hits, list):
             raise RuntimeError("Electro World search response did not contain products")
         products = [product for hit in hits if (product := _parse_hit(hit)) is not None]
-        return list({product.url: product for product in products}.values())
+        unique = list({product.url: product for product in products}.values())
+        return enrich_available_btu(self.fetcher, unique)
 
 
 def _algolia_config(page: str) -> dict[str, Any]:
@@ -109,7 +110,7 @@ def _parse_hit(hit: Any) -> Product | None:
         available=available,
         price_eur=_price(hit.get("price")),
         delivery="Online op voorraad" if available else "Niet online op voorraad",
-        btu=parse_btu(f"{name} {details}"),
+        btu=parse_btu(f"{name} {details}") or parse_cooling_watts_btu(details),
     )
 
 
