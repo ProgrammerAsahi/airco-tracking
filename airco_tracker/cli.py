@@ -19,6 +19,7 @@ from .adapters import (
     ExpertAdapter,
     FlinqAdapter,
     GammaAdapter,
+    HuboAdapter,
     KarweiAdapter,
     KampeerwereldAdapter,
     KlarsteinAdapter,
@@ -28,6 +29,7 @@ from .adapters import (
     PraxisAdapter,
     SolagoAdapter,
     TrotecAdapter,
+    VrijbuiterAdapter,
     WehkampAdapter,
 )
 from .config import Config
@@ -87,6 +89,8 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         EvolarshopAdapter(fetcher),
         AircoVoorInHuisAdapter(fetcher),
         SolagoAdapter(fetcher),
+        HuboAdapter(fetcher),
+        VrijbuiterAdapter(fetcher),
     ]
     products: list[Product] = []
     failures: list[str] = []

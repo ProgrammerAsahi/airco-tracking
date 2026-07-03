@@ -11,6 +11,7 @@ from .ep import EpAdapter
 from .evolarshop import EvolarshopAdapter
 from .expert import ExpertAdapter
 from .flinq import FlinqAdapter
+from .hubo import HuboAdapter
 from .kampeerwereld import KampeerwereldAdapter
 from .klarstein import KlarsteinAdapter
 from .lidl import LidlAdapter
@@ -19,6 +20,7 @@ from .obelink import ObelinkAdapter
 from .praxis import PraxisAdapter
 from .solago import SolagoAdapter
 from .trotec import TrotecAdapter
+from .vrijbuiter import VrijbuiterAdapter
 from .wehkamp import WehkampAdapter
 
 __all__ = [
@@ -35,6 +37,7 @@ __all__ = [
     "ExpertAdapter",
     "FlinqAdapter",
     "GammaAdapter",
+    "HuboAdapter",
     "KarweiAdapter",
     "KampeerwereldAdapter",
     "KlarsteinAdapter",
@@ -44,5 +47,6 @@ __all__ = [
     "PraxisAdapter",
     "SolagoAdapter",
     "TrotecAdapter",
+    "VrijbuiterAdapter",
     "WehkampAdapter",
 ]

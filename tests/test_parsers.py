@@ -20,6 +20,7 @@ from airco_tracker.adapters.ep import EpAdapter
 from airco_tracker.adapters.evolarshop import EvolarshopAdapter, _parse_hit as parse_evolar_hit
 from airco_tracker.adapters.expert import ExpertAdapter
 from airco_tracker.adapters.flinq import _parse_product_page as parse_flinq_page
+from airco_tracker.adapters.hubo import _parse_product_page as parse_hubo_page
 from airco_tracker.adapters.klarstein import KlarsteinAdapter
 from airco_tracker.adapters.kampeerwereld import _parse_product_page as parse_kampeerwereld_page
 from airco_tracker.adapters.lidl import LidlAdapter
@@ -28,6 +29,7 @@ from airco_tracker.adapters.obelink import _parse_product_page as parse_obelink_
 from airco_tracker.adapters.praxis import PraxisAdapter
 from airco_tracker.adapters.solago import _parse_product_page as parse_solago_page
 from airco_tracker.adapters.trotec import TrotecAdapter
+from airco_tracker.adapters.vrijbuiter import _parse_product_page as parse_vrijbuiter_page
 from airco_tracker.adapters.wehkamp import WehkampAdapter
 from airco_tracker.adapters.base import (
     enrich_available_btu,
@@ -986,6 +988,86 @@ class ParserTests(unittest.TestCase):
         page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
         product = parse_solago_page(page, "https://solago.nl/products/midea-portasplit")
         self.assertTrue(product.available)
+
+    # --- Hubo ---
+
+    def test_hubo_reads_shopify_json_ld(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Qlima P 522 mobiele airconditioner met verwarming 7000BTU",
+            "description": "Mobiele airco met koelvermogen 7000 BTU.",
+            "offers": {
+                "@type": "Offer",
+                "availability": "https://schema.org/InStock",
+                "price": "399.00",
+                "priceCurrency": "EUR",
+                "url": "https://www.hubo.nl/products/qlima-p-522",
+            },
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_hubo_page(page, "https://www.hubo.nl/products/qlima-p-522-mobiele-airconditioner")
+        self.assertIsNotNone(product)
+        self.assertTrue(product.available)
+        self.assertEqual(product.btu, 7000)
+        self.assertEqual(product.price_eur, 399.0)
+
+    def test_hubo_out_of_stock_is_unavailable(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Mobiele airco PAC 9.3 compact",
+            "offers": {
+                "@type": "Offer",
+                "availability": "https://schema.org/OutOfStock",
+                "price": "179.00",
+                "priceCurrency": "EUR",
+            },
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_hubo_page(page, "https://www.hubo.nl/products/mobiele-airco-pac-9-3-compact")
+        self.assertIsNotNone(product)
+        self.assertFalse(product.available)
+
+    # --- Vrijbuiter ---
+
+    def test_vrijbuiter_reads_graph_product_offer(self) -> None:
+        data = {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "Product",
+                    "name": "MS-AC 5001 Airco",
+                    "description": "Mini split airco met koelcapaciteit 5000 BTU voor caravan.",
+                    "offers": {
+                        "@type": "Offer",
+                        "availability": "https://schema.org/OutOfStock",
+                        "price": "698.99",
+                        "priceCurrency": "EUR",
+                        "url": "https://www.vrijbuiter.nl/p/qlima-ms-ac-5001",
+                    },
+                }
+            ],
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_vrijbuiter_page(page, "https://www.vrijbuiter.nl/p/qlima-ms-ac-5001-airco-cdhe44840")
+        self.assertIsNotNone(product)
+        self.assertFalse(product.available)
+        self.assertEqual(product.price_eur, 698.99)
+        self.assertEqual(product.btu, 5000)
+
+    def test_vrijbuiter_excludes_aircooler(self) -> None:
+        data = {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "Product",
+                    "name": "Luchtkoeler aircooler",
+                    "offers": {"availability": "https://schema.org/InStock", "price": "99.00"},
+                }
+            ],
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_vrijbuiter_page(page, "https://www.vrijbuiter.nl/p/luchtkoeler-1")
+        self.assertIsNone(product)
 
 
 if __name__ == "__main__":
