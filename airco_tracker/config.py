@@ -64,9 +64,11 @@ class Config:
     request_timeout_seconds: int
     state_backend: str
     state_path: Path
+    inventory_path: Path
     azure_storage_account_url: str
     azure_storage_container: str
     azure_storage_blob: str
+    azure_inventory_blob: str
     acs_endpoint: str
     azure_key_vault_url: str
 
@@ -91,9 +93,11 @@ class Config:
             request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT_SECONDS", "25")),
             state_backend=os.getenv("STATE_BACKEND", "local").strip().lower(),
             state_path=ROOT / "state.json",
+            inventory_path=ROOT / "inventory.json",
             azure_storage_account_url=os.getenv("AZURE_STORAGE_ACCOUNT_URL", "").strip(),
             azure_storage_container=os.getenv("AZURE_STORAGE_CONTAINER", "airco-tracker").strip(),
             azure_storage_blob=os.getenv("AZURE_STORAGE_BLOB", "state.json").strip(),
+            azure_inventory_blob=os.getenv("AZURE_INVENTORY_BLOB", "inventory.json").strip(),
             acs_endpoint=os.getenv("ACS_ENDPOINT", "").strip(),
             azure_key_vault_url=os.getenv("AZURE_KEY_VAULT_URL", "").strip(),
         )

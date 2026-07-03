@@ -83,6 +83,7 @@ resource job 'Microsoft.App/jobs@2025-01-01' = {
             { name: 'AZURE_STORAGE_ACCOUNT_URL', value: 'https://${storageAccountName}.blob.${environment().suffixes.storage}' }
             { name: 'AZURE_STORAGE_CONTAINER', value: 'airco-tracker' }
             { name: 'AZURE_STORAGE_BLOB', value: 'state.json' }
+            { name: 'AZURE_INVENTORY_BLOB', value: 'inventory.json' }
             { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
             { name: 'MIN_BTU', value: minBtu }
             { name: 'MAX_PRICE_EUR', value: maxPriceEur }

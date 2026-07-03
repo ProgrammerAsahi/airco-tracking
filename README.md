@@ -56,7 +56,7 @@ Conrad.nl 暂未启用：普通网页从 Azure 和本地请求都会收到 Cloud
 
 ```text
 Container Apps Scheduled Job
-  ├─ Managed Identity → Blob Storage（库存状态）
+  ├─ Managed Identity → Blob Storage（提醒状态 + 实时库存快照）
   ├─ Managed Identity → Communication Services Email（通知）
   └─ Managed Identity → Key Vault（收件地址和第三方密钥）
 ```
@@ -255,6 +255,12 @@ git push -u origin main
 
 - `MAX_PRICE_EUR=1500`：只通知 1,500 欧元以内的商品。价格暂时无法识别的商品仍会通知，避免漏报。
 - `MIN_BTU=7000`：低于 7000 BTU 的商品不通知。无法从列表页识别 BTU 的正规空调仍会保留，避免漏报。
+
+## 实时库存快照
+
+每次正式检查都会生成独立的 `inventory.json`，按网站保存当前所有可在线购买的便携式压缩机空调。快照不应用价格、BTU 或品牌提醒过滤；aircooler、风扇、配件、固定式分体空调等适配器级排除规则仍然有效。邮件仍只针对首次出现或恢复库存且通过上述提醒过滤的商品发送。
+
+成功检查的网站会完整替换自己的库存（包括清空为 0）；检查失败的网站保留上次成功库存，并标记为 `stale: true` 和 `status: error`。本地模式写入项目目录的 `inventory.json`，Azure 写入现有 `airco-tracker` Blob 容器的 `inventory.json`，无需新增云资源。`--dry-run` 不写快照或提醒状态。
 
 ## 维护与扩站
 

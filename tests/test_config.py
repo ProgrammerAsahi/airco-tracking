@@ -19,6 +19,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.max_price_eur, 1500.0)
         self.assertEqual(config.min_btu, 7000)
         self.assertEqual(config.email_lang, "zh")
+        self.assertEqual(config.inventory_path.name, "inventory.json")
+        self.assertEqual(config.azure_inventory_blob, "inventory.json")
 
 
 if __name__ == "__main__":

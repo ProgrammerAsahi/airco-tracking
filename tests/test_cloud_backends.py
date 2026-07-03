@@ -6,11 +6,25 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from airco_tracker.mailer import _acs_payload, build_message
+from airco_tracker.inventory import empty_inventory
+from airco_tracker.inventory_store import LocalInventoryStore
 from airco_tracker.models import Product
 from airco_tracker.state_store import LocalStateStore
 
 
 class CloudBackendTests(unittest.TestCase):
+    def test_local_inventory_store_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalInventoryStore(Path(directory) / "inventory.json")
+            self.assertEqual(store.load(), empty_inventory())
+            expected = {
+                "version": 1,
+                "available_product_count": 0,
+                "sites": {"Shop": {"products": []}},
+            }
+            store.save(expected)
+            self.assertEqual(store.load(), expected)
+
     def test_local_state_store_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = LocalStateStore(Path(directory) / "state.json")

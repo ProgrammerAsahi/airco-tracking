@@ -255,6 +255,12 @@ Configure filters in `.env`:
 - `MAX_PRICE_EUR=1500`: notify only about products costing at most €1,500. Products whose price is temporarily unavailable remain eligible to avoid missed alerts.
 - `MIN_BTU=7000`: do not notify about products below 7,000 BTU. Genuine air conditioners whose BTU value is not present on the listing page are retained to avoid missed alerts.
 
+## Live inventory snapshot
+
+Every production check writes a separate `inventory.json` grouped by retailer, containing all currently online-purchasable portable compressor air conditioners. Price, BTU, and brand alert filters do not apply to this snapshot; adapter-level exclusions for air coolers, fans, accessories, and fixed split systems still apply. Email remains limited to first-seen or restocked products that pass the alert filters above.
+
+A successful retailer check fully replaces that retailer's inventory, including with zero products. A failed check retains the last successful inventory and marks the retailer `stale: true` with `status: error`. Local mode writes `inventory.json` in the project directory; Azure writes the same blob name to the existing `airco-tracker` container, without new cloud resources. `--dry-run` writes neither inventory nor alert state.
+
 ## Maintenance and adding retailers
 
 Each retailer has an independent adapter under `airco_tracker/adapters/`. Add a retailer by implementing an adapter and registering it in `cli.py`. If a page structure changes and no products can be parsed, the application reports `parser found no products` instead of silently pretending that everything is out of stock.

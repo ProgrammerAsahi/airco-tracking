@@ -255,6 +255,12 @@ Stel filters in via `.env`:
 - `MAX_PRICE_EUR=1500`: meld alleen producten van maximaal € 1.500. Producten waarvan de prijs tijdelijk onbekend is, blijven meetellen om gemiste meldingen te voorkomen.
 - `MIN_BTU=7000`: meld geen producten onder 7.000 BTU. Echte airco's waarvan de BTU-waarde niet op de overzichtspagina staat, worden behouden om gemiste meldingen te voorkomen.
 
+## Actuele voorraadmomentopname
+
+Elke productiecontrole schrijft een afzonderlijk `inventory.json`, gegroepeerd per winkel, met alle draagbare compressorairco's die op dat moment online kunnen worden besteld. De meldingsfilters voor prijs, BTU en merk gelden niet voor deze momentopname; uitsluitingen op adapterniveau voor aircoolers, ventilatoren, accessoires en vaste split-systemen blijven wel gelden. E-mail blijft beperkt tot nieuwe of opnieuw beschikbare producten die door de bovenstaande meldingsfilters komen.
+
+Een geslaagde winkelcontrole vervangt de volledige winkelvoorraad, ook met nul producten. Bij een mislukte controle blijft de laatst geslaagde voorraad behouden en krijgt de winkel `stale: true` en `status: error`. Lokaal wordt `inventory.json` in de projectmap geschreven; Azure schrijft dezelfde blobnaam naar de bestaande container `airco-tracker`, zonder nieuwe cloudresources. `--dry-run` schrijft noch voorraad noch meldingsstatus.
+
 ## Onderhoud en winkels toevoegen
 
 Elke winkel heeft een eigen adapter onder `airco_tracker/adapters/`. Voeg een winkel toe door een adapter te implementeren en deze in `cli.py` te registreren. Als de structuur van een webpagina verandert en er geen producten kunnen worden verwerkt, meldt de applicatie `parser found no products` in plaats van stilzwijgend te doen alsof alles uitverkocht is.

@@ -36,6 +36,8 @@ from .adapters import (
 )
 from .config import Config
 from .fetch import Fetcher
+from .inventory import updated_inventory
+from .inventory_store import build_inventory_store
 from .mailer import build_message, send_message
 from .models import Product
 from .state import select_alerts, updated_state
@@ -64,8 +66,6 @@ def _configure_logging() -> None:
 
 
 def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
-    if not dry_run:
-        config.validate_email()
     fetcher = Fetcher(config.request_timeout_seconds)
     adapters = [
         CoolblueAdapter(fetcher),
@@ -110,16 +110,38 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
             failures.append(f"{adapter.site}: {exc}")
             LOG.exception("Retailer check failed: %s", adapter.site)
 
-    if not products:
-        LOG.error("All retailer checks failed")
-        return 2
-
     if failures:
         LOG.warning(
             "%d retailer check(s) failed; continuing with successful retailers: %s",
             len(failures),
             "; ".join(failures),
         )
+
+    all_sites = {adapter.site for adapter in adapters}
+    inventory_store = build_inventory_store(config)
+    inventory = updated_inventory(
+        inventory_store.load(),
+        products,
+        all_sites=all_sites,
+        checked_sites=successful_sites,
+    )
+    if not dry_run:
+        inventory_store.save(inventory)
+        LOG.info(
+            "Saved inventory snapshot: %d available products across %d sites (%d stale)",
+            inventory["available_product_count"],
+            inventory["site_count"],
+            inventory["stale_site_count"],
+        )
+
+    if not successful_sites:
+        LOG.error("All retailer checks failed")
+        return 2
+
+    # Keep production configuration checks strict, but only after the inventory
+    # snapshot is durable so a notification outage cannot make stock look stale.
+    if not dry_run:
+        config.validate_email()
 
     state_store = build_state_store(config)
     old_state = state_store.load()
@@ -134,10 +156,15 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
     print(json.dumps([product.to_dict() for product in visible], ensure_ascii=False, indent=2))
 
     if dry_run:
-        LOG.info("Dry run: %d products would trigger an alert", len(alerts))
+        LOG.info(
+            "Dry run: %d available products in snapshot; %d products would trigger an alert",
+            inventory["available_product_count"],
+            len(alerts),
+        )
         return 0
 
-    # Send before committing state: a failed email will be retried next run.
+    # Inventory is already current. Keep alert state uncommitted until email
+    # succeeds so a failed delivery is retried on the next run.
     if alerts:
         send_message(config, build_message(config, alerts))
         LOG.info("Sent stock alert for %d products", len(alerts))
@@ -150,6 +177,7 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
 def doctor(config: Config) -> int:
     store = build_state_store(config)
     state = store.load()
+    inventory = build_inventory_store(config).load()
     config.validate_email()
     summary = {
         "app_env": config.app_env,
@@ -159,6 +187,9 @@ def doctor(config: Config) -> int:
         "email_lang": config.email_lang,
         "state_backend": config.state_backend,
         "known_products": len(state.get("products", {})),
+        "inventory_available_products": inventory.get("available_product_count", 0),
+        "inventory_sites": inventory.get("site_count", 0),
+        "inventory_stale_sites": inventory.get("stale_site_count", 0),
         "azure_storage_account_url": config.azure_storage_account_url or None,
         "acs_endpoint": config.acs_endpoint or None,
         "key_vault_enabled": bool(config.azure_key_vault_url),
