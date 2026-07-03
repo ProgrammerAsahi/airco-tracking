@@ -7,12 +7,15 @@ import sys
 
 from .adapters import (
     ActionAdapter,
+    AircoVoorInHuisAdapter,
     AlternateAdapter,
     CoolblueAdapter,
+    CostwayAdapter,
     CreateStoreAdapter,
     DelonghiAdapter,
     ElectroWorldAdapter,
     EpAdapter,
+    EvolarshopAdapter,
     ExpertAdapter,
     FlinqAdapter,
     GammaAdapter,
@@ -23,6 +26,7 @@ from .adapters import (
     MediaMarktAdapter,
     ObelinkAdapter,
     PraxisAdapter,
+    SolagoAdapter,
     TrotecAdapter,
     WehkampAdapter,
 )
@@ -79,6 +83,10 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         ObelinkAdapter(fetcher),
         KampeerwereldAdapter(fetcher),
         CreateStoreAdapter(fetcher),
+        CostwayAdapter(fetcher),
+        EvolarshopAdapter(fetcher),
+        AircoVoorInHuisAdapter(fetcher),
+        SolagoAdapter(fetcher),
     ]
     products: list[Product] = []
     failures: list[str] = []

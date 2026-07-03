@@ -8,13 +8,16 @@ import unittest
 from bs4 import BeautifulSoup
 
 from airco_tracker.adapters.action import ActionAdapter, _parse_product_page as parse_action_page
+from airco_tracker.adapters.aircovoorinhuis import AircoVoorInHuisAdapter
 from airco_tracker.adapters.alternate import _parse_product_page as parse_alternate_page
 from airco_tracker.adapters.coolblue import CoolblueAdapter
+from airco_tracker.adapters.costway import CostwayAdapter
 from airco_tracker.adapters.create_store import CreateStoreAdapter, _parse_card as parse_create_card
 from airco_tracker.adapters.delonghi import _parse_product_page as parse_delonghi_page
 from airco_tracker.adapters.diy import GammaAdapter, KarweiAdapter
 from airco_tracker.adapters.electroworld import ElectroWorldAdapter
 from airco_tracker.adapters.ep import EpAdapter
+from airco_tracker.adapters.evolarshop import EvolarshopAdapter, _parse_hit as parse_evolar_hit
 from airco_tracker.adapters.expert import ExpertAdapter
 from airco_tracker.adapters.flinq import _parse_product_page as parse_flinq_page
 from airco_tracker.adapters.klarstein import KlarsteinAdapter
@@ -23,6 +26,7 @@ from airco_tracker.adapters.lidl import LidlAdapter
 from airco_tracker.adapters.mediamarkt import MediaMarktAdapter
 from airco_tracker.adapters.obelink import _parse_product_page as parse_obelink_page
 from airco_tracker.adapters.praxis import PraxisAdapter
+from airco_tracker.adapters.solago import _parse_product_page as parse_solago_page
 from airco_tracker.adapters.trotec import TrotecAdapter
 from airco_tracker.adapters.wehkamp import WehkampAdapter
 from airco_tracker.adapters.base import (
@@ -816,6 +820,172 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(products[0].available)
         self.assertEqual(products[0].price_eur, 199.0)
         self.assertEqual(products[0].btu, 7000)
+
+    # --- Costway NL ---
+
+    def test_costway_uses_qty_class_for_stock(self) -> None:
+        html = """
+        <ul class="products-grid">
+          <li class="item product">
+            <div class="product-item-photo qty-10"></div>
+            <a class="product-item-link" href="/mobiele-airconditioning-12000-btu.html">
+              Mobiele Airconditioning 12000 BTU met Afvoerslang</a>
+            <div class="price-box">€ 499,00</div>
+          </li>
+          <li class="item product">
+            <div class="product-item-photo qty-0"></div>
+            <a class="product-item-link" href="/split-airconditioner.html">
+              Split-airconditioner 9000 BTU</a>
+            <div class="price-box">UITVERKOCHT € 399,00</div>
+          </li>
+          <li class="item product">
+            <div class="product-item-photo qty-5"></div>
+            <a class="product-item-link" href="/luchtkoeler.html">
+              Luchtkoeler aircooler</a>
+            <div class="price-box">€ 99,00</div>
+          </li>
+        </ul>"""
+        products = CostwayAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://nl.costway.com/huishoudelijke-apparaten/klimaatbeheersing/aircos.html",
+        )
+        # Split-airconditioner is excluded (fixed-installation); luchtkoeler is excluded.
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].btu, 12000)
+        self.assertEqual(products[0].price_eur, 499.0)
+
+    # --- Evolarshop ---
+
+    def test_evolarshop_excludes_hoseless_and_reads_nosto_hit(self) -> None:
+        hit = {
+            "productId": "1",
+            "name": "TCL TAC 12CPB Mobiele Airco 12000 BTU",
+            "url": "https://www.evolarshop.nl/tac-12cpb-mobiele-airco",
+            "price": 779.0,
+            "available": True,
+            "availability": "InStock",
+        }
+        product = parse_evolar_hit(hit)
+        self.assertIsNotNone(product)
+        self.assertTrue(product.available)
+        self.assertEqual(product.btu, 12000)
+        self.assertEqual(product.price_eur, 779.0)
+
+        # "Zonder afvoerslang" (no exhaust hose) is not a compressor unit.
+        hoseless = {**hit, "name": "Evolar EVO-ES1800W Mobiele Airco Zonder afvoerslang"}
+        self.assertIsNone(parse_evolar_hit(hoseless))
+
+    def test_evolarshop_queries_public_nosto_api(self) -> None:
+        page = '<script src="//connect.nosto.com/include/epk2p6xv"></script>'
+        hits = [
+            {
+                "name": "Sinclair AMC 14P Mobiele Airco 14000 BTU",
+                "url": "https://www.evolarshop.nl/sinclair-amc-14p",
+                "price": 599.0,
+                "available": True,
+                "availability": "InStock",
+            },
+            {
+                "name": "Evolar luchtkoeler",
+                "url": "https://www.evolarshop.nl/luchtkoeler",
+                "price": 199.0,
+                "available": False,
+                "availability": "OutOfStock",
+            },
+        ]
+
+        class _NostoSession:
+            def __init__(self, hits):
+                self.hits = hits
+                self.post_url = None
+
+            def post(self, url, **kwargs):
+                self.post_url = url
+                return DummyResponse({"data": {"search": {"products": {"hits": self.hits}}}})
+
+        class _NostoFetcher:
+            timeout = 25
+
+            def __init__(self, hits):
+                self.session = _NostoSession(hits)
+
+            def get(self, url):
+                return page
+
+        fetcher = _NostoFetcher(hits)
+        products = EvolarshopAdapter(fetcher).fetch_products()
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].btu, 14000)
+        self.assertIn("search.nosto.com", fetcher.session.post_url)
+
+    # --- Airco voor in huis ---
+
+    def test_aircovoorinhuis_uses_woocommerce_stock_class(self) -> None:
+        html = """
+        <ul class="products">
+          <li class="product type-product instock product_cat-mobiele-airco-systemen">
+            <a class="ct-media-container" aria-label="Climate King A011D1 Mobiele airco [2,9KW]"
+               href="https://www.aircovoorinhuis.nl/climate-king-a011d1">
+               <span class="woocommerce-Price-amount amount">€599,00</span></a>
+          </li>
+          <li class="product type-product outofstock product_cat-mobiele-airco-systemen">
+            <a class="ct-media-container" aria-label="Climate King A011C2 Mobiele airco [2,6KW]"
+               href="https://www.aircovoorinhuis.nl/climate-king-a011c2">
+               <span class="woocommerce-Price-amount amount">€549,00</span></a>
+          </li>
+          <li class="product type-product instock product_cat-luchtkoelers">
+            <a class="ct-media-container" aria-label="Luchtkoeler aircooler"
+               href="https://www.aircovoorinhuis.nl/luchtkoeler">
+               <span class="woocommerce-Price-amount amount">€99,00</span></a>
+          </li>
+        </ul>"""
+        products = AircoVoorInHuisAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.aircovoorinhuis.nl/airco/mobiele-airco/mobiele-airco-systemen/",
+        )
+        self.assertEqual(len(products), 2)
+        self.assertTrue(products[0].available)
+        self.assertFalse(products[1].available)
+        self.assertEqual(products[0].price_eur, 599.0)
+
+    # --- Solago ---
+
+    def test_solago_preorder_overrides_instock_schema(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Midea PortaSplit-airconditioner",
+            "description": "Portable split airco 8000 BTU",
+            "offers": {
+                "price": 1699.99,
+                "availability": "https://schema.org/InStock",
+                "url": "https://solago.nl/products/midea-portasplit-airconditioning",
+            },
+        }
+        page = (
+            f'<script type="application/ld+json">{json.dumps(data)}</script>'
+            "<main><p>Voorbestelling – Levering vanaf eind juli</p></main>"
+        )
+        product = parse_solago_page(page, "https://solago.nl/products/midea-portasplit-airconditioning")
+        self.assertIsNotNone(product)
+        self.assertFalse(product.available)
+        self.assertEqual(product.delivery, "Voorbestelling")
+        self.assertEqual(product.btu, 8000)
+
+    def test_solago_instock_without_preorder_is_available(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Midea PortaSplit-airconditioner",
+            "offers": {
+                "price": 1699.99,
+                "availability": "https://schema.org/InStock",
+                "url": "https://solago.nl/products/midea-portasplit",
+            },
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_solago_page(page, "https://solago.nl/products/midea-portasplit")
+        self.assertTrue(product.available)
 
 
 if __name__ == "__main__":

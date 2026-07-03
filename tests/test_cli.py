@@ -30,6 +30,10 @@ ADAPTER_NAMES = (
     "ObelinkAdapter",
     "KampeerwereldAdapter",
     "CreateStoreAdapter",
+    "CostwayAdapter",
+    "EvolarshopAdapter",
+    "AircoVoorInHuisAdapter",
+    "SolagoAdapter",
 )
 
 
