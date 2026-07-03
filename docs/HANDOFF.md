@@ -6,7 +6,7 @@ Last updated: 2026-07-03 (Europe/Amsterdam)
 
 Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure and sends an email only for first-seen or newly-restocked products.
 
-The current development round adds five active retailers, migrates the notification recipient from GitHub configuration to Azure Key Vault, standardises the filters at EUR 1,500 and 7,000 BTU, and removes an unusable retailer integration. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The current development round adds five active retailers, migrates the notification recipient from GitHub configuration to Azure Key Vault, standardises the filters at EUR 1,500 and 7,000 BTU, removes the unusable bol.com integration, and audits BTU capacity across all adapters to reject low-power units. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
@@ -46,6 +46,10 @@ The application currently registers 19 credential-free adapters:
 - Kampeerwereld
 - Create Netherlands
 
+Removed:
+
+- bol.com: the official Marketing Catalog API terms reject stock-notification use cases, so the adapter, configuration (`BOL_*`), README references, and deploy-script wiring were deleted on 2026-07-02. Do not restore webpage scraping (Azure IPs get 403 and the search route is robots-restricted) and do not use search-engine snippets as a stock oracle — search indexes lag restocks and may mislabel `preorder`/`backorder` as in stock.
+
 New-retailer stock semantics:
 
 - Expert: only explicit online saleability counts; local-store-only stock is unavailable.
@@ -56,7 +60,9 @@ New-retailer stock semantics:
 
 ## Conrad status
 
-Conrad.nl is intentionally not registered. Its storefront and robots endpoint return Cloudflare HTTP 403 to the project's normal browser identity from local and Azure execution. Conrad's Developer Portal offers an official Price & Availability API and explicitly supports stock-monitoring use cases, but access is request-gated. Do not bypass the anti-bot layer. The next valid step is to request official API access and implement an adapter only after credentials and current official documentation are available.
+Conrad.nl is intentionally not registered. Its storefront and robots endpoint return Cloudflare HTTP 403 to the project's normal browser identity from local and Azure execution. Conrad's Developer Portal offers an official Price & Availability API and explicitly supports stock-monitoring use cases, but access is request-gated. Do not bypass the anti-bot layer.
+
+A Developer Portal registration attempt on 2026-07-03 was rejected with "your email has not been allowlisted." A concise allowlist request was submitted the same day via the official Conrad contact form (developer.conrad.com/contact), addressed to `Conrad API Team`, requesting `Price & Availability` API access for a private non-commercial NL portable-airco stock alert (~5,000 calls/month, no orders/customer data). Status: awaiting Conrad's response. No adapter exists yet; implement one only after the email is allowlisted, the app is approved, and current official documentation has been reviewed.
 
 ## Configuration and secret model
 
@@ -75,7 +81,7 @@ Conrad.nl is intentionally not registered. Its storefront and robots endpoint re
 - Affiliate account approved on 2026-07-01.
 - Open Platform developer type: `Dropshipping/Affiliates Developer` → `Affiliates (individual)`.
 - API application submitted on 2026-07-01.
-- Last observed status: `Under Review`, estimated 2–5 working days.
+- Last observed status: `Under Review`, estimated 2–5 working days. As of 2026-07-03 (day 3) the window has not elapsed; re-check the portal before starting work.
 - No AliExpress adapter or secret configuration exists yet.
 - Use only official Affiliate/Open Platform APIs after approval; never retain buyer, order, payment, or other personal data.
 
@@ -86,6 +92,23 @@ Conrad.nl is intentionally not registered. Its storefront and robots endpoint re
 3. Implement a disabled-by-default API adapter with synthetic response tests.
 4. Store credentials directly in Key Vault through a hidden-input setup script.
 5. Run the full unit suite and live dry-run before enabling production.
+
+## Next expansion candidates
+
+User-reviewed evaluation from 2026-07-03. Priority order for the next batch:
+
+| Site | Recommendation | Reason |
+|------|----------------|--------|
+| Costway NL (`nl.costway.com`) | Strongly recommended | Many 7,000–16,000 BTU portable units, public links/stock signals, free NL delivery in 3–7 days. |
+| Evolarshop (`evolarshop.nl`) | Strongly recommended | Specialises in portable/camping/portable-split airco; product pages expose real-time stock and ETA, next-day for in-stock. |
+| Airco voor in huis (`aircovoorinhuis.nl`) | Recommended | Specialist dealer, publicly states next-day free delivery for in-stock items. |
+| Solago (`solago.nl`) | Low priority, easy add | Stable Shopify structure, clear stock; only one Midea PortaSplit at €1,699.99 currently exceeds the €1,500 ceiling. |
+
+Not recommended (do not implement):
+- Vergelijkeven, Kieskeurig: price-comparison aggregators, second-hand stock data, not authoritative sellers. Kieskeurig also returns Vercel 429.
+- RS Online: industrial B2B, search returns 403, low portable-airco value for integration cost similar to Conrad.
+
+Worth investigating later: De Wit Schijndel, Vrijbuiter, Fritz Berger NL (camping/RV/split coverage); vidaXL NL, VEVOR NL (large catalog but need strict aircooler/accessory exclusion); Hornbach, Hubo, Intratuin (seasonal, may add little).
 
 ## Safeguards and known behaviour
 
