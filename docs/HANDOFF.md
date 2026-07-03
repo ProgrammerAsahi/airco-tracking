@@ -6,14 +6,14 @@ Last updated: 2026-07-03 (Europe/Amsterdam)
 
 Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure and sends an email only for first-seen or newly-restocked products.
 
-The current development round adds five active retailers, migrates the notification recipient from GitHub configuration to Azure Key Vault, standardises the filters at EUR 1,500 and 7,000 BTU, removes the unusable bol.com integration, and audits BTU capacity across all adapters to reject low-power units. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The current development round expands retailer coverage from 19 to 23 credential-free adapters, adding Costway NL, Evolarshop, Airco voor in huis, and Solago. Prior rounds migrated the notification recipient to Azure Key Vault, standardised filters at EUR 1,500 and 7,000 BTU, removed the bol.com integration, and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Feature commit: `4bbb990f1c0e2a8e9b6429cbcae0a58b1973b159`
-- Last verified production image: commit `4bbb990f1c0e2a8e9b6429cbcae0a58b1973b159`
+- Feature commit: `4d127198785fa09236954a9fdbd12848cf47ce01`
+- Last verified production image: commit `4d127198785fa09236954a9fdbd12848cf47ce01`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Container Apps job: `airco-tracker-job`
@@ -24,7 +24,7 @@ The current development round adds five active retailers, migrates the notificat
 
 ## Active retailers
 
-The application currently registers 19 credential-free adapters:
+The application currently registers 23 credential-free adapters:
 
 - Coolblue
 - MediaMarkt NL
@@ -45,6 +45,10 @@ The application currently registers 19 credential-free adapters:
 - Obelink
 - Kampeerwereld
 - Create Netherlands
+- Costway NL
+- Evolarshop
+- Airco voor in huis
+- Solago
 
 Removed:
 
@@ -57,6 +61,10 @@ New-retailer stock semantics:
 - Obelink and Kampeerwereld: known seasonal URLs remain checked after products disappear from category pages.
 - Kampeerwereld: `Exclusief in winkel` never counts as deliverable.
 - Create: `Presale` and future `Verzending vanaf` dates are unavailable.
+- Costway NL: Magento `qty-N` photo class drives stock; `qty-0` plus `UITVERKOCHT` label is unavailable. Split units are excluded.
+- Evolarshop: category page is client-rendered via Nosto; the adapter queries the same public GraphQL search endpoint. "Zonder afvoerslang" (no exhaust hose) products are excluded as non-compressor units.
+- Airco voor in huis: WooCommerce `instock`/`outofstock` class drives availability; only the mobiele-airco-systemen subcategory is tracked.
+- Solago: Shopify product JSON-LD; `Voorbestelling` / `Levering vanaf` pre-order text overrides InStock schema. PortaSplit (portable split) is accepted; fixed split is excluded.
 
 ## Conrad status
 
@@ -95,14 +103,14 @@ A Developer Portal registration attempt on 2026-07-03 was rejected with "your em
 
 ## Next expansion candidates
 
-User-reviewed evaluation from 2026-07-03. Priority order for the next batch:
+All four sites from the 2026-07-03 evaluation have been implemented and deployed:
 
-| Site | Recommendation | Reason |
-|------|----------------|--------|
-| Costway NL (`nl.costway.com`) | Strongly recommended | Many 7,000–16,000 BTU portable units, public links/stock signals, free NL delivery in 3–7 days. |
-| Evolarshop (`evolarshop.nl`) | Strongly recommended | Specialises in portable/camping/portable-split airco; product pages expose real-time stock and ETA, next-day for in-stock. |
-| Airco voor in huis (`aircovoorinhuis.nl`) | Recommended | Specialist dealer, publicly states next-day free delivery for in-stock items. |
-| Solago (`solago.nl`) | Low priority, easy add | Stable Shopify structure, clear stock; only one Midea PortaSplit at €1,699.99 currently exceeds the €1,500 ceiling. |
+| Site | Status | Implementation |
+|------|--------|----------------|
+| Costway NL | ✅ Deployed | Magento category page; `qty-N` photo class for stock. |
+| Evolarshop | ✅ Deployed | Public Nosto GraphQL search API; excludes hoseless units. |
+| Airco voor in huis | ✅ Deployed | WooCommerce product grid; `instock`/`outofstock` class. |
+| Solago | ✅ Deployed | Shopify JSON-LD; pre-order text overrides InStock schema. |
 
 Not recommended (do not implement):
 - Vergelijkeven, Kieskeurig: price-comparison aggregators, second-hand stock data, not authoritative sellers. Kieskeurig also returns Vercel 429.
@@ -124,14 +132,15 @@ Worth investigating later: De Wit Schijndel, Vrijbuiter, Fritz Berger NL (campin
 
 ## Verification snapshot
 
-- Unit tests: 54 passed, including detail enrichment, labelled cooling-watt conversion, input-power rejection, known-model inference, and minimum-BTU rejection regressions.
+- Unit tests: 60 passed, including 6 new tests for Costway, Evolarshop, Airco voor in huis, and Solago adapters.
 - Shell syntax: clean.
 - `git diff --check`: clean.
-- Full live audit on 2026-07-03: 121 products across all 19 adapters, 22 products below 7,000 BTU, zero currently available products with unknown BTU, and zero low-BTU alerts. The only product page with no reliable capacity data is an unavailable retired Lidl TRONIC listing; it remains unknown rather than being guessed from price.
-- Azure recipient migration: complete. Current Container Apps configuration contains no plain `EMAIL_TO`; it contains `EMAIL_LANG=zh`, `MIN_BTU=7000`, `MAX_PRICE_EUR=1500`, and `KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email`.
-- GitHub Actions run `28649478128`: succeeded in 3m40s. Verification execution `airco-tracker-job-t7dsmpq`: Succeeded. Its logs show the two available low-capacity products as 5,118 and 3,200 BTU and end with `No new stock; no email sent`.
-- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:4bbb990f1c0e2a8e9b6429cbcae0a58b1973b159`; production `MIN_BTU` remains `7000`.
-- Expected per-product warnings remain for one retired Obelink URL and two Kampeerwereld URLs returning HTTP 410. Their adapters still completed with 15 and 5 parsed products respectively; these warnings do not mark the retailer check as failed.
+- Live local dry-run on 2026-07-03 (post 4-retailer expansion): all 23 retailers ran without errors. Counts: Coolblue 11/0, MediaMarkt 4/1, EP 7/0, Electro World 1/0, Wehkamp 0/0, Lidl 6/0, GAMMA 3/0, KARWEI 2/0, Praxis 9/0, Alternate 0/0, Trotec 13/0, Klarstein 18/0, FlinQ 2/0, Action 1/0, Expert 11/0, De'Longhi 10/0, Obelink 15/2, Kampeerwereld 5/1, Create 2/0, Costway 15/4, Evolarshop 41/5, Airco voor in huis 6/1, Solago 1/0.
+- 14 available products across all retailers; 7 passed MIN_BTU=7000 + MAX_PRICE_EUR=1500 filters. Low-BTU units (1800, 3200, 3207, 5118) and over-€1500 units correctly excluded from alerts.
+- GitHub Actions run `28657889618` for commit `4d12719`: succeeded in 4m02s. Verification execution `airco-tracker-job-0jj1a7f`: Succeeded.
+- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:4d127198785fa09236954a9fdbd12848cf47ce01`.
+- Prior run `28649478128` for commit `4bbb990`: succeeded. Earlier verification evidence retained in git history.
+- Expected per-product warnings remain for one retired Obelink URL and two Kampeerwereld URLs returning HTTP 410. Their adapters still completed successfully; these warnings do not mark the retailer check as failed.
 
 ## Updating this handoff
 
