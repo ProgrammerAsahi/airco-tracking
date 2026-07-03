@@ -33,6 +33,8 @@
 - Solago
 - Hubo
 - Vrijbuiter
+- Klimaatshop
+- Airco-Webwinkel
 
 它只在商品首次被发现为可购买，或从缺货变为有货时发送邮件；不会每 10 分钟轰炸邮箱。单个零售商失效时，其余站点仍会继续检查。
 
@@ -44,7 +46,7 @@ Alternate.nl、FlinQ 和 Action Webshop 通过 robots.txt 中公布的商品 sit
 
 Expert 只有明确可在线下单时才算有货，仅门店库存不会提醒；De’Longhi 读取商品页官方 JSON-LD，`Breng mij op de hoogte` 视为缺货；Obelink 和 Kampeerwereld 会持续检查已知季节商品，即使它们暂时从分类页消失；Create 的 `Presale` 和 `Verzending vanaf` 都不会触发提醒。
 
-Costway NL 读取 Magento 分类页的 `qty-N` 库存数量；Evolarshop 通过其公开的 Nosto 搜索 API 获取商品，并排除"无排气管"（zonder afvoerslang）的非压缩机产品；Airco voor in huis 使用 WooCommerce 的 `instock`/`outofstock` 状态；Solago 读取 Shopify JSON-LD，`Voorbestelling` 和 `Levering vanaf` 预售文本会覆盖 InStock 标记为缺货。Hubo 没有 airco 分类页，通过 Shopify 商品 sitemap 发现便携空调并读取 JSON-LD 库存；Vrijbuiter 追踪露营和房车用便携式分体空调（如 Mestic SPA、Qlima MS-AC），排除 aircooler 和配件。
+Costway NL 读取 Magento 分类页的 `qty-N` 库存数量；Evolarshop 通过其公开的 Nosto 搜索 API 获取商品，并排除"无排气管"（zonder afvoerslang）的非压缩机产品；Airco voor in huis 使用 WooCommerce 的 `instock`/`outofstock` 状态；Solago 读取 Shopify JSON-LD，`Voorbestelling` 和 `Levering vanaf` 预售文本会覆盖 InStock 标记为缺货。Hubo 没有 airco 分类页，通过 Shopify 商品 sitemap 发现便携空调并读取 JSON-LD 库存；Vrijbuiter 追踪露营和房车用便携式分体空调（如 Mestic SPA、Qlima MS-AC），排除 aircooler 和配件。Klimaatshop 是专业空调商，从 `data-url` 属性提取产品、`.stock` span 判断库存；Airco-Webwinkel 通过 sitemap 发现产品并读取 WooCommerce JSON-LD 库存。
 
 Conrad.nl 暂未启用：普通网页从 Azure 和本地请求都会收到 Cloudflare 403。Conrad 官方 Developer Portal 提供 Price & Availability API，但需要单独申请访问；本项目不会绕过其反爬保护。
 

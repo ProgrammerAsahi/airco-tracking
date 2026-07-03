@@ -6,14 +6,14 @@ Last updated: 2026-07-03 (Europe/Amsterdam)
 
 Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure and sends an email only for first-seen or newly-restocked products.
 
-The current development round expands retailer coverage from 23 to 25 credential-free adapters, adding Hubo and Vrijbuiter. Six other candidate sites were evaluated and excluded (see "Sites evaluated and not implemented" below). Prior rounds added Costway NL, Evolarshop, Airco voor in huis, and Solago; migrated the notification recipient to Azure Key Vault; standardised filters at EUR 1,500 and 7,000 BTU; removed the bol.com integration; and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The current development round expands retailer coverage from 25 to 27 credential-free adapters, adding Klimaatshop and Airco-Webwinkel after a web search for additional Dutch airco retailers. Prior rounds added Hubo, Vrijbuiter, Costway NL, Evolarshop, Airco voor in huis, and Solago; migrated the notification recipient to Azure Key Vault; standardised filters at EUR 1,500 and 7,000 BTU; removed the bol.com integration; and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Feature commit: `ee33e591beef735182a7ffd0a7329e98ba4cb8cc`
-- Last verified production image: commit `ee33e591beef735182a7ffd0a7329e98ba4cb8cc`
+- Feature commit: `3ce87c28a3b6e95e549415c0a5bb486d2eba7a66`
+- Last verified production image: commit `3ce87c28a3b6e95e549415c0a5bb486d2eba7a66`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Container Apps job: `airco-tracker-job`
@@ -24,7 +24,7 @@ The current development round expands retailer coverage from 23 to 25 credential
 
 ## Active retailers
 
-The application currently registers 25 credential-free adapters:
+The application currently registers 27 credential-free adapters:
 
 - Coolblue
 - MediaMarkt NL
@@ -51,6 +51,8 @@ The application currently registers 25 credential-free adapters:
 - Solago
 - Hubo
 - Vrijbuiter
+- Klimaatshop
+- Airco-Webwinkel
 
 Removed:
 
@@ -69,6 +71,8 @@ New-retailer stock semantics:
 - Solago: Shopify product JSON-LD; `Voorbestelling` / `Levering vanaf` pre-order text overrides InStock schema. PortaSplit (portable split) is accepted; fixed split is excluded.
 - Hubo: Shopify product sitemap discovery + JSON-LD detail pages; no category page exists, so sitemaps are scanned for portable-airco URLs.
 - Vrijbuiter: category page links + @graph JSON-LD detail pages; portable split units for caravan/camper (Mestic SPA, Qlima MS-AC) are tracked.
+- Klimaatshop: custom category grid; product URLs from `data-url` attribute, stock from `.stock` span.
+- Airco-Webwinkel: WooCommerce store discovered via product sitemap; JSON-LD detail pages.
 
 ## Conrad status
 
@@ -117,6 +121,13 @@ The following sites from the 2026-07-03 evaluation were investigated and exclude
 | VEVOR NL | Products are fully JS-rendered; JSON-LD contains only category names with null offers; sitemap has no product URLs. |
 | Hornbach NL | Only fixed split-airco units in sitemap; no portable air conditioners. |
 | Intratuin | Sitemap endpoint returns a JPEG image; no airco category or product links found. |
+| BCC | Price comparison/marketplace model ("Naar webshop" redirects to external shops); not a direct seller. |
+| Klium | Cloudflare HTTP 403. |
+| Qlima | Cloudflare HTTP 403; brand site, not a direct seller. |
+| Electrogigant | Connection timeout. |
+| Euronics | Connection timeout. |
+| BAUHAUS NL | 404 on airco category; no portable airco found. |
+| Fonq | Search returns no airco products. |
 
 ## Next expansion candidates
 
@@ -151,13 +162,13 @@ Worth investigating later: De Wit Schijndel, Vrijbuiter, Fritz Berger NL (campin
 
 ## Verification snapshot
 
-- Unit tests: 64 passed, including 4 new tests for Hubo and Vrijbuiter adapters (6 from prior batch for Costway, Evolarshop, Airco voor in huis, Solago).
+- Unit tests: 66 passed, including 2 new tests for Klimaatshop and Airco-Webwinkel adapters.
 - Shell syntax: clean.
 - `git diff --check`: clean.
-- Live local dry-run on 2026-07-03 (post Hubo/Vrijbuiter expansion): all 25 retailers ran without errors. New retailers: Hubo 5/5, Vrijbuiter 4/0.
-- GitHub Actions run `28659619004` for commit `ee33e59`: succeeded in 3m59s. Verification execution `airco-tracker-job-5yhab1n`: Succeeded.
-- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:ee33e591beef735182a7ffd0a7329e98ba4cb8cc`.
-- Prior run `28657889618` for commit `4d12719`: succeeded. Earlier verification evidence retained in git history.
+- Live local dry-run on 2026-07-03 (post Klimaatshop/Airco-Webwinkel expansion): all 27 retailers ran without errors. New retailers: Klimaatshop 2/0, Airco-Webwinkel 1/0.
+- GitHub Actions run `28665053635` for commit `3ce87c2`: succeeded in 3m59s. Verification execution `airco-tracker-job-3tkqxj1`: Succeeded.
+- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:3ce87c28a3b6e95e549415c0a5bb486d2eba7a66`.
+- Prior runs retained in git history.
 - Expected per-product warnings remain for one retired Obelink URL, two Kampeerwereld URLs returning HTTP 410, and one De'Longhi product missing JSON-LD offer. Their adapters still completed successfully; these warnings do not mark the retailer check as failed.
 
 ## Updating this handoff

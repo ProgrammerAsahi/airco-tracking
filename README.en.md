@@ -33,6 +33,8 @@ A lightweight portable air-conditioner stock tracker for the Netherlands, with l
 - Solago
 - Hubo
 - Vrijbuiter
+- Klimaatshop
+- Airco-Webwinkel
 
 It sends an email only when a product is first found available or changes from unavailable to available. It does not send the same notification every ten minutes. If one retailer fails, checks for the other retailers continue.
 
@@ -44,7 +46,7 @@ Alternate.nl, FlinQ, and Action Webshop discover new models through the product 
 
 Expert counts only products that can actually be ordered online; store-only stock never triggers an alert. De'Longhi reads the official JSON-LD on each product page and treats `Breng mij op de hoogte` as unavailable. Obelink and Kampeerwereld keep checking known seasonal products even when they disappear from category pages. Create treats both `Presale` and `Verzending vanaf` as unavailable until immediate dispatch is possible.
 
-Costway NL reads the Magento category page's `qty-N` stock quantity; Evolarshop queries its public Nosto search API and excludes hoseless ("zonder afvoerslang") non-compressor units; Airco voor in huis uses the WooCommerce `instock`/`outofstock` status; Solago reads Shopify JSON-LD, where `Voorbestelling` and `Levering vanaf` pre-order text overrides the InStock schema as unavailable. Hubo has no airco category page and discovers portable air conditioners through its Shopify product sitemap; Vrijbuiter tracks portable split units for caravan and camper use (e.g. Mestic SPA, Qlima MS-AC), excluding air coolers and accessories.
+Costway NL reads the Magento category page's `qty-N` stock quantity; Evolarshop queries its public Nosto search API and excludes hoseless ("zonder afvoerslang") non-compressor units; Airco voor in huis uses the WooCommerce `instock`/`outofstock` status; Solago reads Shopify JSON-LD, where `Voorbestelling` and `Levering vanaf` pre-order text overrides the InStock schema as unavailable. Hubo has no airco category page and discovers portable air conditioners through its Shopify product sitemap; Vrijbuiter tracks portable split units for caravan and camper use (e.g. Mestic SPA, Qlima MS-AC), excluding air coolers and accessories. Klimaatshop is a specialist airco dealer whose product URLs are read from the `data-url` attribute and stock from the `.stock` span; Airco-Webwinkel is a WooCommerce store discovered via its product sitemap with JSON-LD detail pages.
 
 Conrad.nl is not enabled yet: ordinary requests from both Azure and local execution receive Cloudflare HTTP 403. Conrad offers an official Price & Availability API through its Developer Portal, but access must be requested separately. This project does not bypass anti-bot protection.
 
