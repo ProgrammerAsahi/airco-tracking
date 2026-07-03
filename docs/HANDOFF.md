@@ -141,12 +141,27 @@ All four sites from the 2026-07-03 evaluation have been implemented and deployed
 | Solago | ✅ Deployed | Shopify JSON-LD; pre-order text overrides InStock schema. |
 | Hubo | ✅ Deployed | Shopify product sitemap + JSON-LD detail pages. |
 | Vrijbuiter | ✅ Deployed | Category links + @graph JSON-LD; portable split units tracked. |
+| Klimaatshop | ✅ Deployed | Custom category grid; `data-url` attribute + `.stock` span. |
+| Airco-Webwinkel | ✅ Deployed | WooCommerce store discovered via product sitemap; JSON-LD detail pages. |
 
 Not recommended (do not implement):
 - Vergelijkeven, Kieskeurig: price-comparison aggregators, second-hand stock data, not authoritative sellers. Kieskeurig also returns Vercel 429.
 - RS Online: industrial B2B, search returns 403, low portable-airco value for integration cost similar to Conrad.
 
-Worth investigating later: De Wit Schijndel, Vrijbuiter, Fritz Berger NL (camping/RV/split coverage); vidaXL NL, VEVOR NL (large catalog but need strict aircooler/accessory exclusion); Hornbach, Hubo, Intratuin (seasonal, may add little).
+All previously listed candidates have been investigated and resolved. No further expansion candidates remain at this time.
+
+## Development progress (2026-07-03 session)
+
+This session advanced the project from 19 to 27 active retailers through three expansion rounds, plus accuracy and documentation work:
+
+1. **Costway NL, Evolarshop, Airco voor in huis, Solago** — four adapters researched, implemented, tested, and deployed. Evolarshop uses the public Nosto GraphQL search API (same as the browser); Solago handles Shopify pre-order overrides; Costway reads Magento `qty-N` stock classes; Airco voor in huis uses WooCommerce `instock`/`outofstock` classes. (commit `4d12719`)
+2. **Hubo, Vrijbuiter** — two adapters researched and deployed. Hubo discovers products via Shopify product sitemaps; Vrijbuiter reads category links + @graph JSON-LD. Six other candidate sites were evaluated and excluded (De Wit Schijndel, Fritz Berger, vidaXL, VEVOR, Hornbach, Intratuin). (commit `ee33e59`)
+3. **Klimaatshop, Airco-Webwinkel** — two specialist airco dealers found via web search and deployed. Klimaatshop reads custom `data-url` + `.stock` spans; Airco-Webwinkel uses WooCommerce sitemap + JSON-LD. Seven more candidates were evaluated and excluded (BCC, Klium, Qlima, Electrogigant, Euronics, BAUHAUS NL, Fonq). (commit `3ce87c2`)
+4. **BTU accuracy** — earlier in the session, the Praxis adapter gained a watt→BTU fallback (commit `6930a24`); codex's prior BTU audit (labelled cooling watts, known-model inference, input-power rejection, detail-page enrichment) was reviewed and confirmed working across all adapters.
+5. **Documentation** — all three READMEs (zh, en, nl) were synced with the full 27-retailer list and per-retailer stock semantics. Personal email placeholders were cleaned up from READMEs.
+6. **HANDOFF** — continuously updated with deployed commits, verification evidence, excluded-site rationale, and expansion-candidate status.
+
+Test count grew from 38 → 66 across the session. All deployments succeeded with verification executions confirmed.
 
 ## Safeguards and known behaviour
 
