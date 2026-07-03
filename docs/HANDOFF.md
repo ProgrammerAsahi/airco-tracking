@@ -4,21 +4,22 @@ Last updated: 2026-07-03 (Europe/Amsterdam)
 
 ## Current objective
 
-Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure and sends an email only for first-seen or newly-restocked products.
+Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure, maintains a complete current available-stock snapshot, and sends an email only for first-seen or newly-restocked products that pass the alert filters.
 
-The current development round expands retailer coverage from 25 to 27 credential-free adapters, adding Klimaatshop and Airco-Webwinkel after a web search for additional Dutch airco retailers. Prior rounds added Hubo, Vrijbuiter, Costway NL, Evolarshop, Airco voor in huis, and Solago; migrated the notification recipient to Azure Key Vault; standardised filters at EUR 1,500 and 7,000 BTU; removed the bol.com integration; and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The latest development round added a separate live inventory snapshot for all 27 credential-free adapters. The snapshot contains every currently available in-scope product without price, BTU, or brand alert filters; successful sites replace their data, while failed sites retain their last successful products and are marked stale. Prior rounds expanded coverage, migrated the notification recipient to Azure Key Vault, standardised alert filters at EUR 1,500 and 7,000 BTU, removed the bol.com integration, and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Feature commit: `3ce87c28a3b6e95e549415c0a5bb486d2eba7a66`
-- Last verified production image: commit `3ce87c28a3b6e95e549415c0a5bb486d2eba7a66`
+- Feature commit: `13e31efde353c649703abe853afb5d4f5a4ac783`
+- Last verified production image: commit `13e31efde353c649703abe853afb5d4f5a4ac783`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Container Apps job: `airco-tracker-job`
 - Schedule: `*/10 * * * *` (UTC)
-- State: Azure Blob Storage, `airco-tracker/state.json`
+- Alert state: Azure Blob Storage, `airco-tracker/state.json`
+- Live inventory: Azure Blob Storage, `airco-tracker/inventory.json`
 - Notifications: Azure Communication Services Email
 - Runtime identity: user-assigned Managed Identity
 
@@ -160,6 +161,7 @@ This session advanced the project from 19 to 27 active retailers through three e
 4. **BTU accuracy** — earlier in the session, the Praxis adapter gained a watt→BTU fallback (commit `6930a24`); codex's prior BTU audit (labelled cooling watts, known-model inference, input-power rejection, detail-page enrichment) was reviewed and confirmed working across all adapters.
 5. **Documentation** — all three READMEs (zh, en, nl) were synced with the full 27-retailer list and per-retailer stock semantics. Personal email placeholders were cleaned up from READMEs.
 6. **HANDOFF** — continuously updated with deployed commits, verification evidence, excluded-site rationale, and expansion-candidate status.
+7. **Live inventory snapshot** — added an independent `inventory.json` grouped by all 27 sites. It retains all currently available in-scope products regardless of alert price/BTU/brand filters, replaces successful-site data (including empty results), preserves failed-site data as stale, and saves before email delivery. Local and Azure Blob backends, `doctor` counts, dry-run safeguards, three-language documentation, and failure-order tests are included. (commit `13e31ef`)
 
 Test count grew from 38 → 66 across the session. All deployments succeeded with verification executions confirmed.
 
@@ -167,22 +169,27 @@ Test count grew from 38 → 66 across the session. All deployments succeeded wit
 
 - Retailers are isolated; one failure does not stop successful checks.
 - State is updated only for retailers that completed successfully.
+- Live inventory is independent from alert state. A successful site replaces its current available list; a failed site retains the last successful list with `status: error` and `stale: true`.
+- Inventory snapshots do not apply price, BTU, or brand alert filters. Adapter-level scope rules still exclude air coolers, fans, accessories, and fixed split systems.
+- Production saves inventory before validating/sending email. An email failure therefore leaves inventory fresh but alert state uncommitted, so the notification retries next run.
+- `--dry-run` reads but writes neither inventory nor alert state.
 - Unknown price or BTU is retained to avoid false negatives; known values are filtered at EUR 1,500 and 7,000 BTU.
 - Category-based adapters fetch a product detail page only when the item is currently available and its BTU is unknown. This keeps the ten-minute scan light while preventing an available low-capacity item from bypassing `MIN_BTU`.
 - Explicitly labelled cooling capacity in W/kW may be converted to BTU; generic input power or electricity-consumption figures must never be converted. Verified model fallbacks cover ArcticMove, Qlima, COMFEE, and current Trotec PAC models when retailer cards omit units.
 - Air coolers, fans, dehumidifiers, window kits, hoses, and other accessories must not alert.
 - Multi-week lead times, presales, store-only stock, and collection-only stock are unavailable.
-- A non-dry production check validates email configuration before fetching retailers, so a missing Key Vault recipient fails deployment verification immediately.
+- A non-dry production check validates email configuration after saving inventory and before reading/updating alert state, so a missing Key Vault recipient still fails deployment verification without making the inventory stale.
 - `doctor` reports whether the recipient is configured without printing the address.
 
 ## Verification snapshot
 
-- Unit tests: 66 passed, including 2 new tests for Klimaatshop and Airco-Webwinkel adapters.
+- Unit tests: 72 passed, including inventory filter separation, successful-empty replacement, failed-site retention, local-store round trip, dry-run no-write, and email-failure ordering.
 - Shell syntax: clean.
 - `git diff --check`: clean.
-- Live local dry-run on 2026-07-03 (post Klimaatshop/Airco-Webwinkel expansion): all 27 retailers ran without errors. New retailers: Klimaatshop 2/0, Airco-Webwinkel 1/0.
-- GitHub Actions run `28665053635` for commit `3ce87c2`: succeeded in 3m59s. Verification execution `airco-tracker-job-3tkqxj1`: Succeeded.
-- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:3ce87c28a3b6e95e549415c0a5bb486d2eba7a66`.
+- Live local dry-run on 2026-07-03: all 27 retailers completed; snapshot preview contained 19 available products and the alert filter selected 13. Known low-BTU and over-EUR-1,500 products remained in the snapshot but were excluded from alerts.
+- GitHub Actions run `28670790535` for commit `13e31ef`: succeeded in 3m57s. Verification execution `airco-tracker-job-d0zpn59`: Succeeded.
+- Production created `airco-tracker/inventory.json` via Managed Identity (HTTP 201): 13,830 bytes, 27 sites, 19 available products, 0 stale sites. No email was sent because alert state contained no new restocks.
+- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:13e31efde353c649703abe853afb5d4f5a4ac783`.
 - Prior runs retained in git history.
 - Expected per-product warnings remain for one retired Obelink URL, two Kampeerwereld URLs returning HTTP 410, and one De'Longhi product missing JSON-LD offer. Their adapters still completed successfully; these warnings do not mark the retailer check as failed.
 
