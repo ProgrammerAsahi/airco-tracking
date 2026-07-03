@@ -36,6 +36,25 @@ class StateTests(unittest.TestCase):
         )
         self.assertEqual(alerts, [unknown_price])
 
+    def test_minimum_btu_rejects_known_low_capacity_product(self) -> None:
+        low_capacity = Product(
+            "Obelink",
+            "Tweedekans Obelink ArcticMove 1500 tentairco",
+            "https://shop.test/arcticmove-1500",
+            True,
+            319.0,
+            "Online op voorraad",
+            5118,
+        )
+        alerts = select_alerts(
+            [low_capacity],
+            {"products": {}},
+            alert_on_first_seen=True,
+            max_price_eur=1500,
+            min_btu=7000,
+        )
+        self.assertEqual(alerts, [])
+
     def test_successful_empty_seasonal_site_marks_old_product_unavailable(self) -> None:
         old = {
             "products": {

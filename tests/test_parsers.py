@@ -569,6 +569,25 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(product.price_eur, 319.0)
         self.assertEqual(product.btu, 9000)
 
+    def test_obelink_infers_arcticmove_capacity_on_second_chance_page(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Tweedekans Obelink ArcticMove 1500 tentairco",
+            # The real second-chance page omits the 5100 BTU specification.
+            "description": "Een tweede kans tentairco met drie ventilatorstanden.",
+            "url": "https://www.obelink.nl/tweedekans-arcticmove-1500w.html",
+            "offers": {
+                "price": 319,
+                "availability": "https://schema.org/InStock",
+            },
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_obelink_page(
+            page,
+            "https://www.obelink.nl/tweedekans-arcticmove-1500w.html",
+        )
+        self.assertEqual(product.btu, 5118)
+
     def test_kampeerwereld_rejects_store_only_stock(self) -> None:
         page = """
         <h1 class="product-detail-name">Eurom AC 7001 Mobiele Airco</h1>
