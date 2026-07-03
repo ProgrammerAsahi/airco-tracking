@@ -4,9 +4,9 @@ Last updated: 2026-07-03 (Europe/Amsterdam)
 
 ## Current objective
 
-Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure, maintains a complete current available-stock snapshot, and sends an email only for first-seen or newly-restocked products that pass the alert filters.
+Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure, maintains a complete current available-stock snapshot for the public dashboard, and sends an email only for first-seen or newly-restocked products that pass the alert filters.
 
-The latest development round added a separate live inventory snapshot for all 27 credential-free adapters. The snapshot contains every currently available in-scope product without price, BTU, or brand alert filters; successful sites replace their data, while failed sites retain their last successful products and are marked stale. Prior rounds expanded coverage, migrated the notification recipient to Azure Key Vault, standardised alert filters at EUR 1,500 and 7,000 BTU, removed the bol.com integration, and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The latest development round added a separate live inventory snapshot for all 27 credential-free adapters and then connected it to a separately deployed TypeScript dashboard. The snapshot contains every currently available in-scope product without price, BTU, or brand alert filters; successful sites replace their data, while failed sites retain their last successful products and are marked stale. The dashboard consumes this private Blob only through its same-origin Managed Identity API. Prior rounds expanded coverage, migrated the notification recipient to Azure Key Vault, standardised alert filters at EUR 1,500 and 7,000 BTU, removed the bol.com integration, and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
@@ -22,6 +22,10 @@ The latest development round added a separate live inventory snapshot for all 27
 - Live inventory: Azure Blob Storage, `airco-tracker/inventory.json`
 - Notifications: Azure Communication Services Email
 - Runtime identity: user-assigned Managed Identity
+- Dashboard consumer repository: `https://github.com/ProgrammerAsahi/airco-tracking-web`
+- Dashboard live URL: `https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontainerapps.io`
+- Dashboard deployed image commit: `039ea44845af806883021dbc2fb14da3e45aa74e`
+- Dashboard handoff/docs head after agent-context update: `b39ea97`
 
 ## Active retailers
 
@@ -93,6 +97,18 @@ A Developer Portal registration attempt on 2026-07-03 was rejected with "your em
 - The Container Apps Managed Identity has Key Vault Secrets User and hydrates `EMAIL_TO` at runtime.
 - SMTP credentials remain local-only in `.env`; Azure uses passwordless Communication Services.
 
+## Frontend consumer and cross-repository contract
+
+- Frontend local path: `~/airco-tracking-web`.
+- The backend is the sole producer of private `airco-tracker/inventory.json`; current schema version is `1`.
+- The frontend Container App serves the glacier-blue React dashboard and a same-origin `/api/inventory` endpoint. Its Node service reads this Blob with the existing runtime Managed Identity and caches reads for 30 seconds.
+- The frontend reuses this project's Container Apps Environment, ACR, Storage Account, resource group, and runtime identity. Only a new `airco-tracking-web` Container App and repository-specific GitHub OIDC federated credential were added; no new database, Function App, Storage Account, environment, registry, Key Vault, or secret was created.
+- The Blob container remains private. Never replace the frontend API with direct browser access, a public container, Storage Key, connection string, or long-lived SAS token.
+- Backend producer: `airco_tracker/inventory.py`; persistence: `airco_tracker/inventory_store.py`.
+- Frontend validator: `~/airco-tracking-web/server/inventory.ts`; browser types: `src/types.ts`; fixture: `public/inventory.sample.json`.
+- A schema or semantics change must update and verify both repositories together: backend producer/tests, frontend validator/tests, browser types/UI, fixture, README, and both handoffs. Bump the schema version for breaking changes instead of silently reinterpreting version `1`.
+- The frontend first production deployment succeeded in GitHub Actions run `28681867269`, scaled 0–2 replicas, and verified 27 sites / 15 available products from the live private Blob at that moment. Counts are time-sensitive.
+
 ## AliExpress external status
 
 - Affiliate account approved on 2026-07-01.
@@ -162,8 +178,9 @@ This session advanced the project from 19 to 27 active retailers through three e
 5. **Documentation** — all three READMEs (zh, en, nl) were synced with the full 27-retailer list and per-retailer stock semantics. Personal email placeholders were cleaned up from READMEs.
 6. **HANDOFF** — continuously updated with deployed commits, verification evidence, excluded-site rationale, and expansion-candidate status.
 7. **Live inventory snapshot** — added an independent `inventory.json` grouped by all 27 sites. It retains all currently available in-scope products regardless of alert price/BTU/brand filters, replaces successful-site data (including empty results), preserves failed-site data as stale, and saves before email delivery. Local and Azure Blob backends, `doctor` counts, dry-run safeguards, three-language documentation, and failure-order tests are included. (commit `13e31ef`)
+8. **Public inventory dashboard** — created and deployed the separate `airco-tracking-web` TypeScript/React repository. It uses a same-origin Node API with Managed Identity to consume the private snapshot, a glacier-blue responsive UI, Container Apps scale-to-zero, repository-specific GitHub OIDC, immutable images, and automated production verification. The backend owns the snapshot contract; future schema work must be coordinated across both repositories. (frontend image commit `039ea44`)
 
-Test count grew from 38 → 66 across the session. All deployments succeeded with verification executions confirmed.
+Backend test count grew from 38 → 72 across the session. All deployments succeeded with verification executions confirmed.
 
 ## Safeguards and known behaviour
 
@@ -171,6 +188,8 @@ Test count grew from 38 → 66 across the session. All deployments succeeded wit
 - State is updated only for retailers that completed successfully.
 - Live inventory is independent from alert state. A successful site replaces its current available list; a failed site retains the last successful list with `status: error` and `stale: true`.
 - Inventory snapshots do not apply price, BTU, or brand alert filters. Adapter-level scope rules still exclude air coolers, fans, accessories, and fixed split systems.
+- The snapshot is a production cross-repository contract. Keep schema version `1` compatible with the deployed frontend, or coordinate an explicit version bump and dual-repository deployment.
+- The inventory Blob must remain private; only Azure identities may read it directly. Public browser access goes through the frontend's same-origin API.
 - Production saves inventory before validating/sending email. An email failure therefore leaves inventory fresh but alert state uncommitted, so the notification retries next run.
 - `--dry-run` reads but writes neither inventory nor alert state.
 - Unknown price or BTU is retained to avoid false negatives; known values are filtered at EUR 1,500 and 7,000 BTU.
@@ -190,9 +209,10 @@ Test count grew from 38 → 66 across the session. All deployments succeeded wit
 - GitHub Actions run `28670790535` for commit `13e31ef`: succeeded in 3m57s. Verification execution `airco-tracker-job-d0zpn59`: Succeeded.
 - Production created `airco-tracker/inventory.json` via Managed Identity (HTTP 201): 13,830 bytes, 27 sites, 19 available products, 0 stale sites. No email was sent because alert state contained no new restocks.
 - Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:13e31efde353c649703abe853afb5d4f5a4ac783`.
+- Frontend production deployment: Actions run `28681867269`, image `airco-tracking-web:039ea44845af806883021dbc2fb14da3e45aa74e`, Azure provisioning `Succeeded`, and live API verification returned 27 sites / 15 available products at that moment.
 - Prior runs retained in git history.
 - Expected per-product warnings remain for one retired Obelink URL, two Kampeerwereld URLs returning HTTP 410, and one De'Longhi product missing JSON-LD offer. Their adapters still completed successfully; these warnings do not mark the retailer check as failed.
 
 ## Updating this handoff
 
-Replace stale status instead of appending a diary. Always record the deployed commit, active retailer count, external API review state, exact verification evidence, and next concrete action. Never include email addresses, secret values, tokens, passwords, or unnecessary personal information.
+Replace stale status instead of appending a diary. Always record the deployed commit, active retailer count, external API review state, frontend contract compatibility, exact verification evidence, and next concrete action. Never include email addresses, secret values, tokens, passwords, or unnecessary personal information.
