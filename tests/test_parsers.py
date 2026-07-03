@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 
 from airco_tracker.adapters.action import ActionAdapter, _parse_product_page as parse_action_page
 from airco_tracker.adapters.aircovoorinhuis import AircoVoorInHuisAdapter
+from airco_tracker.adapters.aircowebwinkel import _parse_product_page as parse_aircowebwinkel_page
 from airco_tracker.adapters.alternate import _parse_product_page as parse_alternate_page
 from airco_tracker.adapters.coolblue import CoolblueAdapter
 from airco_tracker.adapters.costway import CostwayAdapter
@@ -23,6 +24,7 @@ from airco_tracker.adapters.flinq import _parse_product_page as parse_flinq_page
 from airco_tracker.adapters.hubo import _parse_product_page as parse_hubo_page
 from airco_tracker.adapters.klarstein import KlarsteinAdapter
 from airco_tracker.adapters.kampeerwereld import _parse_product_page as parse_kampeerwereld_page
+from airco_tracker.adapters.klimaatshop import KlimaatshopAdapter
 from airco_tracker.adapters.lidl import LidlAdapter
 from airco_tracker.adapters.mediamarkt import MediaMarktAdapter
 from airco_tracker.adapters.obelink import _parse_product_page as parse_obelink_page
@@ -1068,6 +1070,57 @@ class ParserTests(unittest.TestCase):
         page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
         product = parse_vrijbuiter_page(page, "https://www.vrijbuiter.nl/p/luchtkoeler-1")
         self.assertIsNone(product)
+
+    # --- Klimaatshop ---
+
+    def test_klimaatshop_reads_stock_span_and_price(self) -> None:
+        html = """
+        <div class="product"
+             data-url="https://www.klimaatshop.nl/sinclair-amc-14p-mobiele-airco-40-kw.html">
+          <span class="price">€627,-</span>
+          <span class="stock">Op voorraad</span>
+        </div>
+        <div class="product"
+             data-url="https://www.klimaatshop.nl/sinclair-amc-11p-mobiele-airco-30-kw.html">
+          <span class="price">€577,-</span>
+          <span class="stock out-of-stock">Helaas, voorlopig uitverkocht</span>
+        </div>
+        <div class="product"
+             data-url="https://www.klimaatshop.nl/raamafdekkit-mobiele-airco.html">
+          <span class="price">€37,-</span>
+        </div>"""
+        products = KlimaatshopAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.klimaatshop.nl/aircos/aircos-zonder-buitenunit/",
+        )
+        # Raamafdekkit is an accessory and excluded.
+        self.assertEqual(len(products), 2)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].price_eur, 627.0)
+        self.assertFalse(products[1].available)
+        self.assertEqual(products[1].price_eur, 577.0)
+
+    # --- Airco-Webwinkel ---
+
+    def test_aircowebwinkel_reads_json_ld_stock(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "AUX Mobiele Airco 9000 BTU",
+            "description": "Draagbare airco met afvoerslang.",
+            "offers": {
+                "@type": "Offer",
+                "availability": "https://schema.org/InStock",
+                "price": "299.00",
+                "priceCurrency": "EUR",
+                "url": "https://www.airco-webwinkel.nl/product/aux-mobiele-airco/",
+            },
+        }
+        page = f'<script type="application/ld+json">{json.dumps(data)}</script>'
+        product = parse_aircowebwinkel_page(page, "https://www.airco-webwinkel.nl/product/aux-mobiele-airco/")
+        self.assertIsNotNone(product)
+        self.assertTrue(product.available)
+        self.assertEqual(product.price_eur, 299.0)
+        self.assertEqual(product.btu, 9000)
 
 
 if __name__ == "__main__":

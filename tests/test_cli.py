@@ -36,6 +36,8 @@ ADAPTER_NAMES = (
     "SolagoAdapter",
     "HuboAdapter",
     "VrijbuiterAdapter",
+    "KlimaatshopAdapter",
+    "AircoWebwinkelAdapter",
 )
 
 

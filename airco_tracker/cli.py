@@ -8,6 +8,7 @@ import sys
 from .adapters import (
     ActionAdapter,
     AircoVoorInHuisAdapter,
+    AircoWebwinkelAdapter,
     AlternateAdapter,
     CoolblueAdapter,
     CostwayAdapter,
@@ -23,6 +24,7 @@ from .adapters import (
     KarweiAdapter,
     KampeerwereldAdapter,
     KlarsteinAdapter,
+    KlimaatshopAdapter,
     LidlAdapter,
     MediaMarktAdapter,
     ObelinkAdapter,
@@ -91,6 +93,8 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         SolagoAdapter(fetcher),
         HuboAdapter(fetcher),
         VrijbuiterAdapter(fetcher),
+        KlimaatshopAdapter(fetcher),
+        AircoWebwinkelAdapter(fetcher),
     ]
     products: list[Product] = []
     failures: list[str] = []

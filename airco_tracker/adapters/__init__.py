@@ -1,5 +1,6 @@
 from .action import ActionAdapter
 from .aircovoorinhuis import AircoVoorInHuisAdapter
+from .aircowebwinkel import AircoWebwinkelAdapter
 from .alternate import AlternateAdapter
 from .coolblue import CoolblueAdapter
 from .costway import CostwayAdapter
@@ -14,6 +15,7 @@ from .flinq import FlinqAdapter
 from .hubo import HuboAdapter
 from .kampeerwereld import KampeerwereldAdapter
 from .klarstein import KlarsteinAdapter
+from .klimaatshop import KlimaatshopAdapter
 from .lidl import LidlAdapter
 from .mediamarkt import MediaMarktAdapter
 from .obelink import ObelinkAdapter
@@ -26,6 +28,7 @@ from .wehkamp import WehkampAdapter
 __all__ = [
     "ActionAdapter",
     "AircoVoorInHuisAdapter",
+    "AircoWebwinkelAdapter",
     "AlternateAdapter",
     "CoolblueAdapter",
     "CostwayAdapter",
@@ -41,6 +44,7 @@ __all__ = [
     "KarweiAdapter",
     "KampeerwereldAdapter",
     "KlarsteinAdapter",
+    "KlimaatshopAdapter",
     "LidlAdapter",
     "MediaMarktAdapter",
     "ObelinkAdapter",
