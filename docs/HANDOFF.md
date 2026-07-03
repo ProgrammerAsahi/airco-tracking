@@ -1,6 +1,6 @@
 # Airco Tracker NL — current handoff
 
-Last updated: 2026-07-02 (Europe/Amsterdam)
+Last updated: 2026-07-03 (Europe/Amsterdam)
 
 ## Current objective
 
@@ -12,8 +12,8 @@ The current development round adds five active retailers, migrates the notificat
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Feature commit: `99a6cf0f138af48bb8129f6a9aa8a3b862f94547`
-- Last verified production image: commit `99a6cf0f138af48bb8129f6a9aa8a3b862f94547`
+- Feature commit: `aafad06b997b277f0cb1eaa4c44c847138d7e840`
+- Last verified production image: commit `aafad06b997b277f0cb1eaa4c44c847138d7e840`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Container Apps job: `airco-tracker-job`
@@ -92,6 +92,7 @@ Conrad.nl is intentionally not registered. Its storefront and robots endpoint re
 - Retailers are isolated; one failure does not stop successful checks.
 - State is updated only for retailers that completed successfully.
 - Unknown price or BTU is retained to avoid false negatives; known values are filtered at EUR 1,500 and 7,000 BTU.
+- Obelink second-chance pages may omit the BTU sentence. The narrow ArcticMove model fallback converts the model's cooling-capacity watts to BTU; it must not be broadened to arbitrary watt figures because electrical input power is not cooling capacity.
 - Air coolers, fans, dehumidifiers, window kits, hoses, and other accessories must not alert.
 - Multi-week lead times, presales, store-only stock, and collection-only stock are unavailable.
 - A non-dry production check validates email configuration before fetching retailers, so a missing Key Vault recipient fails deployment verification immediately.
@@ -99,13 +100,15 @@ Conrad.nl is intentionally not registered. Its storefront and robots endpoint re
 
 ## Verification snapshot
 
-- Unit tests: 44 passed after the five new parser fixtures, shared defaults test, Create deduplication test, and Python 3.9-compatible adapter patch helper were added.
+- Unit tests: 46 passed, including the Obelink second-chance capacity inference and minimum-BTU rejection regressions.
 - Shell syntax: clean.
 - `git diff --check`: clean.
 - Final installed-version dry-run: all 19 registered retailers completed. New-site counts were Expert 11/0, De'Longhi 11/0, Obelink 13/1, Kampeerwereld 5/1, and Create 2/0. The two available camping units were 5,100 and 3,200 BTU and were correctly filtered out; a EUR 1,999 MediaMarkt unit was also filtered out. Only the Wehkamp 7,000 BTU / EUR 225 product qualified for an alert.
 - Azure recipient migration: complete. Current Container Apps configuration contains no plain `EMAIL_TO`; it contains `EMAIL_LANG=zh`, `MIN_BTU=7000`, `MAX_PRICE_EUR=1500`, and `KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email`.
 - GitHub Actions run `28607362989`: succeeded in 3m43s. Verification execution `airco-tracker-job-opfacjh`: Succeeded. Its Azure logs show all 19 retailer summaries and end with `No new stock; no email sent`.
-- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:99a6cf0f138af48bb8129f6a9aa8a3b862f94547`.
+- Obelink live regression on 2026-07-03: the normal ArcticMove 1500 parsed as 5,100 BTU and the second-chance variant parsed as 5,118 BTU; both were rejected by `MIN_BTU=7000`.
+- GitHub Actions run `28648073803`: succeeded in 3m39s and deployed the immutable fix image.
+- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:aafad06b997b277f0cb1eaa4c44c847138d7e840`.
 - Expected per-product warnings remain for one De'Longhi URL without an offer, one retired Obelink URL, and two Kampeerwereld URLs returning HTTP 410. Their adapters still completed with 11, 13, and 5 parsed products respectively; these warnings do not mark the retailer check as failed.
 
 ## Updating this handoff
