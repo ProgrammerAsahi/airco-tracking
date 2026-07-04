@@ -6,13 +6,13 @@ Last updated: 2026-07-03 (Europe/Amsterdam)
 
 Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure, maintains a complete current available-stock snapshot for the public dashboard, and sends an email only for first-seen or newly-restocked products that pass the alert filters.
 
-The latest development round added a separate live inventory snapshot for all 27 credential-free adapters and then connected it to a separately deployed TypeScript dashboard. The snapshot contains every currently available in-scope product without price, BTU, or brand alert filters; successful sites replace their data, while failed sites retain their last successful products and are marked stale. The dashboard consumes this private Blob only through its same-origin Managed Identity API. Prior rounds expanded coverage, migrated the notification recipient to Azure Key Vault, standardised alert filters at EUR 1,500 and 7,000 BTU, removed the bol.com integration, and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The latest development round added presale product separation: a `presale` field on the `Product` model distinguishes immediate stock from pre-orders and multi-week lead times. Four adapters (Solago, Create, Trotec, Wehkamp) now set `presale=True` instead of `available=False` for pre-order products. `inventory.py` centrally detects presale markers in delivery text for all other adapters. `select_alerts` skips presale products so they never trigger email alerts. Presale products appear in `inventory.json` for the frontend to display in a separate tab. Prior rounds added the inventory snapshot, expanded coverage to 27 retailers, migrated the notification recipient to Azure Key Vault, standardised alert filters at EUR 1,500 and 7,000 BTU, removed the bol.com integration, and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Feature commit: `13e31efde353c649703abe853afb5d4f5a4ac783`
+- Feature commit: `b40bfb6a8a14bb8e7e829ab4e128eea7d2889708`
 - Last verified production image: commit `13e31efde353c649703abe853afb5d4f5a4ac783`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
