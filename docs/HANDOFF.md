@@ -226,3 +226,13 @@ Multi-language support added with Azure Table Storage-backed i18n:
 - foundation.bicep: Storage Table Data Contributor role added.
 - scripts/seed-i18n.py: one-time seeding script (already run).
 - Backend commit: bd373ba. 72 tests pass.
+
+## 2026-07-04 frontend i18n integration (partially blocked)
+
+The backend i18n refactoring is complete and working:
+- `i18n_table.py` loads from Azure Table Storage; `i18n.py` uses it for email translations.
+- `i18n_local.json` contains 44 entries (12 email + 33 web) across zh/nl/en.
+- `scripts/seed-i18n.py` has been run; Table Storage is populated.
+- 72 backend tests pass; email i18n is unaffected.
+
+The frontend i18n integration has an unresolved display bug: the React app shows raw key names instead of translated text. The Azure Table Storage data is correct and the Node server injects it into HTML, but the React `t()` function cannot find the translations at runtime. See the frontend HANDOFF.md for detailed investigation notes and hypotheses. The most likely cause is HTML parsing of `<br />` tags inside JSON string values breaking the inline `<script>` tag.
