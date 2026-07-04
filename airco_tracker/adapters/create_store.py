@@ -46,7 +46,7 @@ def _parse_card(card: BeautifulSoup, page_url: str) -> Product | None:
     delivery_match = re.search(r"Verzending\s+(?:binnen|vanaf)\s+[^\n]+", text, re.I)
     delivery = delivery_match.group(0).strip() if delivery_match else "Voorraadstatus onbekend"
     presale = "presale" in lower or "verzending vanaf" in lower
-    available = not presale and "verzending binnen" in lower
+    available = presale or "verzending binnen" in lower
     price_node = card.select_one(".c-product-card__price--final")
     return Product(
         site="Create NL",
@@ -56,6 +56,7 @@ def _parse_card(card: BeautifulSoup, page_url: str) -> Product | None:
         price_eur=parse_price(clean_text(price_node)) if price_node else None,
         delivery=delivery,
         btu=parse_btu(name),
+        presale=presale,
     )
 
 

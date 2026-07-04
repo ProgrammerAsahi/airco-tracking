@@ -65,9 +65,11 @@ def _parse_product(item: Any, page_url: str) -> Product | None:
     delivery_lower = delivery.lower()
     unavailable = "uitverkocht" in delivery_lower
     # Multi-week lead times (e.g. "Binnen 3-5 weken leverbaar") are preorders,
-    # not orderable stock, and must not trigger an alert (AGENTS.md).
+    # not immediate stock. They are retained as presale so the frontend can
+    # show them separately (AGENTS.md).
     long_lead_time = "weken" in delivery_lower
-    available = not unavailable and not long_lead_time and (stock > 0 or bool(delivery))
+    presale = not unavailable and long_lead_time
+    available = not unavailable and (stock > 0 or bool(delivery))
     return Product(
         site="Wehkamp",
         name=name,
@@ -76,6 +78,7 @@ def _parse_product(item: Any, page_url: str) -> Product | None:
         price_eur=_price_in_cents(item.get("pricing")),
         delivery=delivery or ("Op voorraad" if available else "Uitverkocht"),
         btu=btu,
+        presale=presale,
     )
 
 

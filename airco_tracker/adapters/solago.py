@@ -64,7 +64,8 @@ def _parse_product_page(page: str, page_url: str) -> Product | None:
         marker in lower
         for marker in ("voorbestelling", "pre-order", "levering vanaf", "verzending vanaf")
     )
-    available = schema_available and not preorder
+    available = schema_available
+    presale = preorder
     description = str(data.get("description", ""))
     return Product(
         site="Solago",
@@ -72,8 +73,9 @@ def _parse_product_page(page: str, page_url: str) -> Product | None:
         url=canonical_url(page_url, str(offer.get("url") or data.get("url") or page_url)),
         available=available,
         price_eur=offer_price(offer),
-        delivery="Voorbestelling" if preorder else ("Op voorraad" if available else "Niet op voorraad"),
+        delivery="Voorbestelling" if presale else ("Op voorraad" if available else "Niet op voorraad"),
         btu=parse_btu(f"{name} {description} {text}"),
+        presale=presale,
     )
 
 

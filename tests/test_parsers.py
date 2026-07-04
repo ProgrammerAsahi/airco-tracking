@@ -481,7 +481,8 @@ class ParserTests(unittest.TestCase):
             BeautifulSoup(html, "html.parser"), "https://nl.trotec.com/shop/mobiele-airco"
         )
         self.assertEqual(len(products), 2)
-        self.assertEqual([product.available for product in products], [True, False])
+        self.assertTrue(products[0].available)
+        self.assertFalse(products[0].presale)
         self.assertEqual(products[0].price_eur, 349.99)
         self.assertEqual(products[0].btu, 7000)
 
@@ -712,7 +713,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(product.price_eur, 189.0)
         self.assertEqual(product.btu, 7000)
 
-    def test_create_presale_is_not_available(self) -> None:
+    def test_create_presale_is_marked_presale(self) -> None:
         page = """
         <div class="c-product-card">
           <span class="c-product-tag__label">Presale</span>
@@ -726,7 +727,8 @@ class ParserTests(unittest.TestCase):
         card = BeautifulSoup(page, "html.parser").select_one(".c-product-card")
         product = parse_create_card(card, "https://www.create-store.com/nl/3939-kopen-mobiele-airco")
         self.assertIsNotNone(product)
-        self.assertFalse(product.available)
+        self.assertTrue(product.available)
+        self.assertTrue(product.presale)
         self.assertEqual(product.price_eur, 309.95)
         self.assertEqual(product.btu, 9000)
 
@@ -747,7 +749,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(len(products), 1)
         self.assertEqual(products[0].price_eur, 309.95)
 
-    def test_wehkamp_long_lead_time_is_unavailable(self) -> None:
+    def test_wehkamp_long_lead_time_is_presale(self) -> None:
         data = {
             "products": [
                 {
@@ -767,7 +769,8 @@ class ParserTests(unittest.TestCase):
             "https://www.wehkamp.nl/huishoudelijke-apparatuur-aircos/",
         )
         self.assertEqual(len(products), 1)
-        self.assertFalse(products[0].available)
+        self.assertTrue(products[0].available)
+        self.assertTrue(products[0].presale)
 
     def test_wehkamp_keeps_monoblock_portable_airco(self) -> None:
         # "monoblock" (single-unit) is the genuine portable compressor form
@@ -973,7 +976,8 @@ class ParserTests(unittest.TestCase):
         )
         product = parse_solago_page(page, "https://solago.nl/products/midea-portasplit-airconditioning")
         self.assertIsNotNone(product)
-        self.assertFalse(product.available)
+        self.assertTrue(product.available)
+        self.assertTrue(product.presale)
         self.assertEqual(product.delivery, "Voorbestelling")
         self.assertEqual(product.btu, 8000)
 

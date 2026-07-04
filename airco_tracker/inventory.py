@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from .adapters.base import is_presale_delivery
 from .models import Product
 
 
@@ -46,6 +48,11 @@ def updated_inventory(
     }
     for product in products:
         if product.available and product.site in checked_sites:
+            # Centralized presale detection: if the adapter did not already
+            # flag the product as presale, check the delivery text for
+            # presale markers (multi-week lead times, pre-order, etc.).
+            if not product.presale and product.delivery and is_presale_delivery(product.delivery):
+                product = replace(product, presale=True)
             available_by_site.setdefault(product.site, []).append(product.to_dict())
 
     sites: dict[str, dict[str, Any]] = {}

@@ -15,6 +15,27 @@ from .schema import product_json_ld
 
 
 LOG = logging.getLogger(__name__)
+
+# Delivery text markers that indicate a product is a presale or has a
+# multi-week lead time — not immediate stock. Used by is_presale_delivery()
+# and by adapters that need to separate presale from in-stock products.
+PRESALE_MARKERS = (
+    "voorbestelling",
+    "pre-order",
+    "pre order",
+    "levering vanaf",
+    "verzending vanaf",
+    "weken",  # multi-week lead time, e.g. "Binnen 3-5 weken leverbaar"
+    "binnenkort beschikbaar",
+    "tijdelijk niet beschikbaar",
+)
+
+
+def is_presale_delivery(text: str) -> bool:
+    """Return True if the delivery text indicates a presale or multi-week lead time."""
+    lower = text.lower()
+    return any(marker in lower for marker in PRESALE_MARKERS)
+
 PRICE_PATTERNS = (
     re.compile(r"(?:€|EUR)\s*([\d.]+)\s*[,.]\s*(\d{2})", re.I),
     re.compile(r"(?:€|EUR)\s*([\d.]+)\s*,?\s*[-–]", re.I),

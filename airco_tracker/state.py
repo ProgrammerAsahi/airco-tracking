@@ -32,7 +32,7 @@ def select_alerts(
     alerts: list[Product] = []
     for product in products:
         old = previous.get(product.url)
-        became_available = product.available and (
+        became_available = product.available and not product.presale and (
             (old is None and alert_on_first_seen)
             or (old is not None and not old.get("available", False))
         )
