@@ -41,14 +41,13 @@ def load_translations(scope: str) -> dict[str, dict[str, str]]:
 
 
 def _load_from_table(account_url: str, scope: str) -> dict[str, dict[str, str]]:
-    from azure.data.tables import TableServiceClient
+    from azure.data.tables import TableClient
     from azure.identity import DefaultAzureCredential
 
     credential = DefaultAzureCredential(
         managed_identityClientId=os.getenv("AZURE_CLIENT_ID", "").strip() or None
     )
-    client = TableServiceClient(account_url=account_url, credential=credential)
-    table = client.get_table_client("i18n")
+    table = TableClient(endpoint=account_url, table_name="i18n", credential=credential)
     translations: dict[str, dict[str, str]] = {}
     for entity in table.query_entities(f"PartitionKey eq '{scope}'"):
         key = entity.get("RowKey", "")

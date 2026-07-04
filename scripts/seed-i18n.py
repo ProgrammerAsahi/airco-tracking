@@ -33,7 +33,7 @@ def main() -> int:
     credential = DefaultAzureCredential(
         managed_identityClientId=os.getenv("AZURE_CLIENT_ID", "").strip() or None
     )
-    client = TableServiceClient(account_url=account_url, credential=credential)
+    client = TableServiceClient(endpoint=account_url, credential=credential)
     table = client.create_table_if_not_exists("i18n")
     print(f"Table 'i18n' ready.")
 
