@@ -209,7 +209,7 @@ Backend test count grew from 38 → 72 across the session. All deployments succe
 - GitHub Actions run `28670790535` for commit `13e31ef`: succeeded in 3m57s. Verification execution `airco-tracker-job-d0zpn59`: Succeeded.
 - Production created `airco-tracker/inventory.json` via Managed Identity (HTTP 201): 13,830 bytes, 27 sites, 19 available products, 0 stale sites. No email was sent because alert state contained no new restocks.
 - Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:13e31efde353c649703abe853afb5d4f5a4ac783`.
-- Frontend production deployment: Actions run `28681867269`, image `airco-tracking-web:039ea44845af806883021dbc2fb14da3e45aa74e`, Azure provisioning `Succeeded`, and live API verification returned 27 sites / 15 available products at that moment.
+- Frontend localization repair deployment: Actions run `28717820865`, image `airco-tracking-web:5d022fc45e9e9d03bec567cd6afaee5f59e37f90`, and the strengthened verifier passed strict CSP, three-language inert JSON, and inventory checks. Live API verification returned 27 sites / 20 available products / 0 stale sites at `2026-07-04T19:54:00Z`; production browser QA passed Chinese, Dutch, and English switching.
 - Prior runs retained in git history.
 - Expected per-product warnings remain for one retired Obelink URL, two Kampeerwereld URLs returning HTTP 410, and one De'Longhi product missing JSON-LD offer. Their adapters still completed successfully; these warnings do not mark the retailer check as failed.
 
@@ -220,19 +220,19 @@ Replace stale status instead of appending a diary. Always record the deployed co
 ## 2026-07-04 i18n round
 
 Multi-language support added with Azure Table Storage-backed i18n:
-- Table "i18n" in existing Storage Account stores all translations (44 entries: 12 email + 33 web).
+- Table "i18n" in existing Storage Account stores all translations (44 entries: 11 email + 33 web).
 - i18n_table.py loads from Table Storage via Managed Identity; i18n_local.json is the local fallback.
 - i18n.py refactored to use dynamic loading; translate() API unchanged.
 - foundation.bicep: Storage Table Data Contributor role added.
 - scripts/seed-i18n.py: one-time seeding script (already run).
 - Backend commit: bd373ba. 72 tests pass.
 
-## 2026-07-04 frontend i18n integration (partially blocked)
+## 2026-07-04 frontend i18n integration
 
 The backend i18n refactoring is complete and working:
 - `i18n_table.py` loads from Azure Table Storage; `i18n.py` uses it for email translations.
-- `i18n_local.json` contains 44 entries (12 email + 33 web) across zh/nl/en.
+- `i18n_local.json` contains 44 entries (11 email + 33 web) across zh/nl/en.
 - `scripts/seed-i18n.py` has been run; Table Storage is populated.
 - 72 backend tests pass; email i18n is unaffected.
 
-The frontend i18n integration has an unresolved display bug: the React app shows raw key names instead of translated text. The Azure Table Storage data is correct and the Node server injects it into HTML, but the React `t()` function cannot find the translations at runtime. See the frontend HANDOFF.md for detailed investigation notes and hypotheses. The most likely cause is HTML parsing of `<br />` tags inside JSON string values breaking the inline `<script>` tag.
+The frontend display bug is resolved. Its strict `script-src 'self'` CSP correctly blocked the original executable inline `window.__I18N__` assignment. Frontend commit `5d022fc` now embeds escaped translations as inert `application/json`, validates them through a shared parser, and renders heading line breaks without `dangerouslySetInnerHTML`. Local and production browser QA confirmed Chinese, Dutch, and English copy, metadata, accessibility labels, timestamps, prices, and BTU formatting. No backend schema or Table reseed was required.
