@@ -30,10 +30,13 @@ class TrotecAdapter(Adapter):
             delivery = str(data.get("availability_message", "")).strip()
             price = _nested_float(data, "price_range", "minimum_price", "final_price", "value")
             text = clean_text(node)
-            in_stock = delivery.lower() == "op voorraad"
+            delivery_lower = delivery.lower()
+            in_stock = delivery_lower == "op voorraad"
+            sold_out = "uitverkocht" in delivery_lower or "niet leverbaar" in delivery_lower
             # Products with multi-week lead times are retained as presale
             # rather than dropped, so the frontend can show them separately.
-            presale = bool(delivery) and not in_stock
+            # Sold-out products are excluded entirely (not presale, not in stock).
+            presale = bool(delivery) and not in_stock and not sold_out
             products[url] = Product(
                 site=self.site,
                 name=name,
