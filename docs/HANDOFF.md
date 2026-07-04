@@ -216,3 +216,13 @@ Backend test count grew from 38 → 72 across the session. All deployments succe
 ## Updating this handoff
 
 Replace stale status instead of appending a diary. Always record the deployed commit, active retailer count, external API review state, frontend contract compatibility, exact verification evidence, and next concrete action. Never include email addresses, secret values, tokens, passwords, or unnecessary personal information.
+
+## 2026-07-04 i18n round
+
+Multi-language support added with Azure Table Storage-backed i18n:
+- Table "i18n" in existing Storage Account stores all translations (44 entries: 12 email + 33 web).
+- i18n_table.py loads from Table Storage via Managed Identity; i18n_local.json is the local fallback.
+- i18n.py refactored to use dynamic loading; translate() API unchanged.
+- foundation.bicep: Storage Table Data Contributor role added.
+- scripts/seed-i18n.py: one-time seeding script (already run).
+- Backend commit: bd373ba. 72 tests pass.
