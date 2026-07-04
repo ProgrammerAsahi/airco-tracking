@@ -145,6 +145,7 @@ var acrPullRole = subscriptionResourceId('Microsoft.Authorization/roleDefinition
 var blobContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
 var keyVaultSecretsUserRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
 var communicationOwnerRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '09976791-48a7-449e-bb21-39d1a415f350')
+var tableDataContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4f4a-8289-34a53d6d4a0a')
 
 resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(registry.id, identity.id, acrPullRole)
@@ -163,6 +164,16 @@ resource blobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
     principalId: identity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: blobContributorRole
+  }
+}
+
+resource tableContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, identity.id, tableDataContributorRole)
+  scope: storage
+  properties: {
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
   }
 }
 
