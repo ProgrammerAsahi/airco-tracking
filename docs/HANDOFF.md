@@ -1,21 +1,24 @@
-# Airco Tracker NL — current handoff
+# Airco Tracker — current handoff
 
 Last updated: 2026-07-05 (Europe/Amsterdam)
 
 ## Current objective
 
-Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure, maintains a complete current available-stock snapshot for the public dashboard, and sends an email only for first-seen or newly-restocked products that pass the alert filters.
+Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses, with a country-based architecture ready for European expansion. Production runs every ten minutes in Azure, maintains a complete current available-stock snapshot for the public dashboard, and sends an email only for first-seen or newly-restocked products that pass the alert filters.
 
-The latest development round adds Bostools as retailer 28, covering its WooCommerce mobile-airco and caravan-airco categories. Dated `Leverbaar vanaf` products remain visible as presale inventory without email alerts; explicit sold-out, collection-only, unboxed display products, and accessories stay unavailable. Consumer VAT-inclusive prices are parsed separately from adjacent `excl. btw` prices. Prior rounds added presale separation, the inventory snapshot, 27 retailers, Azure Key Vault recipient storage, EUR 1,500 / 7,000 BTU alert filters, bol.com removal, and a BTU accuracy audit. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The 2026-07-05 rename round generalized the project from `airco-tracking-nl` to `airco-tracking`: the GitHub repository was renamed, the 27 Dutch retailer adapters moved into `airco_tracker/adapters/nl/`, and a `registry.py` with `load_adapter_classes(countries)` replaced the hardcoded 28-adapter import list in `cli.py`. Adding a country now only requires an `adapters/<country>/__init__.py` exposing an `ADAPTERS` list plus a registry entry; the CLI and tests do not change. A `COUNTRIES` env var (default `nl`) selects active countries. The distribution package was renamed `airco-tracker-nl` → `airco-tracker`, the OIDC federated-credential subject was updated to the new repo path, and a pre-existing `i18n_local.json` packaging bug was fixed so a Table Storage outage no longer crashes the job. The Azure resource group is still `airco-tracker-nl-rg` (Azure does not support resource-group rename; a new-group-plus-move is deferred as a separate high-risk step).
+
+The latest retailer round added Bostools as retailer 28, covering its WooCommerce mobile-airco and caravan-airco categories. Dated `Leverbaar vanaf` products remain visible as presale inventory without email alerts; explicit sold-out, collection-only, unboxed display products, and accessories stay unavailable. Consumer VAT-inclusive prices are parsed separately from adjacent `excl. btw` prices. Prior rounds added presale separation, the inventory snapshot, 27 retailers, Azure Key Vault recipient storage, EUR 1,500 / 7,000 BTU alert filters, bol.com removal, and a BTU accuracy audit. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking`
 - Branch: `main`
-- Feature commit: `6e50bf4eed852f909060ee95ff7bd234c070c621`
-- Last verified production image: commit `6e50bf4eed852f909060ee95ff7bd234c070c621`
+- Feature commit: `afdde97` (registry refactor + rename + i18n packaging fix)
+- Last verified production image: commit `afdde97`
 - GitHub workflow: `Deploy to Azure`
-- Azure resource group: `airco-tracker-nl-rg`
+- Azure resource group: `airco-tracker-nl-rg` (rename to `airco-tracker-rg` deferred — Azure does not support RG rename; requires new-group + resource move)
+- OIDC federated credential subject: `repo:ProgrammerAsahi/airco-tracking:ref:refs/heads/main` (updated from `airco-tracking-nl`)
 - Container Apps job: `airco-tracker-job`
 - Schedule: `*/10 * * * *` (UTC)
 - Alert state: Azure Blob Storage, `airco-tracker/state.json`
@@ -24,8 +27,8 @@ The latest development round adds Bostools as retailer 28, covering its WooComme
 - Runtime identity: user-assigned Managed Identity
 - Dashboard consumer repository: `https://github.com/ProgrammerAsahi/airco-tracking-web`
 - Dashboard live URL: `https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontainerapps.io`
-- Dashboard deployed image commit: `5d022fc45e9e9d03bec567cd6afaee5f59e37f90`
-- Dashboard handoff/docs head: `e4614ef`
+- Dashboard deployed image commit: `5f82190` (backend-reference doc updates)
+- Dashboard handoff/docs head: `5f82190`
 
 ## Active retailers
 
@@ -206,11 +209,16 @@ Backend test count grew from 38 → 74 across the session. All completed deploym
 
 ## Verification snapshot
 
-- Unit tests: 74 passed, including Bostools stock/presale/price semantics, inventory filter separation, successful-empty replacement, failed-site retention, local-store round trip, dry-run no-write, and email-failure ordering.
+- Unit tests: 74 passed, including the rewritten `test_cli.py` (patches `load_adapter_classes` instead of 28 individual adapter names), Bostools stock/presale/price semantics, inventory filter separation, successful-empty replacement, failed-site retention, local-store round trip, dry-run no-write, and email-failure ordering.
 - Shell syntax: clean.
 - `git diff --check`: clean.
-- Live local dry-run on 2026-07-05: all 28 retailers completed; the snapshot preview contained 20 available products and the alert filter selected 12. Bostools returned 6 in-scope air conditioners, with its one available PortaSplit retained as `presale=true` and therefore excluded from email alerts.
+- Live local dry-run on 2026-07-05 (post-rename): all 28 retailers completed via the registry path; the snapshot preview contained 21 available products and the alert filter selected 12.
+- Live local dry-run on 2026-07-05 (pre-rename): all 28 retailers completed; the snapshot preview contained 20 available products and the alert filter selected 12. Bostools returned 6 in-scope air conditioners, with its one available PortaSplit retained as `presale=true` and therefore excluded from email alerts.
 - Live local dry-run on 2026-07-03: all 27 retailers completed; snapshot preview contained 19 available products and the alert filter selected 13. Known low-BTU and over-EUR-1,500 products remained in the snapshot but were excluded from alerts.
+- Rename + registry deployment: Actions run `28745071912` for commit `afdde97`: succeeded in 3m59s. Verification execution `airco-tracker-job-ftzu1v6`: Succeeded. OIDC login succeeded with the updated subject `repo:ProgrammerAsahi/airco-tracking:ref:refs/heads/main`. Production API verified 2026-07-05T15:14Z: 28 sites, 20 available products, 0 stale sites. Frontend verify script passed: 28 sites, 20 available products.
+- First deploy run `28744264341` for commit `59e58bc` failed its verification execution because of a pre-existing `i18n_local.json` packaging bug: when the Azure Table Storage i18n query failed, the local fallback raised `FileNotFoundError`. Fixed in `afdde97` by adding `[tool.setuptools.package-data]` for `i18n_local.json`; the second deploy succeeded.
+- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:afdde97...` (full SHA tag).
+- Scheduled job executions after deploy: `29721060`, `29721070` both Succeeded.
 - GitHub Actions run `28670790535` for commit `13e31ef`: succeeded in 3m57s. Verification execution `airco-tracker-job-d0zpn59`: Succeeded.
 - Production created `airco-tracker/inventory.json` via Managed Identity (HTTP 201): 13,830 bytes, 27 sites, 19 available products, 0 stale sites. No email was sent because alert state contained no new restocks.
 - Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:13e31efde353c649703abe853afb5d4f5a4ac783`.
@@ -231,4 +239,16 @@ Multi-language support (zh/nl/en) is backed by Azure Table Storage:
 - `i18n.py` uses dynamic loading; `translate()` API unchanged.
 - `foundation.bicep` includes the Storage Table Data Contributor role.
 - `scripts/seed-i18n.py` is a one-time seeding script (already run).
+- `i18n_local.json` is now packaged via `[tool.setuptools.package-data]` so the local fallback works inside the Docker image. Previously it was missing from `site-packages`, so a Table Storage outage crashed the job with `FileNotFoundError`.
 - Frontend reads the `web` partition through Managed Identity; translations are injected as CSP-safe inert `application/json` (not executable inline script). The frontend bug where raw key names appeared instead of translated text was caused by the strict `script-src 'self'` CSP blocking the original inline `window.__I18N__` assignment; this is resolved (frontend commit `5d022fc`).
+
+## Adapter registry architecture (2026-07-05)
+
+The 27 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`. Country-agnostic parsing helpers (`base.py` with the `Adapter` ABC and price/BTU/presale parsing, `schema.py` with JSON-LD helpers, `sitemap.py` with sitemap discovery) remain at `airco_tracker/adapters/` top level.
+
+- `adapters/nl/__init__.py` exports the 28 adapter classes and defines `ADAPTERS` (ordered list, matching the previous `cli.py` runtime order).
+- `adapters/registry.py` aggregates `ADAPTERS` by country into `_ADAPTERS_BY_COUNTRY` and exposes `load_adapter_classes(countries)`.
+- `cli.py` calls `load_adapter_classes(config.countries)` and instantiates `[cls(fetcher) for cls in classes]`; it no longer imports the 28 adapter names.
+- `config.py` reads `COUNTRIES` (default `nl`, comma-separated) into `Config.countries`.
+- Adding a country: create `adapters/<cc>/__init__.py` with an `ADAPTERS` list, register it in `registry._ADAPTERS_BY_COUNTRY`, and set `COUNTRIES=nl,<cc>`. No `cli.py` or `test_cli.py` changes needed.
+- `test_cli.py` patches `airco_tracker.cli.load_adapter_classes` to inject fake adapter classes instead of patching 28 individual names on the `cli` module.
