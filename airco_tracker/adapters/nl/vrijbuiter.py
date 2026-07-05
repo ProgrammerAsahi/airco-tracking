@@ -5,10 +5,10 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from ..fetch import Fetcher
-from ..models import Product
-from .base import canonical_url, clean_text, parse_btu
-from .schema import first_offer, offer_price, product_json_ld, schema_in_stock
+from ...fetch import Fetcher
+from ...models import Product
+from ..base import canonical_url, clean_text, parse_btu
+from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
 
 LOG = logging.getLogger(__name__)

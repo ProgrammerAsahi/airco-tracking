@@ -7,33 +7,33 @@ import unittest
 
 from bs4 import BeautifulSoup
 
-from airco_tracker.adapters.action import ActionAdapter, _parse_product_page as parse_action_page
-from airco_tracker.adapters.aircovoorinhuis import AircoVoorInHuisAdapter
-from airco_tracker.adapters.aircowebwinkel import _parse_product_page as parse_aircowebwinkel_page
-from airco_tracker.adapters.alternate import _parse_product_page as parse_alternate_page
-from airco_tracker.adapters.bostools import BostoolsAdapter
-from airco_tracker.adapters.coolblue import CoolblueAdapter
-from airco_tracker.adapters.costway import CostwayAdapter
-from airco_tracker.adapters.create_store import CreateStoreAdapter, _parse_card as parse_create_card
-from airco_tracker.adapters.delonghi import _parse_product_page as parse_delonghi_page
-from airco_tracker.adapters.diy import GammaAdapter, KarweiAdapter
-from airco_tracker.adapters.electroworld import ElectroWorldAdapter
-from airco_tracker.adapters.ep import EpAdapter
-from airco_tracker.adapters.evolarshop import EvolarshopAdapter, _parse_hit as parse_evolar_hit
-from airco_tracker.adapters.expert import ExpertAdapter
-from airco_tracker.adapters.flinq import _parse_product_page as parse_flinq_page
-from airco_tracker.adapters.hubo import _parse_product_page as parse_hubo_page
-from airco_tracker.adapters.klarstein import KlarsteinAdapter
-from airco_tracker.adapters.kampeerwereld import _parse_product_page as parse_kampeerwereld_page
-from airco_tracker.adapters.klimaatshop import KlimaatshopAdapter
-from airco_tracker.adapters.lidl import LidlAdapter
-from airco_tracker.adapters.mediamarkt import MediaMarktAdapter
-from airco_tracker.adapters.obelink import _parse_product_page as parse_obelink_page
-from airco_tracker.adapters.praxis import PraxisAdapter
-from airco_tracker.adapters.solago import _parse_product_page as parse_solago_page
-from airco_tracker.adapters.trotec import TrotecAdapter
-from airco_tracker.adapters.vrijbuiter import _parse_product_page as parse_vrijbuiter_page
-from airco_tracker.adapters.wehkamp import WehkampAdapter
+from airco_tracker.adapters.nl.action import ActionAdapter, _parse_product_page as parse_action_page
+from airco_tracker.adapters.nl.aircovoorinhuis import AircoVoorInHuisAdapter
+from airco_tracker.adapters.nl.aircowebwinkel import _parse_product_page as parse_aircowebwinkel_page
+from airco_tracker.adapters.nl.alternate import _parse_product_page as parse_alternate_page
+from airco_tracker.adapters.nl.bostools import BostoolsAdapter
+from airco_tracker.adapters.nl.coolblue import CoolblueAdapter
+from airco_tracker.adapters.nl.costway import CostwayAdapter
+from airco_tracker.adapters.nl.create_store import CreateStoreAdapter, _parse_card as parse_create_card
+from airco_tracker.adapters.nl.delonghi import _parse_product_page as parse_delonghi_page
+from airco_tracker.adapters.nl.diy import GammaAdapter, KarweiAdapter
+from airco_tracker.adapters.nl.electroworld import ElectroWorldAdapter
+from airco_tracker.adapters.nl.ep import EpAdapter
+from airco_tracker.adapters.nl.evolarshop import EvolarshopAdapter, _parse_hit as parse_evolar_hit
+from airco_tracker.adapters.nl.expert import ExpertAdapter
+from airco_tracker.adapters.nl.flinq import _parse_product_page as parse_flinq_page
+from airco_tracker.adapters.nl.hubo import _parse_product_page as parse_hubo_page
+from airco_tracker.adapters.nl.klarstein import KlarsteinAdapter
+from airco_tracker.adapters.nl.kampeerwereld import _parse_product_page as parse_kampeerwereld_page
+from airco_tracker.adapters.nl.klimaatshop import KlimaatshopAdapter
+from airco_tracker.adapters.nl.lidl import LidlAdapter
+from airco_tracker.adapters.nl.mediamarkt import MediaMarktAdapter
+from airco_tracker.adapters.nl.obelink import _parse_product_page as parse_obelink_page
+from airco_tracker.adapters.nl.praxis import PraxisAdapter
+from airco_tracker.adapters.nl.solago import _parse_product_page as parse_solago_page
+from airco_tracker.adapters.nl.trotec import TrotecAdapter
+from airco_tracker.adapters.nl.vrijbuiter import _parse_product_page as parse_vrijbuiter_page
+from airco_tracker.adapters.nl.wehkamp import WehkampAdapter
 from airco_tracker.adapters.base import (
     enrich_available_btu,
     parse_btu,

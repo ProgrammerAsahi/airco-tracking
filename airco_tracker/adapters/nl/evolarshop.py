@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .base import enrich_available_btu, parse_btu
-from ..fetch import Fetcher
-from ..models import Product
+from ..base import enrich_available_btu, parse_btu
+from ...fetch import Fetcher
+from ...models import Product
 
 
 class EvolarshopAdapter:

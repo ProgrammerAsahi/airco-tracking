@@ -4,9 +4,9 @@ import logging
 
 from bs4 import BeautifulSoup
 
-from ..fetch import Fetcher
-from ..models import Product
-from .base import (
+from ...fetch import Fetcher
+from ...models import Product
+from ..base import (
     canonical_url,
     clean_text,
     parse_btu,
@@ -14,8 +14,8 @@ from .base import (
     parse_price,
     parse_product_page_btu,
 )
-from .schema import first_offer, offer_price, product_json_ld, schema_in_stock
-from .sitemap import sitemap_locations
+from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
+from ..sitemap import sitemap_locations
 
 
 LOG = logging.getLogger(__name__)

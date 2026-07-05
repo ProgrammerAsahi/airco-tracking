@@ -71,7 +71,7 @@ Azure mode stores no mailbox password, Storage key, Communication Services key, 
 ### 1. Install
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 python3 -m venv .venv
 .venv/bin/pip install .
 cp .env.example .env
@@ -81,7 +81,7 @@ Edit `.env` and enter the recipient email address and SMTP settings. Gmail users
 
 Optionally set `EMAIL_LANG` (default `zh`): `zh` for Chinese, `nl` for Dutch, `en` for English.
 
-Run commands from the project directory. If you must run them elsewhere, set `AIRCO_TRACKER_HOME=~/airco-tracking-nl`.
+Run commands from the project directory. If you must run them elsewhere, set `AIRCO_TRACKER_HOME=~/airco-tracking`.
 
 ### 2. Verify
 
@@ -120,7 +120,7 @@ By default, the first real run reports products that are already available. Late
 The macOS LaunchAgent checks every ten minutes and resumes after login. View logs with:
 
 ```bash
-tail -f ~/airco-tracking-nl/tracker.log ~/airco-tracking-nl/tracker.err.log
+tail -f ~/airco-tracking/tracker.log ~/airco-tracking/tracker.err.log
 ```
 
 Stop it with:
@@ -140,7 +140,7 @@ Requirements:
 Deploy with:
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ```
 
@@ -202,7 +202,7 @@ The application reads the secret through Managed Identity. The secret never ente
 
 ## GitHub Actions CI/CD
 
-The `ProgrammerAsahi/airco-tracking-nl` repository has two workflows:
+The `ProgrammerAsahi/airco-tracking` repository has two workflows:
 
 - `.github/workflows/ci.yml`: validates Python, shell scripts, and Bicep on pull requests.
 - `.github/workflows/deploy.yml`: after a successful test run on a `main` push, builds an immutable image tagged with the commit SHA and updates the Azure Job.
@@ -218,7 +218,7 @@ brew install azure-cli gh
 az login
 gh auth login
 
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
 ```
@@ -241,9 +241,9 @@ These values are identifiers or ordinary configuration, not passwords. Do not cr
 For an empty GitHub repository:
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 git init -b main
-git remote add origin https://github.com/ProgrammerAsahi/airco-tracking-nl.git
+git remote add origin https://github.com/ProgrammerAsahi/airco-tracking.git
 git add .
 git commit -m "Initial airco tracker with Azure CI/CD"
 git push -u origin main

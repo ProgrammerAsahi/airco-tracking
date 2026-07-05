@@ -10,7 +10,7 @@ The latest development round adds Bostools as retailer 28, covering its WooComme
 
 ## Repository and production
 
-- Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
+- Repository: `https://github.com/ProgrammerAsahi/airco-tracking`
 - Branch: `main`
 - Feature commit: `6e50bf4eed852f909060ee95ff7bd234c070c621`
 - Last verified production image: commit `6e50bf4eed852f909060ee95ff7bd234c070c621`

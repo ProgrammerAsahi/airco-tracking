@@ -71,7 +71,7 @@ In Azure worden geen e-mailwachtwoord, Storage key, Communication Services key o
 ### 1. Installeren
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 python3 -m venv .venv
 .venv/bin/pip install .
 cp .env.example .env
@@ -81,7 +81,7 @@ Bewerk `.env` en vul het e-mailadres van de ontvanger en de SMTP-instellingen in
 
 Optioneel: stel `EMAIL_LANG` in (standaard `zh`): `zh` voor Chinees, `nl` voor Nederlands, `en` voor Engels.
 
-Voer de opdrachten vanuit de projectmap uit. Als dat niet mogelijk is, stel dan `AIRCO_TRACKER_HOME=~/airco-tracking-nl` in.
+Voer de opdrachten vanuit de projectmap uit. Als dat niet mogelijk is, stel dan `AIRCO_TRACKER_HOME=~/airco-tracking` in.
 
 ### 2. Controleren
 
@@ -120,7 +120,7 @@ De eerste echte uitvoering meldt standaard producten die al op voorraad zijn. Da
 De macOS LaunchAgent controleert elke tien minuten en wordt na het inloggen automatisch hervat. Bekijk de logboeken met:
 
 ```bash
-tail -f ~/airco-tracking-nl/tracker.log ~/airco-tracking-nl/tracker.err.log
+tail -f ~/airco-tracking/tracker.log ~/airco-tracking/tracker.err.log
 ```
 
 Stop de achtergrondtaak met:
@@ -140,7 +140,7 @@ Vereisten:
 Implementeren:
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ```
 
@@ -202,7 +202,7 @@ De applicatie leest het geheim via Managed Identity. Het geheim komt niet in de 
 
 ## GitHub Actions CI/CD
 
-De repository `ProgrammerAsahi/airco-tracking-nl` heeft twee workflows:
+De repository `ProgrammerAsahi/airco-tracking` heeft twee workflows:
 
 - `.github/workflows/ci.yml`: valideert Python, shellscripts en Bicep bij pull requests.
 - `.github/workflows/deploy.yml`: bouwt na geslaagde tests bij een push naar `main` een onveranderlijke image met de commit-SHA als tag en werkt de Azure Job bij.
@@ -218,7 +218,7 @@ brew install azure-cli gh
 az login
 gh auth login
 
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
 ```
@@ -241,9 +241,9 @@ Dit zijn identificaties of normale configuratiewaarden, geen wachtwoorden. Maak 
 Voor een lege GitHub-repository:
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 git init -b main
-git remote add origin https://github.com/ProgrammerAsahi/airco-tracking-nl.git
+git remote add origin https://github.com/ProgrammerAsahi/airco-tracking.git
 git add .
 git commit -m "Initial airco tracker with Azure CI/CD"
 git push -u origin main

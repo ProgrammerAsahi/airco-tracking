@@ -71,7 +71,7 @@ Azure 模式不保存邮箱密码、Storage Key、Communication Services Key 或
 ### 1. 安装
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 python3 -m venv .venv
 .venv/bin/pip install .
 cp .env.example .env
@@ -82,7 +82,7 @@ cp .env.example .env
 可选设置 `EMAIL_LANG`（默认 `zh`）：`zh` 发中文、`nl` 发荷兰语、`en` 发英语。
 
 请从项目目录运行命令。若必须从其他目录调用，可设置
-`AIRCO_TRACKER_HOME=~/airco-tracking-nl`。
+`AIRCO_TRACKER_HOME=~/airco-tracking`。
 
 ### 2. 验证
 
@@ -121,7 +121,7 @@ cp .env.example .env
 它会通过 macOS LaunchAgent 每 10 分钟检查一次，登录后自动恢复。查看日志：
 
 ```bash
-tail -f ~/airco-tracking-nl/tracker.log ~/airco-tracking-nl/tracker.err.log
+tail -f ~/airco-tracking/tracker.log ~/airco-tracking/tracker.err.log
 ```
 
 停止后台任务：
@@ -141,7 +141,7 @@ tail -f ~/airco-tracking-nl/tracker.log ~/airco-tracking-nl/tracker.err.log
 部署命令：
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ```
 
@@ -203,7 +203,7 @@ KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email
 
 ## GitHub Actions CI/CD
 
-仓库已为 `ProgrammerAsahi/airco-tracking-nl` 配置两条流水线：
+仓库已为 `ProgrammerAsahi/airco-tracking` 配置两条流水线：
 
 - `.github/workflows/ci.yml`：Pull Request 执行 Python、Shell 和 Bicep 验证。
 - `.github/workflows/deploy.yml`：`main` 推送通过测试后，用 commit SHA 构建不可变镜像并更新 Azure Job。
@@ -219,7 +219,7 @@ brew install azure-cli gh
 az login
 gh auth login
 
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
 ```
@@ -242,9 +242,9 @@ KEY_VAULT_SECRET_MAP
 如果 GitHub 仓库为空：
 
 ```bash
-cd ~/airco-tracking-nl
+cd ~/airco-tracking
 git init -b main
-git remote add origin https://github.com/ProgrammerAsahi/airco-tracking-nl.git
+git remote add origin https://github.com/ProgrammerAsahi/airco-tracking.git
 git add .
 git commit -m "Initial airco tracker with Azure CI/CD"
 git push -u origin main

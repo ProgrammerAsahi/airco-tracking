@@ -44,7 +44,7 @@ class FetcherTests(unittest.TestCase):
 
     def test_user_agent_includes_version_identifier(self) -> None:
         fetcher = Fetcher()
-        self.assertIn("AircoTrackerNL/", fetcher.session.headers["User-Agent"])
+        self.assertIn("AircoTracker/", fetcher.session.headers["User-Agent"])
 
     def test_boundary_size_is_accepted(self) -> None:
         # Exactly 10_000 bytes is the threshold; >= is accepted.

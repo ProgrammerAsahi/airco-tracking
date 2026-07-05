@@ -6,8 +6,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from ..models import Product
-from .base import Adapter, canonical_url, clean_text, parse_btu
+from ...models import Product
+from ..base import Adapter, canonical_url, clean_text, parse_btu
 
 
 class TrotecAdapter(Adapter):

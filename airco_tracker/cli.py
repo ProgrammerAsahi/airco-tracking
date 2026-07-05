@@ -5,36 +5,7 @@ import json
 import logging
 import sys
 
-from .adapters import (
-    ActionAdapter,
-    AircoVoorInHuisAdapter,
-    AircoWebwinkelAdapter,
-    AlternateAdapter,
-    BostoolsAdapter,
-    CoolblueAdapter,
-    CostwayAdapter,
-    CreateStoreAdapter,
-    DelonghiAdapter,
-    ElectroWorldAdapter,
-    EpAdapter,
-    EvolarshopAdapter,
-    ExpertAdapter,
-    FlinqAdapter,
-    GammaAdapter,
-    HuboAdapter,
-    KarweiAdapter,
-    KampeerwereldAdapter,
-    KlarsteinAdapter,
-    KlimaatshopAdapter,
-    LidlAdapter,
-    MediaMarktAdapter,
-    ObelinkAdapter,
-    PraxisAdapter,
-    SolagoAdapter,
-    TrotecAdapter,
-    VrijbuiterAdapter,
-    WehkampAdapter,
-)
+from .adapters.registry import load_adapter_classes
 from .config import Config
 from .fetch import Fetcher
 from .inventory import updated_inventory
@@ -68,36 +39,8 @@ def _configure_logging() -> None:
 
 def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
     fetcher = Fetcher(config.request_timeout_seconds)
-    adapters = [
-        CoolblueAdapter(fetcher),
-        MediaMarktAdapter(fetcher),
-        EpAdapter(fetcher),
-        ElectroWorldAdapter(fetcher),
-        WehkampAdapter(fetcher),
-        LidlAdapter(fetcher),
-        GammaAdapter(fetcher),
-        KarweiAdapter(fetcher),
-        PraxisAdapter(fetcher),
-        AlternateAdapter(fetcher),
-        TrotecAdapter(fetcher),
-        KlarsteinAdapter(fetcher),
-        FlinqAdapter(fetcher),
-        ActionAdapter(fetcher),
-        ExpertAdapter(fetcher),
-        DelonghiAdapter(fetcher),
-        ObelinkAdapter(fetcher),
-        KampeerwereldAdapter(fetcher),
-        CreateStoreAdapter(fetcher),
-        CostwayAdapter(fetcher),
-        EvolarshopAdapter(fetcher),
-        AircoVoorInHuisAdapter(fetcher),
-        SolagoAdapter(fetcher),
-        HuboAdapter(fetcher),
-        VrijbuiterAdapter(fetcher),
-        KlimaatshopAdapter(fetcher),
-        AircoWebwinkelAdapter(fetcher),
-        BostoolsAdapter(fetcher),
-    ]
+    adapter_classes = load_adapter_classes(config.countries)
+    adapters = [cls(fetcher) for cls in adapter_classes]
     products: list[Product] = []
     failures: list[str] = []
     successful_sites: set[str] = set()

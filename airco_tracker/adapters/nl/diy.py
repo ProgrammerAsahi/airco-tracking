@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from ..models import Product
-from .base import Adapter, canonical_url, clean_text, parse_btu, parse_watt_rating_btu
+from ...models import Product
+from ..base import Adapter, canonical_url, clean_text, parse_btu, parse_watt_rating_btu
 
 
 class DiyStoreAdapter(Adapter):

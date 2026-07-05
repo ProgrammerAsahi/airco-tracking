@@ -4,6 +4,7 @@ CLAUDE.local.md
 __pycache__/
 *.py[cod]
 *.egg-info/
+build/
 state.json
 inventory.json
 tracker.log

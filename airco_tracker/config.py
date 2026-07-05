@@ -46,6 +46,19 @@ def _bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _country_list(name: str, default: str) -> list[str]:
+    """Parse a comma-separated country-code list into a lowercased, deduped list."""
+    raw = os.getenv(name, default).strip()
+    if not raw:
+        return [c.strip().lower() for c in default.split(",") if c.strip()]
+    countries: list[str] = []
+    for code in raw.split(","):
+        code = code.strip().lower()
+        if code and code not in countries:
+            countries.append(code)
+    return countries or [default.strip().lower()]
+
+
 @dataclass(frozen=True)
 class Config:
     app_env: str
@@ -62,6 +75,7 @@ class Config:
     min_btu: int | None
     alert_on_first_seen: bool
     request_timeout_seconds: int
+    countries: list[str]
     state_backend: str
     state_path: Path
     inventory_path: Path
@@ -91,6 +105,7 @@ class Config:
             min_btu=_optional_int("MIN_BTU", "7000"),
             alert_on_first_seen=_bool("ALERT_ON_FIRST_SEEN", True),
             request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT_SECONDS", "25")),
+            countries=_country_list("COUNTRIES", "nl"),
             state_backend=os.getenv("STATE_BACKEND", "local").strip().lower(),
             state_path=ROOT / "state.json",
             inventory_path=ROOT / "inventory.json",

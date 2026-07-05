@@ -4,9 +4,9 @@ import re
 
 from bs4 import BeautifulSoup
 
-from ..fetch import Fetcher
-from ..models import Product
-from .base import canonical_url, clean_text, enrich_available_btu, parse_btu, parse_price
+from ...fetch import Fetcher
+from ...models import Product
+from ..base import canonical_url, clean_text, enrich_available_btu, parse_btu, parse_price
 
 
 class CreateStoreAdapter:

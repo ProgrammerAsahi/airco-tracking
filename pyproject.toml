@@ -3,9 +3,9 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "airco-tracker-nl"
+name = "airco-tracker"
 version = "0.8.0"
-description = "Portable air-conditioner stock tracker for Dutch retailers"
+description = "Portable air-conditioner stock tracker for European retailers"
 requires-python = ">=3.9"
 dependencies = [
   "beautifulsoup4>=4.12,<5",

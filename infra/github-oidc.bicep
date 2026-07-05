@@ -1,5 +1,5 @@
 @description('GitHub repository in owner/name format.')
-param githubRepository string = 'ProgrammerAsahi/airco-tracking-nl'
+param githubRepository string = 'ProgrammerAsahi/airco-tracking'
 
 @description('Only this branch is allowed to deploy.')
 param githubBranch string = 'main'

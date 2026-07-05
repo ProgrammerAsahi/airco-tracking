@@ -6,9 +6,9 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from ..fetch import Fetcher
-from ..models import Product
-from .base import enrich_available_btu, parse_btu, parse_cooling_watts_btu
+from ...fetch import Fetcher
+from ...models import Product
+from ..base import enrich_available_btu, parse_btu, parse_cooling_watts_btu
 
 
 class ExpertAdapter:

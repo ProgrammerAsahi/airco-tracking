@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from ..models import Product
-from .base import canonical_url, clean_text, parse_btu
-from .schema import first_offer, offer_price, product_json_ld, schema_in_stock
+from ...models import Product
+from ..base import canonical_url, clean_text, parse_btu
+from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
 
 class SolagoAdapter:

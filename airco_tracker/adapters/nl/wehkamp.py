@@ -6,8 +6,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from ..models import Product
-from .base import Adapter, canonical_url, enrich_available_btu, parse_btu
+from ...models import Product
+from ..base import Adapter, canonical_url, enrich_available_btu, parse_btu
 
 
 class WehkampAdapter(Adapter):

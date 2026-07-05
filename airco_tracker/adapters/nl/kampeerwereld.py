@@ -4,9 +4,9 @@ import logging
 
 from bs4 import BeautifulSoup
 
-from ..fetch import Fetcher
-from ..models import Product
-from .base import (
+from ...fetch import Fetcher
+from ...models import Product
+from ..base import (
     clean_text,
     parse_btu,
     parse_cooling_watts_btu,

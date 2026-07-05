@@ -4,11 +4,11 @@ import logging
 
 from bs4 import BeautifulSoup
 
-from ..fetch import Fetcher
-from ..models import Product
-from .base import canonical_url, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
-from .schema import first_offer, offer_price, product_json_ld, schema_in_stock
-from .sitemap import sitemap_locations
+from ...fetch import Fetcher
+from ...models import Product
+from ..base import canonical_url, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
+from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
+from ..sitemap import sitemap_locations
 
 
 LOG = logging.getLogger(__name__)

@@ -2,44 +2,12 @@ from __future__ import annotations
 
 import io
 import unittest
-from contextlib import ExitStack, contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from airco_tracker.cli import check
 from airco_tracker.models import Product
-
-
-ADAPTER_NAMES = (
-    "CoolblueAdapter",
-    "MediaMarktAdapter",
-    "EpAdapter",
-    "ElectroWorldAdapter",
-    "WehkampAdapter",
-    "LidlAdapter",
-    "GammaAdapter",
-    "KarweiAdapter",
-    "PraxisAdapter",
-    "AlternateAdapter",
-    "TrotecAdapter",
-    "KlarsteinAdapter",
-    "FlinqAdapter",
-    "ActionAdapter",
-    "ExpertAdapter",
-    "DelonghiAdapter",
-    "ObelinkAdapter",
-    "KampeerwereldAdapter",
-    "CreateStoreAdapter",
-    "CostwayAdapter",
-    "EvolarshopAdapter",
-    "AircoVoorInHuisAdapter",
-    "SolagoAdapter",
-    "HuboAdapter",
-    "VrijbuiterAdapter",
-    "KlimaatshopAdapter",
-    "AircoWebwinkelAdapter",
-    "BostoolsAdapter",
-)
 
 
 class _SuccessAdapter:
@@ -74,6 +42,40 @@ class _AvailableAdapter:
         return [Product(self.site, "Airco", "https://shop.test/1", True, 399.0, "Morgen", 7000)]
 
 
+def _adapter_class(base, site: str):
+    """Build a one-off adapter subclass with a unique site name.
+
+    The original tests patched 28 adapter classes by name; the registry now
+    resolves classes dynamically, so tests inject a list of fake classes
+    instead. Each needs a distinct ``site`` so that a single failing adapter
+    does not collapse all retailers into one site in the inventory snapshot.
+    """
+    return type(base.__name__ + "_" + site, (base,), {"site": site})
+
+
+def _adapter_classes(default, *, fail_sites: tuple[str, ...] = (), stock_site: str | None = None):
+    """Build the fake adapter-class list the CLI would normally load.
+
+    Mirrors the previous semantics: a full set of retailers where most use
+    ``default``, the named ``fail_sites`` use _FailingAdapter, and when
+    ``stock_site`` is set one retailer uses _AvailableAdapter under that site.
+    """
+    sites = [f"Shop {i}" for i in range(26)]
+    if stock_site:
+        sites.append(stock_site)
+    while len(sites) < 28:
+        sites.append(f"Extra shop {len(sites)}")
+    classes = []
+    for site in sites:
+        if site in fail_sites:
+            classes.append(_adapter_class(_FailingAdapter, site))
+        elif site == stock_site:
+            classes.append(_adapter_class(_AvailableAdapter, site))
+        else:
+            classes.append(_adapter_class(default, site))
+    return classes
+
+
 class _StateStore:
     def load(self):
         return {"version": 1, "products": {}}
@@ -88,13 +90,10 @@ class _InventoryStore:
 
 
 @contextmanager
-def _patched_adapters(default, **overrides):
-    """Patch all adapters without exceeding Python 3.9's nesting limit."""
-    with ExitStack() as stack:
-        for name in ADAPTER_NAMES:
-            stack.enter_context(
-                patch(f"airco_tracker.cli.{name}", overrides.get(name, default))
-            )
+def _patched_adapters(default, *, fail_sites: tuple[str, ...] = (), stock_site: str | None = None):
+    """Patch load_adapter_classes to return a fake adapter-class list."""
+    classes = _adapter_classes(default, fail_sites=fail_sites, stock_site=stock_site)
+    with patch("airco_tracker.cli.load_adapter_classes", return_value=classes):
         yield
 
 
@@ -105,6 +104,7 @@ class CliTests(unittest.TestCase):
             alert_on_first_seen=True,
             max_price_eur=None,
             min_btu=None,
+            countries=["nl"],
         )
         with (
             _patched_adapters(_SuccessAdapter),
@@ -120,13 +120,10 @@ class CliTests(unittest.TestCase):
             alert_on_first_seen=True,
             max_price_eur=None,
             min_btu=None,
+            countries=["nl"],
         )
         with (
-            _patched_adapters(
-                _SuccessAdapter,
-                MediaMarktAdapter=_FailingAdapter,
-                KampeerwereldAdapter=_FailingAdapter,
-            ),
+            _patched_adapters(_SuccessAdapter, fail_sites=("Shop 1", "Shop 2")),
             patch("airco_tracker.cli.build_state_store", return_value=_StateStore()),
             patch("airco_tracker.cli.build_inventory_store", return_value=_InventoryStore()),
             redirect_stdout(io.StringIO()),
@@ -136,6 +133,7 @@ class CliTests(unittest.TestCase):
     def test_all_retailer_failures_are_fatal(self) -> None:
         config = SimpleNamespace(
             request_timeout_seconds=1,
+            countries=["nl"],
         )
         with (
             _patched_adapters(_FailingAdapter),
@@ -150,6 +148,7 @@ class CliTests(unittest.TestCase):
             alert_on_first_seen=True,
             max_price_eur=None,
             min_btu=None,
+            countries=["nl"],
             email_lang="zh",
             validate_email=lambda: None,
         )
@@ -161,7 +160,7 @@ class CliTests(unittest.TestCase):
         inventory_store = MagicMock()
         inventory_store.load.return_value = {"version": 1, "sites": {}}
         with (
-            _patched_adapters(_SuccessAdapter, CoolblueAdapter=_AvailableAdapter),
+            _patched_adapters(_SuccessAdapter, stock_site="Stocked shop"),
             patch("airco_tracker.cli.send_message") as mock_send,
             patch("airco_tracker.cli.build_state_store", return_value=store),
             patch("airco_tracker.cli.build_inventory_store", return_value=inventory_store),
@@ -179,7 +178,7 @@ class CliTests(unittest.TestCase):
         inventory_store = MagicMock()
         inventory_store.load.return_value = {"version": 1, "sites": {}}
         with (
-            _patched_adapters(_SuccessAdapter, CoolblueAdapter=_AvailableAdapter),
+            _patched_adapters(_SuccessAdapter, stock_site="Stocked shop"),
             patch("airco_tracker.cli.send_message") as mock_send,
             patch("airco_tracker.cli.build_message", return_value="msg"),
             patch("airco_tracker.cli.build_state_store", return_value=store),
@@ -205,7 +204,7 @@ class CliTests(unittest.TestCase):
             raise RuntimeError("delivery failed")
 
         with (
-            _patched_adapters(_SuccessAdapter, CoolblueAdapter=_AvailableAdapter),
+            _patched_adapters(_SuccessAdapter, stock_site="Stocked shop"),
             patch("airco_tracker.cli.send_message", side_effect=fail_email),
             patch("airco_tracker.cli.build_message", return_value="msg"),
             patch("airco_tracker.cli.build_state_store", return_value=state_store),
@@ -232,8 +231,8 @@ class CliTests(unittest.TestCase):
 
         inventory_store.save.assert_called_once()
         snapshot = inventory_store.save.call_args.args[0]
-        self.assertEqual(snapshot["site_count"], 1)
-        self.assertEqual(snapshot["stale_site_count"], 1)
+        self.assertEqual(snapshot["site_count"], 28)
+        self.assertEqual(snapshot["stale_site_count"], 28)
 
 
 if __name__ == "__main__":

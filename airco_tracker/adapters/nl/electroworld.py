@@ -5,9 +5,9 @@ import re
 from typing import Any
 from urllib.parse import urlencode
 
-from .base import enrich_available_btu, parse_btu, parse_cooling_watts_btu
-from ..fetch import Fetcher
-from ..models import Product
+from ..base import enrich_available_btu, parse_btu, parse_cooling_watts_btu
+from ...fetch import Fetcher
+from ...models import Product
 
 
 class ElectroWorldAdapter:

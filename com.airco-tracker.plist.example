@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.airco-tracker-nl</string>
+  <string>com.airco-tracker</string>
   <key>ProgramArguments</key>
   <array>
     <string>__PROJECT_DIR__/.venv/bin/airco-tracker</string>

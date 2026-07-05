@@ -2,7 +2,7 @@
 set -euo pipefail
 
 RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
-GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-ProgrammerAsahi/airco-tracking-nl}"
+GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-ProgrammerAsahi/airco-tracking}"
 EMAIL_LANG="${EMAIL_LANG:-zh}"
 EMAIL_TO="${EMAIL_TO:-}"
 

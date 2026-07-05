@@ -4,8 +4,8 @@ import re
 
 from bs4 import BeautifulSoup, Tag
 
-from ..models import Product
-from .base import Adapter, canonical_url, clean_text, is_presale_delivery, parse_btu, parse_price
+from ...models import Product
+from ..base import Adapter, canonical_url, clean_text, is_presale_delivery, parse_btu, parse_price
 
 
 class BostoolsAdapter(Adapter):
