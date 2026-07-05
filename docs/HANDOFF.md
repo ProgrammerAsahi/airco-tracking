@@ -1,12 +1,12 @@
 # Airco Tracker NL — current handoff
 
-Last updated: 2026-07-03 (Europe/Amsterdam)
+Last updated: 2026-07-05 (Europe/Amsterdam)
 
 ## Current objective
 
 Run a reliable, low-maintenance portable-air-conditioner stock tracker for delivery to Dutch addresses. Production runs every ten minutes in Azure, maintains a complete current available-stock snapshot for the public dashboard, and sends an email only for first-seen or newly-restocked products that pass the alert filters.
 
-The latest development round added presale product separation: a `presale` field on the `Product` model distinguishes immediate stock from pre-orders and multi-week lead times. Four adapters (Solago, Create, Trotec, Wehkamp) now set `presale=True` instead of `available=False` for pre-order products. `inventory.py` centrally detects presale markers in delivery text for all other adapters. `select_alerts` skips presale products so they never trigger email alerts. Presale products appear in `inventory.json` for the frontend to display in a separate tab. Prior rounds added the inventory snapshot, expanded coverage to 27 retailers, migrated the notification recipient to Azure Key Vault, standardised alert filters at EUR 1,500 and 7,000 BTU, removed the bol.com integration, and audited BTU capacity across all adapters. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The latest development round adds Bostools as retailer 28, covering its WooCommerce mobile-airco and caravan-airco categories. Dated `Leverbaar vanaf` products remain visible as presale inventory without email alerts; explicit sold-out, collection-only, unboxed display products, and accessories stay unavailable. Consumer VAT-inclusive prices are parsed separately from adjacent `excl. btw` prices. Prior rounds added presale separation, the inventory snapshot, 27 retailers, Azure Key Vault recipient storage, EUR 1,500 / 7,000 BTU alert filters, bol.com removal, and a BTU accuracy audit. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
@@ -24,12 +24,12 @@ The latest development round added presale product separation: a `presale` field
 - Runtime identity: user-assigned Managed Identity
 - Dashboard consumer repository: `https://github.com/ProgrammerAsahi/airco-tracking-web`
 - Dashboard live URL: `https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontainerapps.io`
-- Dashboard deployed image commit: `039ea44845af806883021dbc2fb14da3e45aa74e`
-- Dashboard handoff/docs head after agent-context update: `b39ea97`
+- Dashboard deployed image commit: `5d022fc45e9e9d03bec567cd6afaee5f59e37f90`
+- Dashboard handoff/docs head: `e4614ef`
 
 ## Active retailers
 
-The application currently registers 27 credential-free adapters:
+The application currently registers 28 credential-free adapters:
 
 - Coolblue
 - MediaMarkt NL
@@ -58,6 +58,7 @@ The application currently registers 27 credential-free adapters:
 - Vrijbuiter
 - Klimaatshop
 - Airco-Webwinkel
+- Bostools
 
 Removed:
 
@@ -78,6 +79,7 @@ New-retailer stock semantics:
 - Vrijbuiter: category page links + @graph JSON-LD detail pages; portable split units for caravan/camper (Mestic SPA, Qlima MS-AC) are tracked.
 - Klimaatshop: custom category grid; product URLs from `data-url` attribute, stock from `.stock` span.
 - Airco-Webwinkel: WooCommerce store discovered via product sitemap; JSON-LD detail pages.
+- Bostools: two server-rendered WooCommerce categories; dated availability is presale, short business-day lead time is immediate stock, and VAT-inclusive consumer price is authoritative.
 
 ## Conrad status
 
@@ -105,7 +107,7 @@ A Developer Portal registration attempt on 2026-07-03 was rejected with "your em
 - The frontend reuses this project's Container Apps Environment, ACR, Storage Account, resource group, and runtime identity. Only a new `airco-tracking-web` Container App and repository-specific GitHub OIDC federated credential were added; no new database, Function App, Storage Account, environment, registry, Key Vault, or secret was created.
 - The Blob container remains private. Never replace the frontend API with direct browser access, a public container, Storage Key, connection string, or long-lived SAS token.
 - Backend producer: `airco_tracker/inventory.py`; persistence: `airco_tracker/inventory_store.py`.
-- Frontend validator: `~/airco-tracking-web/server/inventory.ts`; browser types: `src/types.ts`; fixture: `public/inventory.sample.json`.
+- Frontend validator: `~/airco-tracking-web/server/inventory.ts`; browser types: `src/types.ts`; fixture: `test-fixtures/inventory.sample.json`.
 - A schema or semantics change must update and verify both repositories together: backend producer/tests, frontend validator/tests, browser types/UI, fixture, README, and both handoffs. Bump the schema version for breaking changes instead of silently reinterpreting version `1`.
 - The frontend first production deployment succeeded in GitHub Actions run `28681867269`, scaled 0–2 replicas, and verified 27 sites / 15 available products from the live private Blob at that moment. Counts are time-sensitive.
 
@@ -160,12 +162,13 @@ All four sites from the 2026-07-03 evaluation have been implemented and deployed
 | Vrijbuiter | ✅ Deployed | Category links + @graph JSON-LD; portable split units tracked. |
 | Klimaatshop | ✅ Deployed | Custom category grid; `data-url` attribute + `.stock` span. |
 | Airco-Webwinkel | ✅ Deployed | WooCommerce store discovered via product sitemap; JSON-LD detail pages. |
+| Bostools | 🟡 Implemented | WooCommerce mobile/caravan categories; dated presale and VAT-inclusive prices. |
 
 Not recommended (do not implement):
 - Vergelijkeven, Kieskeurig: price-comparison aggregators, second-hand stock data, not authoritative sellers. Kieskeurig also returns Vercel 429.
 - RS Online: industrial B2B, search returns 403, low portable-airco value for integration cost similar to Conrad.
 
-All previously listed candidates have been investigated and resolved. No further expansion candidates remain at this time.
+All previously listed candidates have been investigated and resolved. Bostools is the current deployment candidate.
 
 ## Development progress (2026-07-03 session)
 
@@ -179,8 +182,9 @@ This session advanced the project from 19 to 27 active retailers through three e
 6. **HANDOFF** — continuously updated with deployed commits, verification evidence, excluded-site rationale, and expansion-candidate status.
 7. **Live inventory snapshot** — added an independent `inventory.json` grouped by all 27 sites. It retains all currently available in-scope products regardless of alert price/BTU/brand filters, replaces successful-site data (including empty results), preserves failed-site data as stale, and saves before email delivery. Local and Azure Blob backends, `doctor` counts, dry-run safeguards, three-language documentation, and failure-order tests are included. (commit `13e31ef`)
 8. **Public inventory dashboard** — created and deployed the separate `airco-tracking-web` TypeScript/React repository. It uses a same-origin Node API with Managed Identity to consume the private snapshot, a glacier-blue responsive UI, Container Apps scale-to-zero, repository-specific GitHub OIDC, immutable images, and automated production verification. The backend owns the snapshot contract; future schema work must be coordinated across both repositories. (frontend image commit `039ea44`)
+9. **Bostools** — implemented retailer 28 across its mobile and caravan categories. The adapter distinguishes dated presale, short orderable lead time, sold-out/backorder, and collection-only states; it excludes accessories and reads the VAT-inclusive price rather than `excl. btw`.
 
-Backend test count grew from 38 → 72 across the session. All deployments succeeded with verification executions confirmed.
+Backend test count grew from 38 → 74 across the session. All completed deployments succeeded with verification executions confirmed.
 
 ## Safeguards and known behaviour
 
@@ -202,9 +206,10 @@ Backend test count grew from 38 → 72 across the session. All deployments succe
 
 ## Verification snapshot
 
-- Unit tests: 72 passed, including inventory filter separation, successful-empty replacement, failed-site retention, local-store round trip, dry-run no-write, and email-failure ordering.
+- Unit tests: 74 passed, including Bostools stock/presale/price semantics, inventory filter separation, successful-empty replacement, failed-site retention, local-store round trip, dry-run no-write, and email-failure ordering.
 - Shell syntax: clean.
 - `git diff --check`: clean.
+- Live local dry-run on 2026-07-05: all 28 retailers completed; the snapshot preview contained 20 available products and the alert filter selected 12. Bostools returned 6 in-scope air conditioners, with its one available PortaSplit retained as `presale=true` and therefore excluded from email alerts.
 - Live local dry-run on 2026-07-03: all 27 retailers completed; snapshot preview contained 19 available products and the alert filter selected 13. Known low-BTU and over-EUR-1,500 products remained in the snapshot but were excluded from alerts.
 - GitHub Actions run `28670790535` for commit `13e31ef`: succeeded in 3m57s. Verification execution `airco-tracker-job-d0zpn59`: Succeeded.
 - Production created `airco-tracker/inventory.json` via Managed Identity (HTTP 201): 13,830 bytes, 27 sites, 19 available products, 0 stale sites. No email was sent because alert state contained no new restocks.

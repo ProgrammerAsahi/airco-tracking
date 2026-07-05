@@ -11,6 +11,7 @@ from airco_tracker.adapters.action import ActionAdapter, _parse_product_page as 
 from airco_tracker.adapters.aircovoorinhuis import AircoVoorInHuisAdapter
 from airco_tracker.adapters.aircowebwinkel import _parse_product_page as parse_aircowebwinkel_page
 from airco_tracker.adapters.alternate import _parse_product_page as parse_alternate_page
+from airco_tracker.adapters.bostools import BostoolsAdapter
 from airco_tracker.adapters.coolblue import CoolblueAdapter
 from airco_tracker.adapters.costway import CostwayAdapter
 from airco_tracker.adapters.create_store import CreateStoreAdapter, _parse_card as parse_create_card
@@ -1125,6 +1126,111 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(product.available)
         self.assertEqual(product.price_eur, 299.0)
         self.assertEqual(product.btu, 9000)
+
+    # --- Bostools ---
+
+    def test_bostools_separates_immediate_presale_sold_out_and_pickup(self) -> None:
+        html = """
+        <ul class="products">
+          <li class="product instock">
+            <a class="woocommerce-loop-product__link" href="https://www.bostools.nl/airconditioning/mobiele-airco/midea-mobile-12000btu">
+              <h2 class="woocommerce-loop-product__title">Midea mobiele airco 12.000 BTU</h2>
+            </a>
+            <span class="price">
+              <span class="woocommerce-Price-amount amount">669,-</span>
+              <small class="price-ex"><span class="woocommerce-Price-amount amount">552,89</span> excl. btw</small>
+            </span>
+            <p class="stock in-stock"><strong>Levertijd:</strong> 1-2 werkdagen</p>
+          </li>
+          <li class="product onbackorder">
+            <a class="woocommerce-loop-product__link" href="https://www.bostools.nl/airconditioning/mobiele-airco/midea-portasplit-12000btu">
+              <h2 class="woocommerce-loop-product__title">Midea mobiele airconditioner PortaSplit 3,5 kW</h2>
+            </a>
+            <span class="price">
+              <span class="woocommerce-Price-amount amount">1.290,-</span>
+              <small class="price-ex"><span class="woocommerce-Price-amount amount">1.066,12</span> excl. btw</small>
+            </span>
+            <p class="stock available-on-backorder"><strong>Leverbaar vanaf:</strong> 17-08-2026</p>
+          </li>
+          <li class="product onbackorder">
+            <a class="woocommerce-loop-product__link" href="https://www.bostools.nl/airconditioning/mobiele-airco/midea-mppxa-12">
+              <h2 class="woocommerce-loop-product__title">Midea mobiele airco 3,5 kW (MPPXA-12)</h2>
+            </a>
+            <span class="price">669,-</span>
+            <p class="stock available-on-backorder"><strong>Levertijd:</strong> Tijdelijk uitverkocht</p>
+          </li>
+          <li class="product instock">
+            <a class="woocommerce-loop-product__link" href="https://www.bostools.nl/airconditioning/mobiele-airco/midea-sc26-zonder-doos">
+              <h2 class="woocommerce-loop-product__title">Midea mobiele airco SC26 zonder doos</h2>
+            </a>
+            <span class="price">390,-</span>
+            <p class="stock in-stock">Op voorraad</p>
+          </li>
+          <li class="product instock">
+            <a class="woocommerce-loop-product__link" href="https://www.bostools.nl/airconditioning/mobiele-airco/universele-houder-portasplit">
+              <h2 class="woocommerce-loop-product__title">Universele houder voor PortaSplit</h2>
+            </a>
+            <span class="price">119,90</span>
+            <p class="stock in-stock">Op voorraad</p>
+          </li>
+        </ul>
+        """
+        products = BostoolsAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.bostools.nl/airconditioning/mobiele-airco",
+        )
+        by_name = {product.name: product for product in products}
+        self.assertEqual(len(products), 4)
+
+        immediate = by_name["Midea mobiele airco 12.000 BTU"]
+        self.assertTrue(immediate.available)
+        self.assertFalse(immediate.presale)
+        self.assertEqual(immediate.price_eur, 669.0)
+        self.assertEqual(immediate.btu, 12000)
+
+        presale = by_name["Midea mobiele airconditioner PortaSplit 3,5 kW"]
+        self.assertTrue(presale.available)
+        self.assertTrue(presale.presale)
+        self.assertEqual(presale.price_eur, 1290.0)
+        self.assertEqual(presale.btu, 12000)
+
+        self.assertFalse(by_name["Midea mobiele airco 3,5 kW (MPPXA-12)"].available)
+        self.assertFalse(by_name["Midea mobiele airco SC26 zonder doos"].available)
+
+    def test_bostools_accepts_portable_caravan_split_with_short_lead_time(self) -> None:
+        html = """
+        <ul class="products">
+          <li class="product onbackorder">
+            <a class="woocommerce-loop-product__link" href="https://www.bostools.nl/airconditioning/caravan-airco/eurom-ac4201">
+              <h2 class="woocommerce-loop-product__title">Eurom AC4201 Caravan and Home Air Conditioner</h2>
+            </a>
+            <span class="price">579,-</span>
+            <p class="stock available-on-backorder"><strong>Levertijd:</strong> 4-6 werkdagen</p>
+          </li>
+          <li class="product outofstock">
+            <a class="woocommerce-loop-product__link" href="https://www.bostools.nl/airconditioning/caravan-airco/eurom-ac3201e">
+              <h2 class="woocommerce-loop-product__title">Eurom AC3201E Caravan Split Airco</h2>
+            </a>
+            <span class="price">449,-</span>
+            <p class="stock out-of-stock">Tijdelijk uitverkocht</p>
+          </li>
+          <li class="product instock">
+            <a class="woocommerce-loop-product__link" href="https://www.bostools.nl/airconditioning/caravan-airco/montagehouder">
+              <h2 class="woocommerce-loop-product__title">Montagehouder caravan airco</h2>
+            </a>
+            <p class="stock in-stock">Op voorraad</p>
+          </li>
+        </ul>
+        """
+        products = BostoolsAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.bostools.nl/airconditioning/caravan-airco",
+        )
+        self.assertEqual(len(products), 2)
+        self.assertTrue(products[0].available)
+        self.assertFalse(products[0].presale)
+        self.assertEqual(products[0].price_eur, 579.0)
+        self.assertFalse(products[1].available)
 
 
 if __name__ == "__main__":

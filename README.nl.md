@@ -35,6 +35,7 @@ Een lichte voorraadtracker voor mobiele airco's in Nederland, geschikt voor loka
 - Vrijbuiter
 - Klimaatshop
 - Airco-Webwinkel
+- Bostools
 
 Er wordt alleen een e-mail verstuurd wanneer een product voor het eerst als bestelbaar wordt gevonden of van niet leverbaar naar leverbaar verandert. Dezelfde melding wordt dus niet elke tien minuten opnieuw verstuurd. Als één winkel niet bereikbaar is, gaan de controles van de andere winkels gewoon door.
 
@@ -47,6 +48,8 @@ Alternate.nl, FlinQ en Action Webshop ontdekken nieuwe modellen via de productsi
 Expert telt uitsluitend producten die werkelijk online kunnen worden besteld; alleen winkelvoorraad veroorzaakt nooit een melding. De'Longhi leest de officiële JSON-LD op iedere productpagina en behandelt `Breng mij op de hoogte` als niet leverbaar. Obelink en Kampeerwereld blijven bekende seizoensproducten controleren, ook wanneer die tijdelijk uit categoriepagina's verdwijnen. Create behandelt zowel `Presale` als `Verzending vanaf` als niet direct leverbaar.
 
 Costway NL leest de Magento-categoriepagina en gebruikt de `qty-N`-voorraadaanduiding; Evolarshop bevraagt de openbare Nosto-zoek-API en sluit producten zonder afvoerslang ("zonder afvoerslang") uit als niet-compressorunit; Airco voor in huis gebruikt de WooCommerce-status `instock`/`outofstock`; Solago leest Shopify JSON-LD, waarbij `Voorbestelling` en `Levering vanaf` de InStock-markering overschrijven als niet leverbaar. Hubo heeft geen airco-categoriepagina en ontdekt mobiele airco's via de Shopify-productsitemap; Vrijbuiter volgt draagbare split-units voor caravan en camper (zoals Mestic SPA, Qlima MS-AC) en sluit aircoolers en accessoires uit. Klimaatshop is een gespecialiseerde aircohandelaar waar product-URL's uit het `data-url`-attribuut worden gelezen en de voorraad uit de `.stock`-span; Airco-Webwinkel is een WooCommerce-winkel die via de productsitemap wordt ontdekt, met JSON-LD-detailpagina's.
+
+Bostools leest zowel de WooCommerce-categorie voor mobiele airco's als die voor caravan-airco's. `Leverbaar vanaf: datum` verschijnt als voorverkoop in het dashboard zonder e-mailmelding; expliciet uitverkochte, alleen af te halen, onverpakte showroomproducten en accessoires melden nooit voorraad. De prijs komt uit het consumentenbedrag inclusief btw, niet uit de daarnaast getoonde zakelijke prijs `excl. btw`.
 
 Conrad.nl is nog niet ingeschakeld: gewone verzoeken vanuit zowel Azure als lokale uitvoering ontvangen Cloudflare HTTP 403. Conrad biedt via het Developer Portal een officiële Price & Availability API, maar toegang moet afzonderlijk worden aangevraagd. Dit project omzeilt geen anti-botbeveiliging.
 

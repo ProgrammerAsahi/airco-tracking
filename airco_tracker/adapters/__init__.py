@@ -2,6 +2,7 @@ from .action import ActionAdapter
 from .aircovoorinhuis import AircoVoorInHuisAdapter
 from .aircowebwinkel import AircoWebwinkelAdapter
 from .alternate import AlternateAdapter
+from .bostools import BostoolsAdapter
 from .coolblue import CoolblueAdapter
 from .costway import CostwayAdapter
 from .create_store import CreateStoreAdapter
@@ -30,6 +31,7 @@ __all__ = [
     "AircoVoorInHuisAdapter",
     "AircoWebwinkelAdapter",
     "AlternateAdapter",
+    "BostoolsAdapter",
     "CoolblueAdapter",
     "CostwayAdapter",
     "CreateStoreAdapter",

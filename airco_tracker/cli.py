@@ -10,6 +10,7 @@ from .adapters import (
     AircoVoorInHuisAdapter,
     AircoWebwinkelAdapter,
     AlternateAdapter,
+    BostoolsAdapter,
     CoolblueAdapter,
     CostwayAdapter,
     CreateStoreAdapter,
@@ -95,6 +96,7 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         VrijbuiterAdapter(fetcher),
         KlimaatshopAdapter(fetcher),
         AircoWebwinkelAdapter(fetcher),
+        BostoolsAdapter(fetcher),
     ]
     products: list[Product] = []
     failures: list[str] = []

@@ -24,6 +24,7 @@ PRESALE_MARKERS = (
     "pre-order",
     "pre order",
     "levering vanaf",
+    "leverbaar vanaf",
     "verzending vanaf",
     "weken",  # multi-week lead time, e.g. "Binnen 3-5 weken leverbaar"
     "binnenkort beschikbaar",

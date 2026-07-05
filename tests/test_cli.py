@@ -38,6 +38,7 @@ ADAPTER_NAMES = (
     "VrijbuiterAdapter",
     "KlimaatshopAdapter",
     "AircoWebwinkelAdapter",
+    "BostoolsAdapter",
 )
 
 
