@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
+RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-rg}"
 EMAIL_LANG="${EMAIL_LANG:-zh}"
 KEY_VAULT_SECRET_MAP="${KEY_VAULT_SECRET_MAP:-EMAIL_TO=notification-email}"
 IMAGE_TAG="${IMAGE_TAG:-$(git -C "$PROJECT_DIR" rev-parse --short=12 HEAD 2>/dev/null || date -u +manual-%Y%m%d%H%M%S)}"

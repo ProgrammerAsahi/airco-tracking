@@ -154,7 +154,7 @@ Het script:
 Nieuwe Azure RBAC-rollen hebben soms enkele minuten nodig om actief te worden. Als de eerste uitvoering een 403 van ACR, Blob of Communication Services ontvangt, wacht dan kort en start opnieuw:
 
 ```bash
-az containerapp job start --name airco-tracker-job --resource-group airco-tracker-nl-rg
+az containerapp job start --name airco-tracker-job --resource-group airco-tracker-rg
 ```
 
 Uitvoeringen en logboeken bekijken:
@@ -162,12 +162,12 @@ Uitvoeringen en logboeken bekijken:
 ```bash
 az containerapp job execution list \
   --name airco-tracker-job \
-  --resource-group airco-tracker-nl-rg \
+  --resource-group airco-tracker-rg \
   --output table
 
 az containerapp job logs show \
   --name airco-tracker-job \
-  --resource-group airco-tracker-nl-rg \
+  --resource-group airco-tracker-rg \
   --follow
 ```
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
+RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-rg}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-ProgrammerAsahi/airco-tracking}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 EMAIL_LANG="${EMAIL_LANG:-zh}"

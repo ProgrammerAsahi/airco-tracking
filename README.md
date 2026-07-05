@@ -155,7 +155,7 @@ EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
 Azure RBAC 新角色偶尔需要几分钟传播。如果第一次执行出现 ACR、Blob 或 Communication Services 的 403，请稍等后重新运行：
 
 ```bash
-az containerapp job start --name airco-tracker-job --resource-group airco-tracker-nl-rg
+az containerapp job start --name airco-tracker-job --resource-group airco-tracker-rg
 ```
 
 查看执行和日志：
@@ -163,12 +163,12 @@ az containerapp job start --name airco-tracker-job --resource-group airco-tracke
 ```bash
 az containerapp job execution list \
   --name airco-tracker-job \
-  --resource-group airco-tracker-nl-rg \
+  --resource-group airco-tracker-rg \
   --output table
 
 az containerapp job logs show \
   --name airco-tracker-job \
-  --resource-group airco-tracker-nl-rg \
+  --resource-group airco-tracker-rg \
   --follow
 ```
 

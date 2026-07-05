@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-nl-rg}"
+RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-rg}"
 LOCATION="${AZURE_LOCATION:-westeurope}"
 PREFIX="${AZURE_PREFIX:-aircontrack}"
 EMAIL_TO="${EMAIL_TO:-you@example.com}"

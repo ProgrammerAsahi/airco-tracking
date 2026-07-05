@@ -154,7 +154,7 @@ The script:
 New Azure RBAC assignments can take a few minutes to propagate. If the first execution gets an ACR, Blob, or Communication Services 403, wait briefly and start it again:
 
 ```bash
-az containerapp job start --name airco-tracker-job --resource-group airco-tracker-nl-rg
+az containerapp job start --name airco-tracker-job --resource-group airco-tracker-rg
 ```
 
 List executions and view logs:
@@ -162,12 +162,12 @@ List executions and view logs:
 ```bash
 az containerapp job execution list \
   --name airco-tracker-job \
-  --resource-group airco-tracker-nl-rg \
+  --resource-group airco-tracker-rg \
   --output table
 
 az containerapp job logs show \
   --name airco-tracker-job \
-  --resource-group airco-tracker-nl-rg \
+  --resource-group airco-tracker-rg \
   --follow
 ```
 
