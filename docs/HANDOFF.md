@@ -18,17 +18,18 @@ The latest retailer round added Bostools as retailer 28, covering its WooCommerc
 - Last verified production image: commit `afdde97`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-rg` (all 12 resources consolidated here; old `airco-tracker-nl-rg` deleted)
+- Deployer UAMI clientId (GitHub Actions `AZURE_CLIENT_ID`): `8adc0579-710f-4fcb-8762-28cea100a8a9`
 - OIDC federated credential subject: `repo:ProgrammerAsahi/airco-tracking:ref:refs/heads/main` (updated from `airco-tracking-nl`)
 - Container Apps job: `airco-tracker-job`
 - Schedule: `*/10 * * * *` (UTC)
 - Alert state: Azure Blob Storage, `airco-tracker/state.json`
 - Live inventory: Azure Blob Storage, `airco-tracker/inventory.json`
 - Notifications: Azure Communication Services Email
-- Runtime identity: user-assigned Managed Identity
+- Runtime identity: user-assigned Managed Identity (`aircontrack-identity`, clientId `ee7911d7-5ab9-4332-b9cc-b97fcd85d5d8`)
 - Dashboard consumer repository: `https://github.com/ProgrammerAsahi/airco-tracking-web`
 - Dashboard live URL: `https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontainerapps.io`
-- Dashboard deployed image commit: `5f82190` (backend-reference doc updates)
-- Dashboard handoff/docs head: `5f82190`
+- Dashboard deployed image commit: `069f587e0cc84b7f1c82d3e04020c71e8b5c38d2` (last code deploy; subsequent commits were doc-only with `[skip ci]`)
+- Dashboard handoff/docs head: `26b39bc`
 
 ## Active retailers
 
@@ -94,13 +95,23 @@ A Developer Portal registration attempt on 2026-07-03 was rejected with "your em
 
 - `MAX_PRICE_EUR=1500`
 - `MIN_BTU=7000`
+- `COUNTRIES=nl` (comma-separated country codes; default `nl`; drives `load_adapter_classes` in the registry)
 - `EMAIL_LANG=zh` in production (`zh`, `nl`, and `en` are supported)
 - The production recipient is stored as Key Vault secret `notification-email`.
 - GitHub stores only `KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email`; it does not store the address.
+- GitHub Actions variables (both repos): `AZURE_RESOURCE_GROUP=airco-tracker-rg`, `AZURE_CLIENT_ID=8adc0579-710f-4fcb-8762-28cea100a8a9` (deployer UAMI clientId, recreated 2026-07-05), `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, plus backend-only `EMAIL_LANG` and `KEY_VAULT_SECRET_MAP`.
 - Migration completed on 2026-07-02: the old GitHub `EMAIL_TO` variable was deleted, `EMAIL_LANG=zh` was set, and the temporary Key Vault Secrets Officer assignment was confirmed absent after the write.
 - `scripts/configure-notification-email.sh` migrates the old GitHub value or prompts without echo, temporarily grants the signed-in user Key Vault Secrets Officer, writes the secret, removes the temporary role, and deletes the old GitHub variable.
 - The Container Apps Managed Identity has Key Vault Secrets User and hydrates `EMAIL_TO` at runtime.
 - SMTP credentials remain local-only in `.env`; Azure uses passwordless Communication Services.
+
+## Azure identity and OIDC notes (post-2026-07-05 rebuild)
+
+- Runtime UAMI `aircontrack-identity`: clientId `ee7911d7-5ab9-4332-b9cc-b97fcd85d5d8`, principalId `76de0df0-4e20-481e-b86b-0ba510ba0e10`. Has 5 roles: AcrPull (ACR), Storage Blob Data Contributor, Storage Table Data Contributor, Key Vault Secrets User, Communication and Email Service Owner.
+- Deployer UAMI `airco-github-deployer`: clientId `8adc0579-710f-4fcb-8762-28cea100a8a9`, principalId `af52c703-d15d-49c1-869a-bfd92af0d447`. Has Contributor on `airco-tracker-rg`.
+- OIDC federated credentials on the deployer UAMI: `github-airco-tracking` (subject `repo:ProgrammerAsahi/airco-tracking:ref:refs/heads/main`) and `github-airco-tracking-web` (subject `repo:ProgrammerAsahi/airco-tracking-web:ref:refs/heads/main`).
+- **Bicep vs deployed name mismatch**: `infra/github-oidc.bicep` generates the federated-credential name as `github-${uniqueString(githubRepository, githubBranch)}`, but the credentials were created manually with explicit names `github-airco-tracking` and `github-airco-tracking-web`. Re-running `bootstrap-github-oidc.sh` would attempt to create a second credential under a hashed name. If the bootstrap script must be re-run, delete the manually-created credentials first or update the bicep name to match.
+- EmailService sender: `DoNotReply@a6522f3e-09c8-4ba0-a951-377b3c2b9c1b.azurecomm.net` (Job env `EMAIL_FROM`). The old sender `DoNotReply@65f5b17b-...azurecomm.net` is gone with the deleted EmailService.
 
 ## Frontend consumer and cross-repository contract
 
@@ -153,7 +164,7 @@ The following sites from the 2026-07-03 evaluation were investigated and exclude
 
 ## Next expansion candidates
 
-All four sites from the 2026-07-03 evaluation have been implemented and deployed:
+All Dutch candidates from the 2026-07-03 evaluation have been implemented and deployed:
 
 | Site | Status | Implementation |
 |------|--------|----------------|
@@ -165,13 +176,20 @@ All four sites from the 2026-07-03 evaluation have been implemented and deployed
 | Vrijbuiter | ✅ Deployed | Category links + @graph JSON-LD; portable split units tracked. |
 | Klimaatshop | ✅ Deployed | Custom category grid; `data-url` attribute + `.stock` span. |
 | Airco-Webwinkel | ✅ Deployed | WooCommerce store discovered via product sitemap; JSON-LD detail pages. |
-| Bostools | 🟡 Implemented | WooCommerce mobile/caravan categories; dated presale and VAT-inclusive prices. |
+| Bostools | ✅ Deployed | WooCommerce mobile/caravan categories; dated presale and VAT-inclusive prices. |
 
 Not recommended (do not implement):
 - Vergelijkeven, Kieskeurig: price-comparison aggregators, second-hand stock data, not authoritative sellers. Kieskeurig also returns Vercel 429.
 - RS Online: industrial B2B, search returns 403, low portable-airco value for integration cost similar to Conrad.
 
-All previously listed candidates have been investigated and resolved. Bostools is the current deployment candidate.
+All previously listed NL candidates have been investigated and resolved. The NL retailer list is considered complete for the current scope.
+
+## Next concrete steps
+
+1. **France expansion** — the user's stated next direction. Create `airco_tracker/adapters/fr/` with a `__init__.py` exposing an `ADAPTERS` list, register `"fr"` in `registry._ADAPTERS_BY_COUNTRY`, and set `COUNTRIES=nl,fr` in the Job env (via `infra/job.bicep` `keyVaultEnvMap` or a new param). Research French retailers (Darty, Boulanger, Fnac, etc.) for portable airco categories that deliver to French addresses. The registry architecture means `cli.py` and `test_cli.py` do not change.
+2. **Conrad API** — still awaiting allowlist response; check the Developer Portal before starting work.
+3. **AliExpress API** — approval window has elapsed; re-check the portal status before starting work.
+4. **Email send verification** — the new EmailService sender (`DoNotReply@a6522f3e-...azurecomm.net`) has not been exercised end-to-end (no new stock alerts since rebuild). Run `airco-tracker send-test` from the Job container, or wait for the next real alert, to confirm ACS delivery works with the new sender.
 
 ## Development progress (2026-07-03 session)
 
@@ -253,3 +271,13 @@ The 27 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`. Coun
 - `config.py` reads `COUNTRIES` (default `nl`, comma-separated) into `Config.countries`.
 - Adding a country: create `adapters/<cc>/__init__.py` with an `ADAPTERS` list, register it in `registry._ADAPTERS_BY_COUNTRY`, and set `COUNTRIES=nl,<cc>`. No `cli.py` or `test_cli.py` changes needed.
 - `test_cli.py` patches `airco_tracker.cli.load_adapter_classes` to inject fake adapter classes instead of patching 28 individual names on the `cli` module.
+
+### Adding a country (checklist)
+
+1. Create `airco_tracker/adapters/<cc>/` with one module per retailer (copy an existing NL adapter as a template; use `from ...models import Product`, `from ..base import ...` — three dots to reach `airco_tracker.models`, two dots to reach `adapters.base`).
+2. In `airco_tracker/adapters/<cc>/__init__.py`, import each adapter class and define `ADAPTERS = [...]` (ordered list). Do not export internal base classes.
+3. In `airco_tracker/adapters/registry.py`, add `from .<cc> import ADAPTERS as _<cc>_ADAPTERS` and register `_ADAPTERS_BY_COUNTRY["<cc>"] = _<cc>_ADAPTERS`.
+4. Add parser tests in `tests/test_parsers.py` using `from airco_tracker.adapters.<cc>.<module> import ...`.
+5. Set `COUNTRIES=nl,<cc>` in production: add a `countries` param to `infra/job.bicep` or update the Job env via `az containerapp job update`. The `Config.countries` field reads the `COUNTRIES` env var (comma-separated, default `nl`).
+6. Run `.venv/bin/python -m unittest discover -v` and `.venv/bin/python -m airco_tracker check --dry-run`; confirm the new country's retailers appear in the snapshot.
+7. `cli.py` and `test_cli.py` do not change — the registry handles discovery automatically.
