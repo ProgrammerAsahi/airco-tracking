@@ -27,3 +27,6 @@ airco-tracker = "airco_tracker.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["airco_tracker*"]
+
+[tool.setuptools.package-data]
+airco_tracker = ["i18n_local.json"]
