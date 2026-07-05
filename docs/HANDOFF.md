@@ -130,17 +130,10 @@ A Developer Portal registration attempt on 2026-07-03 was rejected with "your em
 - Affiliate account approved on 2026-07-01.
 - Open Platform developer type: `Dropshipping/Affiliates Developer` → `Affiliates (individual)`.
 - API application submitted on 2026-07-01.
-- Last observed status: `Under Review`, estimated 2–5 working days. As of 2026-07-03 (day 3) the window has not elapsed; re-check the portal before starting work.
+- Last observed status: `Under Review`, estimated 2–5 working days. The window has elapsed as of 2026-07-05; re-check the portal before starting work.
 - No AliExpress adapter or secret configuration exists yet.
 - Use only official Affiliate/Open Platform APIs after approval; never retain buyer, order, payment, or other personal data.
-
-## Next steps after AliExpress approval
-
-1. Inspect the approved app/key page without copying an App Secret into chat or source control.
-2. Verify signing, product-search, availability, and Dutch-delivery fields from current official documentation.
-3. Implement a disabled-by-default API adapter with synthetic response tests.
-4. Store credentials directly in Key Vault through a hidden-input setup script.
-5. Run the full unit suite and live dry-run before enabling production.
+- After approval: inspect the app/key page without copying an App Secret into chat or source control; verify signing, product-search, availability, and Dutch-delivery fields from current official docs; implement a disabled-by-default adapter with synthetic response tests; store credentials in Key Vault via a hidden-input script; run the full unit suite and live dry-run before enabling production.
 
 ## Sites evaluated and not implemented
 
@@ -191,21 +184,50 @@ All previously listed NL candidates have been investigated and resolved. The NL 
 3. **AliExpress API** — approval window has elapsed; re-check the portal status before starting work.
 4. **Email send verification** — the new EmailService sender (`DoNotReply@a6522f3e-...azurecomm.net`) has not been exercised end-to-end (no new stock alerts since rebuild). Run `airco-tracker send-test` from the Job container, or wait for the next real alert, to confirm ACS delivery works with the new sender.
 
-## Development progress (2026-07-03 session)
+## Development history (compact)
 
-This session advanced the project from 19 to 27 active retailers through three expansion rounds, plus accuracy and documentation work:
+- **2026-07-05**: Renamed `airco-tracking-nl` → `airco-tracking`; moved 27 adapters into `adapters/nl/`; added `registry.py` with `load_adapter_classes(countries)`; fixed `i18n_local.json` packaging; consolidated all Azure resources into `airco-tracker-rg` (old `airco-tracker-nl-rg` deleted); recreated UAMIs + EmailService with new clientIds; fixed OIDC bicep federated-credential name to be idempotent. Backend tests: 74. (commits `afdde97`, `db7cda6`)
+- **2026-07-05**: Added Bostools as retailer 28 (WooCommerce mobile/caravan categories; dated presale; VAT-inclusive prices). (commit `6e50bf4`)
+- **2026-07-04**: Frontend retailer detail page, presale tabs, and zh/nl/en localization (CSP-safe inert JSON). (frontend commits `d8fcc49`, `5d022fc`)
+- **2026-07-03**: Expanded from 19 → 27 retailers (Costway, Evolarshop, Airco voor in huis, Solago, Hubo, Vrijbuiter, Klimaatshop, Airco-Webwinkel); BTU accuracy audit; live inventory snapshot `inventory.json`; public dashboard repository created. (commits `4d12719`, `ee33e59`, `3ce87c2`, `13e31ef`)
+- **2026-07-02**: Azure Key Vault recipient storage; bol.com removal; EUR 1,500 / 7,000 BTU alert filters.
+- Prior runs retained in git history.
 
-1. **Costway NL, Evolarshop, Airco voor in huis, Solago** — four adapters researched, implemented, tested, and deployed. Evolarshop uses the public Nosto GraphQL search API (same as the browser); Solago handles Shopify pre-order overrides; Costway reads Magento `qty-N` stock classes; Airco voor in huis uses WooCommerce `instock`/`outofstock` classes. (commit `4d12719`)
-2. **Hubo, Vrijbuiter** — two adapters researched and deployed. Hubo discovers products via Shopify product sitemaps; Vrijbuiter reads category links + @graph JSON-LD. Six other candidate sites were evaluated and excluded (De Wit Schijndel, Fritz Berger, vidaXL, VEVOR, Hornbach, Intratuin). (commit `ee33e59`)
-3. **Klimaatshop, Airco-Webwinkel** — two specialist airco dealers found via web search and deployed. Klimaatshop reads custom `data-url` + `.stock` spans; Airco-Webwinkel uses WooCommerce sitemap + JSON-LD. Seven more candidates were evaluated and excluded (BCC, Klium, Qlima, Electrogigant, Euronics, BAUHAUS NL, Fonq). (commit `3ce87c2`)
-4. **BTU accuracy** — earlier in the session, the Praxis adapter gained a watt→BTU fallback (commit `6930a24`); codex's prior BTU audit (labelled cooling watts, known-model inference, input-power rejection, detail-page enrichment) was reviewed and confirmed working across all adapters.
-5. **Documentation** — all three READMEs (zh, en, nl) were synced with the full 27-retailer list and per-retailer stock semantics. Personal email placeholders were cleaned up from READMEs.
-6. **HANDOFF** — continuously updated with deployed commits, verification evidence, excluded-site rationale, and expansion-candidate status.
-7. **Live inventory snapshot** — added an independent `inventory.json` grouped by all 27 sites. It retains all currently available in-scope products regardless of alert price/BTU/brand filters, replaces successful-site data (including empty results), preserves failed-site data as stale, and saves before email delivery. Local and Azure Blob backends, `doctor` counts, dry-run safeguards, three-language documentation, and failure-order tests are included. (commit `13e31ef`)
-8. **Public inventory dashboard** — created and deployed the separate `airco-tracking-web` TypeScript/React repository. It uses a same-origin Node API with Managed Identity to consume the private snapshot, a glacier-blue responsive UI, Container Apps scale-to-zero, repository-specific GitHub OIDC, immutable images, and automated production verification. The backend owns the snapshot contract; future schema work must be coordinated across both repositories. (frontend image commit `039ea44`)
-9. **Bostools** — implemented retailer 28 across its mobile and caravan categories. The adapter distinguishes dated presale, short orderable lead time, sold-out/backorder, and collection-only states; it excludes accessories and reads the VAT-inclusive price rather than `excl. btw`.
+## Standard local verification
 
-Backend test count grew from 38 → 74 across the session. All completed deployments succeeded with verification executions confirmed.
+```bash
+cd ~/airco-tracking
+.venv/bin/pip install --no-deps --force-reinstall .   # after code changes
+.venv/bin/python -m unittest discover -v              # 74 tests
+PYTHONPYCACHEPREFIX=/tmp/airco-pycache .venv/bin/python -m compileall -q airco_tracker tests
+bash -n scripts/*.sh
+git diff --check
+.venv/bin/python -m airco_tracker check --dry-run      # live network, no writes
+```
+
+For inventory contract changes, also verify the frontend (see `~/airco-tracking-web/HANDOFF.md`).
+
+## Deployment commands (when authorized)
+
+```bash
+# Backend: push to main triggers .github/workflows/deploy.yml automatically.
+# Manual deploy (skips CI, uses current HEAD):
+IMAGE_TAG=$(git -C ~/airco-tracking rev-parse --short=12 HEAD) \
+  AZURE_RESOURCE_GROUP=airco-tracker-rg \
+  ~/airco-tracking/scripts/deploy-application.sh
+
+# Frontend: push to main triggers .github/workflows/deploy.yml automatically.
+# Manual deploy:
+IMAGE_TAG=$(git -C ~/airco-tracking-web rev-parse --short=12 HEAD) \
+  AZURE_RESOURCE_GROUP=airco-tracker-rg \
+  ~/airco-tracking-web/scripts/deploy.sh
+
+# Trigger a verification job execution:
+az containerapp job start -n airco-tracker-job -g airco-tracker-rg
+
+# Production API check:
+curl -s https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontainerapps.io/api/inventory | python3 -m json.tool | head
+```
 
 ## Safeguards and known behaviour
 
@@ -237,6 +259,7 @@ Backend test count grew from 38 → 74 across the session. All completed deploym
 - First deploy run `28744264341` for commit `59e58bc` failed its verification execution because of a pre-existing `i18n_local.json` packaging bug: when the Azure Table Storage i18n query failed, the local fallback raised `FileNotFoundError`. Fixed in `afdde97` by adding `[tool.setuptools.package-data]` for `i18n_local.json`; the second deploy succeeded.
 - Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:afdde97...` (full SHA tag).
 - Scheduled job executions after deploy: `29721060`, `29721070` both Succeeded.
+- OIDC bicep fix 2026-07-05: changed `infra/github-oidc.bicep` (both repos) from `uniqueString()` to `last(split(githubRepository,'/'))` so the federated-credential name matches the deployed credentials (`github-airco-tracking`, `github-airco-tracking-web`). Redeployed both bicep files; the deployer Contributor role assignment was also recreated via bicep's `guid()` for idempotency. Re-running `bootstrap-github-oidc.sh` is now safe. (commits `db7cda6` backend, `f150a2b` frontend)
 - Azure resource move 2026-07-05: created `airco-tracker-rg` and moved 9 resources (Storage, ACR, KeyVault, LogAnalytics, ACS, ManagedEnvironment, ContainerApp, Job) from `airco-tracker-nl-rg`. The 2 UAMIs and EmailService (not movable) were recreated in the new RG: runtime UAMI new clientId `ee7911d7-5ab9-4332-b9cc-b97fcd85d5d8`, deployer UAMI new clientId `8adc0579-710f-4fcb-8762-28cea100a8a9`, new EmailService sender `DoNotReply@a6522f3e-...azurecomm.net`. Recreated 6 role assignments (5 runtime + 1 deployer) and 2 OIDC federated credentials (`github-airco-tracking`, `github-airco-tracking-web`). Redeployed `job.bicep` and `app.bicep` to update identity references and `EMAIL_FROM`/`AZURE_CLIENT_ID` env. ACS `linkedDomains` updated to the new Domain. Old `airco-tracker-nl-rg` and all its resources deleted. Manual job execution `airco-tracker-job-e9q0tl4`: Succeeded. Scheduled execution `29721200` post-deletion: Succeeded. Frontend API verified 2026-07-05T17:21Z: 28 sites, 19 available products, 0 stale sites. GitHub Actions `AZURE_RESOURCE_GROUP` and `AZURE_CLIENT_ID` variables updated on both repos.
 - GitHub Actions run `28670790535` for commit `13e31ef`: succeeded in 3m57s. Verification execution `airco-tracker-job-d0zpn59`: Succeeded.
 - Production created `airco-tracker/inventory.json` via Managed Identity (HTTP 201): 13,830 bytes, 27 sites, 19 available products, 0 stale sites. No email was sent because alert state contained no new restocks.
