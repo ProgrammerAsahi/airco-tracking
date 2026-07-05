@@ -13,7 +13,7 @@ resource deployIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-0
 
 resource githubCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
   parent: deployIdentity
-  name: 'github-${uniqueString(githubRepository, githubBranch)}'
+  name: 'github-${last(split(githubRepository, '/'))}'
   properties: {
     audiences: [
       'api://AzureADTokenExchange'
