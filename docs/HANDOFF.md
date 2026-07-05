@@ -12,8 +12,8 @@ The latest development round adds Bostools as retailer 28, covering its WooComme
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking-nl`
 - Branch: `main`
-- Feature commit: `b40bfb6a8a14bb8e7e829ab4e128eea7d2889708`
-- Last verified production image: commit `13e31efde353c649703abe853afb5d4f5a4ac783`
+- Feature commit: `6e50bf4eed852f909060ee95ff7bd234c070c621`
+- Last verified production image: commit `6e50bf4eed852f909060ee95ff7bd234c070c621`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-nl-rg`
 - Container Apps job: `airco-tracker-job`
@@ -215,6 +215,7 @@ Backend test count grew from 38 → 74 across the session. All completed deploym
 - Production created `airco-tracker/inventory.json` via Managed Identity (HTTP 201): 13,830 bytes, 27 sites, 19 available products, 0 stale sites. No email was sent because alert state contained no new restocks.
 - Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:13e31efde353c649703abe853afb5d4f5a4ac783`.
 - Frontend localization repair deployment: Actions run `28717820865`, image `airco-tracking-web:5d022fc45e9e9d03bec567cd6afaee5f59e37f90`, and the strengthened verifier passed strict CSP, three-language inert JSON, and inventory checks. Live API verification returned 27 sites / 20 available products / 0 stale sites at `2026-07-04T19:54:00Z`; production browser QA passed Chinese, Dutch, and English switching.
+- Bostools deployment: Actions run `28735561062` for backend commit `6e50bf4`: succeeded in 4m13s. Actions run `28735567922` for frontend commit `069f587`: succeeded in 2m42s. Production API verified 2026-07-05: 28 sites, 20 available products, 0 stale sites. Bostools returned 1 presale product (Midea PortaSplit, €1,290, 12,000 BTU, `presale=true`), correctly excluded from email alerts. Backend image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:6e50bf4eed852f909060ee95ff7bd234c070c621`. Frontend image: `aircotrackertdzvfmmi.azurecr.io/airco-tracking-web:069f587e0cc84b7f1c82d3e04020c71e8b5c38d2`.
 - Prior runs retained in git history.
 - Expected per-product warnings remain for one retired Obelink URL, two Kampeerwereld URLs returning HTTP 410, and one De'Longhi product missing JSON-LD offer. Their adapters still completed successfully; these warnings do not mark the retailer check as failed.
 
@@ -222,22 +223,12 @@ Backend test count grew from 38 → 74 across the session. All completed deploym
 
 Replace stale status instead of appending a diary. Always record the deployed commit, active retailer count, external API review state, frontend contract compatibility, exact verification evidence, and next concrete action. Never include email addresses, secret values, tokens, passwords, or unnecessary personal information.
 
-## 2026-07-04 i18n round
+## i18n architecture
 
-Multi-language support added with Azure Table Storage-backed i18n:
-- Table "i18n" in existing Storage Account stores all translations (44 entries: 11 email + 33 web).
-- i18n_table.py loads from Table Storage via Managed Identity; i18n_local.json is the local fallback.
-- i18n.py refactored to use dynamic loading; translate() API unchanged.
-- foundation.bicep: Storage Table Data Contributor role added.
-- scripts/seed-i18n.py: one-time seeding script (already run).
-- Backend commit: bd373ba. 72 tests pass.
-
-## 2026-07-04 frontend i18n integration
-
-The backend i18n refactoring is complete and working:
-- `i18n_table.py` loads from Azure Table Storage; `i18n.py` uses it for email translations.
-- `i18n_local.json` contains 44 entries (11 email + 33 web) across zh/nl/en.
-- `scripts/seed-i18n.py` has been run; Table Storage is populated.
-- 72 backend tests pass; email i18n is unaffected.
-
-The frontend display bug is resolved. Its strict `script-src 'self'` CSP correctly blocked the original executable inline `window.__I18N__` assignment. Frontend commit `5d022fc` now embeds escaped translations as inert `application/json`, validates them through a shared parser, and renders heading line breaks without `dangerouslySetInnerHTML`. Local and production browser QA confirmed Chinese, Dutch, and English copy, metadata, accessibility labels, timestamps, prices, and BTU formatting. No backend schema or Table reseed was required.
+Multi-language support (zh/nl/en) is backed by Azure Table Storage:
+- Table "i18n" in the existing Storage Account stores 44 entries (11 email + 33 web), each with `zh`, `nl`, `en` columns.
+- `i18n_table.py` loads from Table Storage via Managed Identity; `i18n_local.json` is the local fallback.
+- `i18n.py` uses dynamic loading; `translate()` API unchanged.
+- `foundation.bicep` includes the Storage Table Data Contributor role.
+- `scripts/seed-i18n.py` is a one-time seeding script (already run).
+- Frontend reads the `web` partition through Managed Identity; translations are injected as CSP-safe inert `application/json` (not executable inline script). The frontend bug where raw key names appeared instead of translated text was caused by the strict `script-src 'self'` CSP blocking the original inline `window.__I18N__` assignment; this is resolved (frontend commit `5d022fc`).
