@@ -111,7 +111,7 @@ New-retailer stock semantics:
 - Klimaatshop: custom category grid; product URLs from `data-url` attribute, stock from `.stock` span.
 - Airco-Webwinkel: WooCommerce store discovered via product sitemap; JSON-LD detail pages.
 - Bostools: two server-rendered WooCommerce categories; dated availability is presale, short business-day lead time is immediate stock, and VAT-inclusive consumer price is authoritative.
-- France: Auchan/Rue du Commerce parse server-rendered cards or microdata; Castorama is tracked but current products are store-availability-only and not immediate online stock; Brico Dépôt France reads category JSON-LD product offers and labels InStock as depot-dependent; Electro Dépôt France reads embedded Vue JSON and requires `stock > 0`; Costway France reads Magento `qty-N` classes, marks `Précommande` separately, and excludes split systems/coolers/accessories; Maison Energy uses schema availability but lets `Non disponible`/`Demande de devis` override `PreOrder`; Create France and Evolarshop France expose preorders as presale; Klarstein France and De'Longhi France are currently out of stock; Trotec France uses the public Algolia product index but requires name-level filtering because the search index also returns accessories; Lidl France uses the public product sitemap; Action France currently returns coolers/fans and is allowed to succeed with zero real air conditioners. Boulanger is deferred due Azure read timeout despite local accessibility.
+- France: Auchan/Rue du Commerce parse server-rendered cards or microdata; Castorama is tracked but current products are store-availability-only and not immediate online stock; Brico Dépôt France reads JSON-LD product offers from the Fasterize/smartcache fragment and labels InStock as depot-dependent; Electro Dépôt France reads embedded Vue JSON and requires `stock > 0`; Costway France reads Magento `qty-N` classes, marks `Précommande` separately, and excludes split systems/coolers/accessories; Maison Energy uses schema availability but lets `Non disponible`/`Demande de devis` override `PreOrder`; Create France and Evolarshop France expose preorders as presale; Klarstein France and De'Longhi France are currently out of stock; Trotec France uses the public Algolia product index but requires name-level filtering because the search index also returns accessories; Lidl France uses the public product sitemap; Action France currently returns coolers/fans and is allowed to succeed with zero real air conditioners. Boulanger is deferred due Azure read timeout despite local accessibility.
 
 ## Conrad status
 
@@ -215,7 +215,7 @@ All previously listed NL candidates have been investigated and resolved. The NL 
 
 ## Development history (compact)
 
-- **2026-07-06**: Added the second stable France batch (4 active adapters): Brico Dépôt France, Electro Dépôt France, Costway France, and Maison Energy. Added parser tests for JSON-LD stock, embedded Vue stock, Costway presale/cooler/split filtering, and Maison Energy quote-only/preorder precedence. Backend tests: 108.
+- **2026-07-06**: Added the second stable France batch (4 active adapters): Brico Dépôt France, Electro Dépôt France, Costway France, and Maison Energy. Added parser tests for JSON-LD stock, Brico Dépôt smartcache fragments, embedded Vue stock, Costway presale/cooler/split filtering, and Maison Energy quote-only/preorder precedence. Backend tests: 109.
 - **2026-07-06**: Added the stable France MVP batch (10 active adapters), wired `COUNTRIES=nl,fr` for production, added French presale markers and FR parser tests. Boulanger parser code is retained but deferred after production Azure verification showed consistent 60-second read timeouts. Backend tests: 104.
 - **2026-07-06**: Hardened the post-rename architecture: added `country`/`site_id`, country-scoped state keys with legacy fallback, immediate vs presale counts, site-level `delivery_coverage`, presale-to-immediate alerts, explicit UAMI credential helper, Blob→Table endpoint derivation, and a `countries` Bicep parameter. Backend tests: 90.
 - **2026-07-05**: Renamed `airco-tracking-nl` → `airco-tracking`; moved 27 adapters into `adapters/nl/`; added `registry.py` with `load_adapter_classes(countries)`; fixed `i18n_local.json` packaging; consolidated all Azure resources into `airco-tracker-rg` (old `airco-tracker-nl-rg` deleted); recreated UAMIs + EmailService with new clientIds; fixed OIDC bicep federated-credential name to be idempotent. Backend tests: 74. (commits `afdde97`, `db7cda6`)
@@ -230,7 +230,7 @@ All previously listed NL candidates have been investigated and resolved. The NL 
 ```bash
 cd ~/airco-tracking
 .venv/bin/pip install --no-deps --force-reinstall .   # after code changes
-.venv/bin/python -m unittest discover -v              # 108 tests
+.venv/bin/python -m unittest discover -v              # 109 tests
 PYTHONPYCACHEPREFIX=/tmp/airco-pycache .venv/bin/python -m compileall -q airco_tracker tests
 bash -n scripts/*.sh
 git diff --check
@@ -281,10 +281,10 @@ curl -s https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontaine
 
 ## Verification snapshot
 
-- Unit tests: 108 passed, including the rewritten `test_cli.py` (patches `load_adapter_specs` instead of 28 individual adapter names), registry duplicate-site and delivery-coverage validation, Bostools stock/presale/price semantics, French second-batch parser coverage, inventory filter separation, immediate/presale counts, successful-empty replacement, failed-site retention, country-scoped state keys, presale-to-immediate alerts, local-store round trip, dry-run no-write, and email-failure ordering.
+- Unit tests: 109 passed, including the rewritten `test_cli.py` (patches `load_adapter_specs` instead of 28 individual adapter names), registry duplicate-site and delivery-coverage validation, Bostools stock/presale/price semantics, French second-batch parser coverage, Brico Dépôt smartcache fragment parsing, inventory filter separation, immediate/presale counts, successful-empty replacement, failed-site retention, country-scoped state keys, presale-to-immediate alerts, local-store round trip, dry-run no-write, and email-failure ordering.
 - Shell syntax: clean.
 - `git diff --check`: clean.
-- Live local French dry-run on 2026-07-06 (second France batch): all 14 active French adapters completed; snapshot preview contained 44 available/presale products and the alert filter selected 10. Costway France returned 4 preorder products with `presale=true`, correctly excluded from immediate-stock alerts.
+- Live local French dry-run on 2026-07-06 (second France batch): all 14 active French adapters completed; snapshot preview contained 45 available/presale products and the alert filter selected 10. Costway France returned 4 preorder products with `presale=true`, correctly excluded from immediate-stock alerts.
 - Live local dry-run on 2026-07-05 (post-rename): all 28 retailers completed via the registry path; the snapshot preview contained 21 available products and the alert filter selected 12.
 - Live local dry-run on 2026-07-05 (pre-rename): all 28 retailers completed; the snapshot preview contained 20 available products and the alert filter selected 12. Bostools returned 6 in-scope air conditioners, with its one available PortaSplit retained as `presale=true` and therefore excluded from email alerts.
 - Live local dry-run on 2026-07-03: all 27 retailers completed; snapshot preview contained 19 available products and the alert filter selected 13. Known low-BTU and over-EUR-1,500 products remained in the snapshot but were excluded from alerts.

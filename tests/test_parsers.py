@@ -240,6 +240,29 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(products[0].price_eur, 299.0)
         self.assertEqual(products[0].btu, 13000)
 
+    def test_bricodepot_fr_reads_fasterize_fragment_json_ld(self) -> None:
+        item_list = {
+            "@context": "https://schema.org",
+            "@type": "ItemList",
+            "itemListElement": [
+                {
+                    "@type": "ListItem",
+                    "item": {
+                        "@type": "Product",
+                        "name": "Climatiseur mobile 7000 BTU",
+                        "url": "https://www.bricodepot.fr/p/climatiseur-7000-btu",
+                        "offers": {"price": 199, "availability": "https://schema.org/OutOfStock"},
+                    },
+                }
+            ],
+        }
+        fragment = {"fstrz-scss-0": {"content": json.dumps(item_list)}}
+        html = f"fasterizeNs.processFragments({json.dumps(fragment)});"
+        products = BricoDepotFranceAdapter(DummyFetcher()).parse(BeautifulSoup(html, "html.parser"), "https://www.bricodepot.fr/")
+        self.assertEqual(len(products), 1)
+        self.assertFalse(products[0].available)
+        self.assertEqual(products[0].btu, 7000)
+
     def test_castorama_fr_keeps_store_check_out_of_immediate_stock(self) -> None:
         html = """
         <div data-testid="product">
