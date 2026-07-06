@@ -10,7 +10,7 @@ requires-python = ">=3.9"
 dependencies = [
   "beautifulsoup4>=4.12,<5",
   "requests>=2.31,<3",
-  "urllib3>=1.26,<2",
+  "urllib3>=1.26,<3",
 ]
 
 [project.optional-dependencies]
