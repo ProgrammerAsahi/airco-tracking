@@ -30,7 +30,7 @@ The latest retailer round added Bostools as retailer 28, covering its WooCommerc
 - Runtime identity: user-assigned Managed Identity (`aircontrack-identity`, clientId `ee7911d7-5ab9-4332-b9cc-b97fcd85d5d8`)
 - Dashboard consumer repository: `https://github.com/ProgrammerAsahi/airco-tracking-web`
 - Dashboard live URL: `https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontainerapps.io/deliver-to/nl`
-- Dashboard deployed image commit: `d78766428dd017e4fb31b7a4cb74ed3c5e60ae4d`
+- Dashboard deployed image commit: `3ab350822b83185fe48f008447ab67d982ef5565`
 - Dashboard handoff/docs head: see `airco-tracking-web` `main`; doc-only commits may use `[skip ci]` and do not imply a new deployed image.
 
 ## Active retailers
