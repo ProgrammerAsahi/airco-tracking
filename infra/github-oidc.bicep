@@ -6,6 +6,11 @@ param githubBranch string = 'main'
 
 param identityName string = 'airco-github-deployer'
 
+@description('Stable custom role definition GUID for the Airco GitHub deployer role.')
+param deployRoleDefinitionGuid string = '3ba933f8-b598-41cd-a675-32daa4034b60'
+
+var deployRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', deployRoleDefinitionGuid)
+
 resource deployIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: identityName
   location: resourceGroup().location
@@ -23,21 +28,29 @@ resource githubCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/fede
   }
 }
 
-var contributorRole = subscriptionResourceId(
-  'Microsoft.Authorization/roleDefinitions',
-  'b24988ac-6180-42a0-ab88-20f7382dd24c'
-)
+module deployRole 'github-deployer-role.bicep' = {
+  name: 'airco-github-deployer-role'
+  scope: subscription()
+  params: {
+    roleDefinitionGuid: deployRoleDefinitionGuid
+    assignableScope: resourceGroup().id
+  }
+}
 
-resource resourceGroupContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, deployIdentity.id, contributorRole)
+resource resourceGroupDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, deployIdentity.id, deployRoleDefinitionId)
   properties: {
     principalId: deployIdentity.properties.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: contributorRole
+    roleDefinitionId: deployRoleDefinitionId
   }
+  dependsOn: [
+    deployRole
+  ]
 }
 
 output clientId string = deployIdentity.properties.clientId
 output principalId string = deployIdentity.properties.principalId
+output deployRoleDefinitionId string = deployRoleDefinitionId
 output subscriptionId string = subscription().subscriptionId
 output tenantId string = tenant().tenantId
