@@ -928,6 +928,54 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(products[0].btu, 14000)
         self.assertIn("search.nosto.com", fetcher.session.post_url)
 
+    def test_evolarshop_product_card_usp_preorder_is_presale(self) -> None:
+        page = '<script src="//connect.nosto.com/include/epk2p6xv"></script>'
+        url = "https://www.evolarshop.nl/midea-portasplit-mobiele-split-airco-8000btu-koelen"
+        hits = [
+            {
+                "name": "Midea PortaSplit Mobiele Split Airco - 8.000 BTU - Koelen - Met Wifi",
+                "url": url,
+                "price": 1399.0,
+                "available": True,
+                "availability": "InStock",
+            },
+        ]
+        detail = f"""
+        <div class="notranslate" style="display:none">
+          <span class="nosto_product" style="display:none">
+            <span class="url">{url}</span>
+            <span class="name">Midea PortaSplit Mobiele Split Airco - 8.000 BTU - Koelen - Met Wifi</span>
+            <span class="availability">InStock</span>
+            <span class="custom_fields">
+              <span class="product_card_usp">Pre-order, verwachte levering week 29</span>
+              <span class="cooling_capacity">8000 BTU</span>
+            </span>
+          </span>
+        </div>
+        """
+
+        class _NostoSession:
+            def post(self, url, **kwargs):
+                return DummyResponse({"data": {"search": {"products": {"hits": hits}}}})
+
+        class _NostoFetcher:
+            timeout = 25
+
+            def __init__(self):
+                self.session = _NostoSession()
+
+            def get(self, requested_url):
+                if requested_url == url:
+                    return detail
+                return page
+
+        products = EvolarshopAdapter(_NostoFetcher()).fetch_products()
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertTrue(products[0].presale)
+        self.assertEqual(products[0].delivery, "Pre-order, verwachte levering week 29")
+        self.assertEqual(products[0].btu, 8000)
+
     # --- Airco voor in huis ---
 
     def test_aircovoorinhuis_uses_woocommerce_stock_class(self) -> None:

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import logging
 import re
+from dataclasses import replace
 from typing import Any
 
-from ..base import enrich_available_btu, parse_btu
+from bs4 import BeautifulSoup, Tag
+
+from ..base import clean_text, is_presale_delivery, parse_btu, parse_product_page_btu
 from ...fetch import Fetcher
 from ...models import Product
+
+
+LOG = logging.getLogger(__name__)
 
 
 class EvolarshopAdapter:
@@ -35,7 +42,22 @@ class EvolarshopAdapter:
                 products[product.url] = product
         if not products:
             raise RuntimeError("Evolarshop: Nosto search returned no products")
-        return enrich_available_btu(self.fetcher, list(products.values()))
+        return self._enrich_available_details(list(products.values()))
+
+    def _enrich_available_details(self, products: list[Product]) -> list[Product]:
+        enriched: list[Product] = []
+        for product in products:
+            if not product.available:
+                enriched.append(product)
+                continue
+            try:
+                page = self.fetcher.get(product.url)
+            except Exception as exc:
+                LOG.warning("Evolarshop detail enrichment failed for %s: %s", product.url, exc)
+                enriched.append(product)
+                continue
+            enriched.append(_parse_detail_page(page, product))
+        return enriched
 
     def _account_id(self, page: str) -> str:
         match = self._account_re.search(page)
@@ -90,6 +112,48 @@ def _parse_hit(hit: dict[str, Any]) -> Product | None:
         delivery=str(hit.get("availability", "")).strip() or None,
         btu=parse_btu(name),
     )
+
+
+def _parse_detail_page(page: str, product: Product) -> Product:
+    delivery = _product_card_usp(page, product.url) or product.delivery
+    btu = product.btu or parse_product_page_btu(page)
+    presale = product.presale or bool(delivery and is_presale_delivery(delivery))
+    return replace(product, delivery=delivery, btu=btu, presale=presale)
+
+
+def _product_card_usp(page: str, product_url: str) -> str | None:
+    soup = BeautifulSoup(page, "html.parser")
+    scopes = _matching_nosto_products(soup, product_url)
+    if not scopes:
+        scopes = [soup]
+
+    for scope in scopes:
+        node = scope.find(class_="product_card_usp")
+        if isinstance(node, Tag):
+            text = clean_text(node)
+            if text:
+                return text
+
+        for tag in scope.find_all(class_="tag"):
+            text = clean_text(tag)
+            if text.lower().startswith("product_card_usp:"):
+                return text.split(":", 1)[1].strip()
+    return None
+
+
+def _matching_nosto_products(soup: BeautifulSoup, product_url: str) -> list[Tag]:
+    matches: list[Tag] = []
+    target = product_url.rstrip("/")
+    for node in soup.select(".nosto_product"):
+        if not isinstance(node, Tag):
+            continue
+        url_node = node.find(class_="url")
+        if not isinstance(url_node, Tag):
+            continue
+        url = clean_text(url_node).rstrip("/")
+        if url == target:
+            matches.append(node)
+    return matches
 
 
 def _is_real_airco(name: str) -> bool:
