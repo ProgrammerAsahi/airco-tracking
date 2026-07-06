@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .models import Product
+from .models import DEFAULT_COUNTRY, Product, normalize_country, product_state_key, site_id_for
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -31,10 +31,15 @@ def select_alerts(
     previous = old_state.get("products", {})
     alerts: list[Product] = []
     for product in products:
-        old = previous.get(product.url)
+        old = previous.get(product_state_key(product.country, product.url)) or previous.get(product.url)
+        old_alertable = (
+            isinstance(old, dict)
+            and bool(old.get("available", False))
+            and not bool(old.get("presale", False))
+        )
         became_available = product.available and not product.presale and (
             (old is None and alert_on_first_seen)
-            or (old is not None and not old.get("available", False))
+            or (old is not None and not old_alertable)
         )
         # Unknown prices remain eligible so a temporary parsing gap cannot hide
         # newly available stock. The recipient can verify the final price before buying.
@@ -57,6 +62,7 @@ def updated_state(
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     records = dict(old_state.get("products", {}))
+    seen_keys = {product_state_key(product.country, product.url) for product in products}
     seen_urls = {product.url for product in products}
     if checked_sites is not None:
         # Seasonal shops may remove sold-out products from their category or
@@ -64,9 +70,13 @@ def updated_state(
         # unavailable; a failed check keeps its previous state.
         for url, old_record in list(records.items()):
             if (
-                url not in seen_urls
+                url not in seen_keys
+                and url not in seen_urls
                 and isinstance(old_record, dict)
-                and old_record.get("site") in checked_sites
+                and (
+                    _record_site_id(old_record) in checked_sites
+                    or old_record.get("site") in checked_sites
+                )
             ):
                 record = dict(old_record)
                 record["available"] = False
@@ -76,7 +86,10 @@ def updated_state(
     for product in products:
         record = product.to_dict()
         record["last_seen"] = now
-        records[product.url] = record
+        key = product_state_key(product.country, product.url)
+        if key != product.url:
+            records.pop(product.url, None)
+        records[key] = record
     return {"version": 1, "updated_at": now, "products": records}
 
 
@@ -85,3 +98,14 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     temp = path.with_suffix(".tmp")
     temp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     temp.replace(path)
+
+
+def _record_site_id(record: dict[str, Any]) -> str | None:
+    explicit = record.get("site_id")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    site = record.get("site")
+    if not isinstance(site, str) or not site:
+        return None
+    country = normalize_country(str(record.get("country") or DEFAULT_COUNTRY))
+    return site_id_for(country, site)

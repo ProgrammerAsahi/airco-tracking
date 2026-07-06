@@ -18,9 +18,16 @@ class StateTests(unittest.TestCase):
         state = updated_state({"products": {}}, [self.product])
         alerts = select_alerts([self.product], state, alert_on_first_seen=True, max_price_eur=None, min_btu=None)
         self.assertEqual(alerts, [])
+        self.assertIn("nl:https://shop.test/1", state["products"])
+        self.assertNotIn("https://shop.test/1", state["products"])
 
     def test_alerts_on_out_to_in_transition(self) -> None:
         old = {"products": {self.product.url: {"available": False}}}
+        alerts = select_alerts([self.product], old, alert_on_first_seen=False, max_price_eur=400, min_btu=5000)
+        self.assertEqual(alerts, [self.product])
+
+    def test_alerts_when_presale_becomes_immediate_stock(self) -> None:
+        old = {"products": {self.product.url: {"available": True, "presale": True}}}
         alerts = select_alerts([self.product], old, alert_on_first_seen=False, max_price_eur=400, min_btu=5000)
         self.assertEqual(alerts, [self.product])
 
@@ -68,9 +75,21 @@ class StateTests(unittest.TestCase):
                 },
             }
         }
-        state = updated_state(old, [], checked_sites={"Alternate.nl"})
+        state = updated_state(old, [], checked_sites={"nl:Alternate.nl"})
         self.assertFalse(state["products"]["https://alternate.test/airco"]["available"])
         self.assertTrue(state["products"]["https://failed.test/airco"]["available"])
+
+    def test_successful_empty_seasonal_site_still_accepts_legacy_checked_site_names(self) -> None:
+        old = {
+            "products": {
+                "https://alternate.test/airco": {
+                    "site": "Alternate.nl",
+                    "available": True,
+                },
+            }
+        }
+        state = updated_state(old, [], checked_sites={"Alternate.nl"})
+        self.assertFalse(state["products"]["https://alternate.test/airco"]["available"])
 
 
 if __name__ == "__main__":

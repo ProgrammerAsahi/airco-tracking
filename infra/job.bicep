@@ -18,6 +18,7 @@ param emailLang string = 'zh'
 
 @description('Five-field UTC cron expression.')
 param cronExpression string = '*/10 * * * *'
+param countries string = 'nl'
 param minBtu string = '7000'
 param maxPriceEur string = '1500'
 param keyVaultEnvMap string = 'EMAIL_TO=notification-email'
@@ -80,6 +81,7 @@ resource job 'Microsoft.App/jobs@2025-01-01' = {
             { name: 'ACS_ENDPOINT', value: 'https://${communicationServiceName}.communication.azure.com' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVaultUrl }
             { name: 'STATE_BACKEND', value: 'azure_blob' }
+            { name: 'COUNTRIES', value: countries }
             { name: 'AZURE_STORAGE_ACCOUNT_URL', value: 'https://${storageAccountName}.blob.${environment().suffixes.storage}' }
             { name: 'AZURE_STORAGE_CONTAINER', value: 'airco-tracker' }
             { name: 'AZURE_STORAGE_BLOB', value: 'state.json' }

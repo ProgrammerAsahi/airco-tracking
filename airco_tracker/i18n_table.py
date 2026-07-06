@@ -19,6 +19,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from .azure_auth import default_azure_credential, table_endpoint_from_storage_url
+
 LOG = logging.getLogger(__name__)
 
 _LOCAL_FILE = Path(__file__).parent / "i18n_local.json"
@@ -42,12 +44,12 @@ def load_translations(scope: str) -> dict[str, dict[str, str]]:
 
 def _load_from_table(account_url: str, scope: str) -> dict[str, dict[str, str]]:
     from azure.data.tables import TableClient
-    from azure.identity import DefaultAzureCredential
 
-    credential = DefaultAzureCredential(
-        managed_identityClientId=os.getenv("AZURE_CLIENT_ID", "").strip() or None
+    table = TableClient(
+        endpoint=table_endpoint_from_storage_url(account_url),
+        table_name="i18n",
+        credential=default_azure_credential(),
     )
-    table = TableClient(endpoint=account_url, table_name="i18n", credential=credential)
     translations: dict[str, dict[str, str]] = {}
     for entity in table.query_entities(f"PartitionKey eq '{scope}'"):
         key = entity.get("RowKey", "")

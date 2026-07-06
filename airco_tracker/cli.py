@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import sys
+from dataclasses import replace
 
 from .adapters.registry import load_adapter_classes
 from .config import Config
@@ -11,7 +12,7 @@ from .fetch import Fetcher
 from .inventory import updated_inventory
 from .inventory_store import build_inventory_store
 from .mailer import build_message, send_message
-from .models import Product
+from .models import Product, normalize_country, site_id_for
 from .state import select_alerts, updated_state
 from .state_store import build_state_store
 
@@ -20,7 +21,7 @@ LOG = logging.getLogger("airco_tracker")
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Track portable airco stock in the Netherlands")
+    parser = argparse.ArgumentParser(description="Track portable airco stock across configured countries")
     subparsers = parser.add_subparsers(dest="command", required=True)
     check = subparsers.add_parser("check", help="Check all retailers once")
     check.add_argument("--dry-run", action="store_true", help="Do not email or update state")
@@ -43,17 +44,30 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
     adapters = [cls(fetcher) for cls in adapter_classes]
     products: list[Product] = []
     failures: list[str] = []
+    site_identity = {
+        site_id_for(_adapter_country(adapter, config.countries[0]), adapter.site): {
+            "country": _adapter_country(adapter, config.countries[0]),
+            "site": adapter.site,
+        }
+        for adapter in adapters
+    }
     successful_sites: set[str] = set()
     for adapter in adapters:
+        country = _adapter_country(adapter, config.countries[0])
+        adapter_site_id = site_id_for(country, adapter.site)
         try:
             found = adapter.fetch_products()
+            found = [
+                replace(product, site=adapter.site, country=country)
+                for product in found
+            ]
             products.extend(found)
-            successful_sites.add(adapter.site)
+            successful_sites.add(adapter_site_id)
             available = sum(product.available for product in found)
-            LOG.info("%s: %d products, %d available", adapter.site, len(found), available)
+            LOG.info("%s/%s: %d products, %d available", country, adapter.site, len(found), available)
         except Exception as exc:  # Keep other retailers running.
-            failures.append(f"{adapter.site}: {exc}")
-            LOG.exception("Retailer check failed: %s", adapter.site)
+            failures.append(f"{country}/{adapter.site}: {exc}")
+            LOG.exception("Retailer check failed: %s/%s", country, adapter.site)
 
     if failures:
         LOG.warning(
@@ -62,12 +76,11 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
             "; ".join(failures),
         )
 
-    all_sites = {adapter.site for adapter in adapters}
     inventory_store = build_inventory_store(config)
     inventory = updated_inventory(
         inventory_store.load(),
         products,
-        all_sites=all_sites,
+        all_sites=site_identity,
         checked_sites=successful_sites,
     )
     if not dry_run:
@@ -117,6 +130,18 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         LOG.info("No new stock; no email sent")
     state_store.save(updated_state(old_state, products, checked_sites=successful_sites))
     return 0
+
+
+def _adapter_country(adapter: object, default_country: str) -> str:
+    explicit = getattr(adapter, "country", None)
+    if isinstance(explicit, str) and explicit.strip():
+        return normalize_country(explicit)
+    module_parts = adapter.__class__.__module__.split(".")
+    if len(module_parts) >= 2:
+        candidate = module_parts[-2]
+        if len(candidate) == 2:
+            return normalize_country(candidate)
+    return normalize_country(default_country)
 
 
 def doctor(config: Config) -> int:

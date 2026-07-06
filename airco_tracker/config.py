@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .azure_auth import default_azure_credential
 from .i18n import SUPPORTED_LANGS, supported_lang
 
 
@@ -172,12 +173,11 @@ def _load_key_vault_secrets() -> None:
     if not vault_url or not mapping:
         return
     try:
-        from azure.identity import DefaultAzureCredential
         from azure.keyvault.secrets import SecretClient
     except ImportError as exc:
         raise RuntimeError("Install the 'azure' extra to use Azure Key Vault") from exc
 
-    client = SecretClient(vault_url=vault_url, credential=DefaultAzureCredential())
+    client = SecretClient(vault_url=vault_url, credential=default_azure_credential())
     for item in mapping.split(","):
         if "=" not in item:
             raise ValueError("KEY_VAULT_SECRET_MAP must contain ENV_NAME=secret-name pairs")

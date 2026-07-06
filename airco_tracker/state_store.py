@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
+from .azure_auth import default_azure_credential
 from .config import Config
 from .state import load_state, save_state
 
@@ -31,13 +32,12 @@ class LocalStateStore:
 class AzureBlobStateStore:
     def __init__(self, account_url: str, container: str, blob: str) -> None:
         try:
-            from azure.identity import DefaultAzureCredential
             from azure.storage.blob import BlobServiceClient, ContentSettings
         except ImportError as exc:
             raise RuntimeError("Install the 'azure' extra to use Azure Blob state") from exc
         self._blob = BlobServiceClient(
             account_url=account_url,
-            credential=DefaultAzureCredential(),
+            credential=default_azure_credential(),
         ).get_blob_client(container=container, blob=blob)
         self._content_settings = ContentSettings(content_type="application/json")
 

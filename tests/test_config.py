@@ -19,8 +19,19 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.max_price_eur, 1500.0)
         self.assertEqual(config.min_btu, 7000)
         self.assertEqual(config.email_lang, "zh")
+        self.assertEqual(config.countries, ["nl"])
         self.assertEqual(config.inventory_path.name, "inventory.json")
         self.assertEqual(config.azure_inventory_blob, "inventory.json")
+
+    def test_countries_are_lowercased_deduped_and_keep_order(self) -> None:
+        with (
+            patch.dict(os.environ, {"COUNTRIES": "NL, fr, nl, DE"}, clear=True),
+            patch("airco_tracker.config.load_dotenv"),
+            patch("airco_tracker.config._load_key_vault_secrets"),
+        ):
+            config = Config.from_env()
+
+        self.assertEqual(config.countries, ["nl", "fr", "de"])
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# Airco Tracker NL
+# Airco Tracker
 
 <p align="center">
   <a href="./README.md"><img alt="简体中文" src="https://img.shields.io/badge/README-简体中文-d73a49"></a>

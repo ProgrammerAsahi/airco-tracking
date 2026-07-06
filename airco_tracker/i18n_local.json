@@ -36,14 +36,14 @@
       "en": "Portable air conditioners back in stock"
     },
     "test_body": {
-      "zh": "Airco Tracker NL 邮件配置正常。",
-      "nl": "De e-mailconfiguratie van Airco Tracker NL werkt naar behoren.",
-      "en": "Airco Tracker NL email configuration is working."
+      "zh": "Airco Tracker 邮件配置正常。",
+      "nl": "De e-mailconfiguratie van Airco Tracker werkt naar behoren.",
+      "en": "Airco Tracker email configuration is working."
     },
     "test_body_html": {
-      "zh": "<p><strong>Airco Tracker NL</strong> 邮件配置正常。</p>",
-      "nl": "<p><strong>Airco Tracker NL</strong>-e-mailconfiguratie werkt naar behoren.</p>",
-      "en": "<p><strong>Airco Tracker NL</strong> email configuration is working.</p>"
+      "zh": "<p><strong>Airco Tracker</strong> 邮件配置正常。</p>",
+      "nl": "<p><strong>Airco Tracker</strong>-e-mailconfiguratie werkt naar behoren.</p>",
+      "en": "<p><strong>Airco Tracker</strong> email configuration is working.</p>"
     },
     "delivery_in_stock": {
       "zh": "页面显示可购买",

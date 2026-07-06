@@ -17,22 +17,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_FILE = ROOT / "airco_tracker" / "i18n_local.json"
+sys.path.insert(0, str(ROOT))
+
+from airco_tracker.azure_auth import default_azure_credential, table_endpoint_from_storage_url  # noqa: E402
 
 
 def main() -> int:
-    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "").strip()
+    account_url = table_endpoint_from_storage_url(os.getenv("AZURE_STORAGE_ACCOUNT_URL", "").strip())
     if not account_url:
         print("AZURE_STORAGE_ACCOUNT_URL is required.", file=sys.stderr)
         return 1
 
     from azure.data.tables import TableServiceClient
-    from azure.identity import DefaultAzureCredential
 
     data = json.loads(LOCAL_FILE.read_text(encoding="utf-8"))
 
-    credential = DefaultAzureCredential(
-        managed_identityClientId=os.getenv("AZURE_CLIENT_ID", "").strip() or None
-    )
+    credential = default_azure_credential()
     client = TableServiceClient(endpoint=account_url, credential=credential)
     table = client.create_table_if_not_exists("i18n")
     print(f"Table 'i18n' ready.")

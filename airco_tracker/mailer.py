@@ -5,6 +5,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 
+from .azure_auth import default_azure_credential
 from .config import Config
 from .i18n import translate
 from .models import Product
@@ -81,10 +82,9 @@ def _login_and_send(smtp: smtplib.SMTP, config: Config, message: EmailMessage) -
 def _send_azure_communication(config: Config, message: EmailMessage) -> None:
     try:
         from azure.communication.email import EmailClient
-        from azure.identity import DefaultAzureCredential
     except ImportError as exc:
         raise RuntimeError("Install the 'azure' extra to use Azure Communication Services") from exc
-    client = EmailClient(config.acs_endpoint, DefaultAzureCredential())
+    client = EmailClient(config.acs_endpoint, default_azure_credential())
     client.begin_send(_acs_payload(config, message)).result()
 
 

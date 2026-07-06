@@ -1,4 +1,4 @@
-# Airco Tracker NL — shared agent instructions
+# Airco Tracker — shared agent instructions
 
 ## Mission
 
