@@ -37,11 +37,15 @@ Een lichte voorraadtracker voor mobiele airco's in Nederland en Frankrijk, gesch
 - Airco-Webwinkel
 - Bostools
 
-Franse MVP-sites:
+Ingeschakelde Franse sites:
 
 - Castorama
 - Auchan
 - Rue du Commerce
+- Brico Dépôt France
+- Electro Dépôt France
+- Costway France
+- Maison Energy
 - Create France
 - Evolarshop France
 - Klarstein France
@@ -54,7 +58,7 @@ De Boulanger-adaptercode blijft in de repository staan, maar is nog niet in prod
 
 Er wordt alleen een e-mail verstuurd wanneer een product voor het eerst als bestelbaar wordt gevonden of van niet leverbaar naar leverbaar verandert. Dezelfde melding wordt dus niet elke tien minuten opnieuw verstuurd. Als één winkel niet bereikbaar is, gaan de controles van de andere winkels gewoon door.
 
-Ook Franse adapters onderscheiden directe voorraad van voorverkoop: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine` en levertijden van meerdere weken worden als voorverkoop getoond en veroorzaken geen e-mail voor directe voorraad. Action France geeft voor deze zoekopdracht momenteel vooral luchtkoelers/ventilatoren terug en wordt daarom streng gefilterd. Boulanger, Cdiscount, E.Leclerc en de Franse sites met directe 403 zijn nog niet ingeschakeld, zodat time-outs, anti-botpagina's of JS-shells niet als voorraadbron worden gebruikt.
+Ook Franse adapters onderscheiden directe voorraad van voorverkoop: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine` en levertijden van meerdere weken worden als voorverkoop getoond en veroorzaken geen e-mail voor directe voorraad. Brico Dépôt France leest prijs- en voorraadstatus uit JSON-LD op de categoriepagina en markeert beschikbaarheid als depot-afhankelijk; Electro Dépôt France leest de ingebedde Vue JSON-waarde `stock`; Costway France leest de Magento-voorraadklasse `qty-N` en `Précommande`-labels, maar sluit split-systemen, luchtkoelers en accessoires uit; Maison Energy laat `Non disponible`/`Demande de devis` voorgaan op schema `PreOrder`, zodat offerteproducten geen voorraadmelding veroorzaken. Action France geeft voor deze zoekopdracht momenteel vooral luchtkoelers/ventilatoren terug en wordt daarom streng gefilterd. Boulanger, Cdiscount, E.Leclerc en de Franse sites met directe 403 zijn nog niet ingeschakeld, zodat time-outs, anti-botpagina's of JS-shells niet als voorraadbron worden gebruikt.
 
 De voorraad van EP.nl wordt gelezen uit server-side weergegeven productkaarten. Electro World wordt gelezen via de openbare, alleen-lezen productzoekindex die de webwinkel zelf gebruikt; de openbare zoekconfiguratie wordt bij elke uitvoering dynamisch opgehaald. Wehkamp wordt gelezen uit de primaire productgegevens op de categoriepagina. Geen van deze drie integraties vereist een account of geheime inloggegevens. Wehkamp verwijdert uitverkochte producten uit de categorie, waardoor een expliciet lege categorie een geldige status is; zodra een product na aanvulling terugkeert, volgt direct een melding voor nieuw gevonden voorraad.
 

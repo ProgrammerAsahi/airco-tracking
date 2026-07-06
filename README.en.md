@@ -37,11 +37,15 @@ A lightweight portable air-conditioner stock tracker for the Netherlands and Fra
 - Airco-Webwinkel
 - Bostools
 
-French MVP sites:
+Enabled French sites:
 
 - Castorama
 - Auchan
 - Rue du Commerce
+- Brico Dépôt France
+- Electro Dépôt France
+- Costway France
+- Maison Energy
 - Create France
 - Evolarshop France
 - Klarstein France
@@ -54,7 +58,7 @@ Boulanger adapter code is kept in the repository but is not registered in produc
 
 It sends an email only when a product is first found available or changes from unavailable to available. It does not send the same notification every ten minutes. If one retailer fails, checks for the other retailers continue.
 
-French adapters also split immediate stock from presale inventory: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine`, and multi-week lead times are shown as presale and do not trigger immediate-stock email alerts. Action France currently returns mostly coolers/fans for the query and is strictly filtered. Boulanger, Cdiscount, E.Leclerc, and the direct-403 French retailers are not enabled yet so timeouts, anti-bot pages, or JS shells are not treated as stock sources.
+French adapters also split immediate stock from presale inventory: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine`, and multi-week lead times are shown as presale and do not trigger immediate-stock email alerts. Brico Dépôt France reads category JSON-LD price/stock signals and labels availability as depot-dependent; Electro Dépôt France reads the embedded Vue JSON `stock` value; Costway France reads the Magento `qty-N` stock class and `Précommande` labels while excluding split systems, air coolers, and accessories; Maison Energy lets `Non disponible`/`Demande de devis` override schema `PreOrder` so quote-only products do not alert as stock. Action France currently returns mostly coolers/fans for the query and is strictly filtered. Boulanger, Cdiscount, E.Leclerc, and the direct-403 French retailers are not enabled yet so timeouts, anti-bot pages, or JS shells are not treated as stock sources.
 
 EP.nl stock is read from server-rendered product cards. Electro World is read through the public, read-only product search index used by its own storefront, with the public search configuration discovered dynamically on every run. Wehkamp is read from the primary product data on its category page. None of these three integrations requires an account or secret credentials. Wehkamp removes sold-out products from the category, so an explicit empty category is a valid state; a restocked product triggers a first-seen availability alert as soon as it reappears.
 

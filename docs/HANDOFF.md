@@ -10,7 +10,7 @@ The 2026-07-05 rename round generalized the project from `airco-tracking-nl` to 
 
 The 2026-07-06 hardening round finished the migration pieces that were only adapter-level before: inventory and product records now include `country` and stable `site_id`, alert state is keyed by `country:url` with legacy URL fallback, and inventory snapshots expose separate `immediate_product_count` and `presale_product_count` while keeping `available_product_count` as the total visible orderable products. Site inventory records now also include `delivery_coverage`, a conservative list of destination tokens (ISO-2 countries plus `eu`/`eea`/`nordics`/`benelux`/`dach`) consumed by the frontend's `/deliver-to/<country>` routes. Presale products still appear on the dashboard but do not alert; a presale-to-immediate transition now triggers an alert. Azure clients now share a helper that explicitly uses the configured UAMI (`AZURE_CLIENT_ID`), and the Table i18n loader derives the Table endpoint from the Blob endpoint. `infra/job.bicep` now exposes a `countries` parameter and sets `COUNTRIES` in the Job environment.
 
-The latest retailer round added the first stable France MVP batch: Castorama, Auchan, Rue du Commerce, Create France, Evolarshop France, Klarstein France, Trotec France, De'Longhi France, Lidl France, and Action France. France adapters split immediate stock from presale (`Pré-commande`, `Expédition à partir`, `livraison prévue semaine`, and multi-week lead times) and aggressively filter coolers/fans/accessories. Boulanger adapter code is present but deferred because the page is reachable locally while Azure Container Apps outbound requests consistently hit a 60-second read timeout; re-enable only after a stable page API or official/public alternative source is found. Cdiscount and E.Leclerc are deferred because direct responses are anti-bot/SPA shells without stable product data, and Leroy Merlin, Darty, ManoMano, Fnac, and Carrefour are direct-403 for normal requests. Prior rounds added Bostools as Dutch retailer 28, presale separation, the inventory snapshot, 27 retailers, Azure Key Vault recipient storage, EUR 1,500 / 7,000 BTU alert filters, bol.com removal, and a BTU accuracy audit. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
+The latest retailer rounds added stable French coverage in two batches. The active French adapters are Castorama, Auchan, Rue du Commerce, Brico Dépôt France, Electro Dépôt France, Costway France, Maison Energy, Create France, Evolarshop France, Klarstein France, Trotec France, De'Longhi France, Lidl France, and Action France. France adapters split immediate stock from presale (`Pré-commande`, `Expédition à partir`, `livraison prévue semaine`, and multi-week lead times) and aggressively filter coolers/fans/accessories/fixed split systems. Boulanger adapter code is present but deferred because the page is reachable locally while Azure Container Apps outbound requests consistently hit a 60-second read timeout; re-enable only after a stable page API or official/public alternative source is found. First- and second-batch French backlog sites remain deferred when direct responses are anti-bot/403, SPA shells without stable product data, brand/catalog pages without direct stock, or fixed/window/split-heavy results. Prior rounds added Bostools as Dutch retailer 28, presale separation, the inventory snapshot, 27 retailers, Azure Key Vault recipient storage, EUR 1,500 / 7,000 BTU alert filters, bol.com removal, and a BTU accuracy audit. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
 ## Repository and production
 
@@ -35,7 +35,7 @@ The latest retailer round added the first stable France MVP batch: Castorama, Au
 
 ## Active retailers
 
-The application currently registers 38 credential-free adapters: 28 Dutch adapters and 10 French adapters.
+The application currently registers 42 credential-free adapters: 28 Dutch adapters and 14 French adapters.
 
 Dutch adapters:
 
@@ -73,6 +73,10 @@ French adapters:
 - Castorama
 - Auchan
 - Rue du Commerce
+- Brico Dépôt France
+- Electro Dépôt France
+- Costway France
+- Maison Energy
 - Create France
 - Evolarshop France
 - Klarstein France
@@ -84,6 +88,8 @@ French adapters:
 Deferred French adapters:
 
 - Boulanger: local and GitHub-hosted requests can read the server-rendered search page, but Azure Container Apps outbound requests consistently hit a 60-second read timeout. The parser remains in `adapters/fr/boulanger.py`; keep it out of `ADAPTERS` until a stable page API or official/public alternative source is found.
+- First-batch backlog: Leroy Merlin, Darty, ManoMano, Fnac, and Carrefour return direct 403/anti-bot responses for normal requests; Cdiscount and E.Leclerc currently expose anti-bot/SPA shells without stable server-side product data.
+- Second-batch backlog: BUT, Conforama, Ubaldi, Bricomarché, Mr.Bricolage, Weldom, Qlima, Rakuten France, and La Redoute are blocked by 403/captcha/anti-bot responses; Habitat et Jardin does not expose stable product cards for the search page; Olimpia Splendid France and Midea France are brand/catalog sources without reliable direct stock; Climshop and Clim Planete are fixed/window/split-heavy for the tested entries and are not safe for mobile-stock alerts yet.
 
 Removed:
 
@@ -105,7 +111,7 @@ New-retailer stock semantics:
 - Klimaatshop: custom category grid; product URLs from `data-url` attribute, stock from `.stock` span.
 - Airco-Webwinkel: WooCommerce store discovered via product sitemap; JSON-LD detail pages.
 - Bostools: two server-rendered WooCommerce categories; dated availability is presale, short business-day lead time is immediate stock, and VAT-inclusive consumer price is authoritative.
-- France MVP: Auchan/Rue du Commerce parse server-rendered cards or microdata; Castorama is tracked but current products are store-availability-only and not immediate online stock; Create France and Evolarshop France expose preorders as presale; Klarstein France and De'Longhi France are currently out of stock; Trotec France uses the public Algolia product index but requires name-level filtering because the search index also returns accessories; Lidl France uses the public product sitemap; Action France currently returns coolers/fans and is allowed to succeed with zero real air conditioners. Boulanger is deferred due Azure read timeout despite local accessibility.
+- France: Auchan/Rue du Commerce parse server-rendered cards or microdata; Castorama is tracked but current products are store-availability-only and not immediate online stock; Brico Dépôt France reads category JSON-LD product offers and labels InStock as depot-dependent; Electro Dépôt France reads embedded Vue JSON and requires `stock > 0`; Costway France reads Magento `qty-N` classes, marks `Précommande` separately, and excludes split systems/coolers/accessories; Maison Energy uses schema availability but lets `Non disponible`/`Demande de devis` override `PreOrder`; Create France and Evolarshop France expose preorders as presale; Klarstein France and De'Longhi France are currently out of stock; Trotec France uses the public Algolia product index but requires name-level filtering because the search index also returns accessories; Lidl France uses the public product sitemap; Action France currently returns coolers/fans and is allowed to succeed with zero real air conditioners. Boulanger is deferred due Azure read timeout despite local accessibility.
 
 ## Conrad status
 
@@ -203,12 +209,13 @@ All previously listed NL candidates have been investigated and resolved. The NL 
 
 ## Next concrete steps
 
-1. **France 403/API backlog** — investigate stable official/public data paths for Leroy Merlin, Darty, ManoMano, Fnac, Carrefour, Cdiscount, and E.Leclerc before adding them. Do not deploy adapters that only see anti-bot challenges or client-only shells.
+1. **France 403/API backlog** — investigate stable official/public data paths for Leroy Merlin, Darty, ManoMano, Fnac, Carrefour, Cdiscount, E.Leclerc, BUT, Conforama, Ubaldi, Bricomarché, Mr.Bricolage, Weldom, Qlima, Rakuten France, and La Redoute before adding them. Do not deploy adapters that only see anti-bot challenges, client-only shells, or fixed/split-only results.
 2. **Conrad API** — still awaiting allowlist response; check the Developer Portal before starting work.
 3. **AliExpress API** — approval window has elapsed; re-check the portal status before starting work.
 
 ## Development history (compact)
 
+- **2026-07-06**: Added the second stable France batch (4 active adapters): Brico Dépôt France, Electro Dépôt France, Costway France, and Maison Energy. Added parser tests for JSON-LD stock, embedded Vue stock, Costway presale/cooler/split filtering, and Maison Energy quote-only/preorder precedence. Backend tests: 108.
 - **2026-07-06**: Added the stable France MVP batch (10 active adapters), wired `COUNTRIES=nl,fr` for production, added French presale markers and FR parser tests. Boulanger parser code is retained but deferred after production Azure verification showed consistent 60-second read timeouts. Backend tests: 104.
 - **2026-07-06**: Hardened the post-rename architecture: added `country`/`site_id`, country-scoped state keys with legacy fallback, immediate vs presale counts, site-level `delivery_coverage`, presale-to-immediate alerts, explicit UAMI credential helper, Blob→Table endpoint derivation, and a `countries` Bicep parameter. Backend tests: 90.
 - **2026-07-05**: Renamed `airco-tracking-nl` → `airco-tracking`; moved 27 adapters into `adapters/nl/`; added `registry.py` with `load_adapter_classes(countries)`; fixed `i18n_local.json` packaging; consolidated all Azure resources into `airco-tracker-rg` (old `airco-tracker-nl-rg` deleted); recreated UAMIs + EmailService with new clientIds; fixed OIDC bicep federated-credential name to be idempotent. Backend tests: 74. (commits `afdde97`, `db7cda6`)
@@ -223,7 +230,7 @@ All previously listed NL candidates have been investigated and resolved. The NL 
 ```bash
 cd ~/airco-tracking
 .venv/bin/pip install --no-deps --force-reinstall .   # after code changes
-.venv/bin/python -m unittest discover -v              # 90 tests
+.venv/bin/python -m unittest discover -v              # 108 tests
 PYTHONPYCACHEPREFIX=/tmp/airco-pycache .venv/bin/python -m compileall -q airco_tracker tests
 bash -n scripts/*.sh
 git diff --check
@@ -274,9 +281,10 @@ curl -s https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontaine
 
 ## Verification snapshot
 
-- Unit tests: 90 passed, including the rewritten `test_cli.py` (patches `load_adapter_specs` instead of 28 individual adapter names), registry duplicate-site and delivery-coverage validation, Bostools stock/presale/price semantics, inventory filter separation, immediate/presale counts, successful-empty replacement, failed-site retention, country-scoped state keys, presale-to-immediate alerts, local-store round trip, dry-run no-write, and email-failure ordering.
+- Unit tests: 108 passed, including the rewritten `test_cli.py` (patches `load_adapter_specs` instead of 28 individual adapter names), registry duplicate-site and delivery-coverage validation, Bostools stock/presale/price semantics, French second-batch parser coverage, inventory filter separation, immediate/presale counts, successful-empty replacement, failed-site retention, country-scoped state keys, presale-to-immediate alerts, local-store round trip, dry-run no-write, and email-failure ordering.
 - Shell syntax: clean.
 - `git diff --check`: clean.
+- Live local French dry-run on 2026-07-06 (second France batch): all 14 active French adapters completed; snapshot preview contained 44 available/presale products and the alert filter selected 10. Costway France returned 4 preorder products with `presale=true`, correctly excluded from immediate-stock alerts.
 - Live local dry-run on 2026-07-05 (post-rename): all 28 retailers completed via the registry path; the snapshot preview contained 21 available products and the alert filter selected 12.
 - Live local dry-run on 2026-07-05 (pre-rename): all 28 retailers completed; the snapshot preview contained 20 available products and the alert filter selected 12. Bostools returned 6 in-scope air conditioners, with its one available PortaSplit retained as `presale=true` and therefore excluded from email alerts.
 - Live local dry-run on 2026-07-03: all 27 retailers completed; snapshot preview contained 19 available products and the alert filter selected 13. Known low-BTU and over-EUR-1,500 products remained in the snapshot but were excluded from alerts.
@@ -313,10 +321,10 @@ Multi-language support (zh/nl/en) is backed by Azure Table Storage:
 
 ## Adapter registry architecture (2026-07-05)
 
-The 28 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`; the first 11 French adapter modules live in `airco_tracker/adapters/fr/`, with 10 currently active and Boulanger deferred. Country-agnostic parsing helpers (`base.py` with the `Adapter` ABC and price/BTU/presale parsing, `schema.py` with JSON-LD helpers, `sitemap.py` with sitemap discovery) remain at `airco_tracker/adapters/` top level.
+The 28 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`; the first 15 French adapter modules live in `airco_tracker/adapters/fr/`, with 14 currently active and Boulanger deferred. Country-agnostic parsing helpers (`base.py` with the `Adapter` ABC and price/BTU/presale parsing, `schema.py` with JSON-LD helpers, `sitemap.py` with sitemap discovery) remain at `airco_tracker/adapters/` top level.
 
 - `adapters/nl/__init__.py` exports the 28 adapter classes and defines `ADAPTERS` (ordered list, matching the previous `cli.py` runtime order).
-- `adapters/fr/__init__.py` exports the France MVP adapter classes, defines active `ADAPTERS` for `COUNTRIES=fr`, and keeps Boulanger in `DEFERRED_ADAPTERS` until its production fetch path is stable.
+- `adapters/fr/__init__.py` exports the French adapter classes, defines active `ADAPTERS` for `COUNTRIES=fr`, and keeps Boulanger in `DEFERRED_ADAPTERS` until its production fetch path is stable.
 - `adapters/registry.py` aggregates `ADAPTERS` by country into `_ADAPTERS_BY_COUNTRY`, exposes `load_adapter_specs(countries)`, and fail-fast validates duplicate `site_id` values and malformed delivery-coverage tokens so same-country adapters cannot silently overwrite each other or publish unusable country filters.
 - `cli.py` calls `load_adapter_specs(config.countries)` and instantiates the spec-bound classes; it no longer imports the 28 adapter names. Runtime products are stamped with the adapter country and stable `site_id`.
 - `config.py` reads `COUNTRIES` (default `nl`, comma-separated) into `Config.countries`.

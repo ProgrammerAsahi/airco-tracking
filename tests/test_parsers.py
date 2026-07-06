@@ -45,12 +45,16 @@ from airco_tracker.adapters.base import (
 from airco_tracker.adapters.fr.action import ActionFranceAdapter
 from airco_tracker.adapters.fr.auchan import AuchanAdapter
 from airco_tracker.adapters.fr.boulanger import BoulangerAdapter
+from airco_tracker.adapters.fr.bricodepot import BricoDepotFranceAdapter
 from airco_tracker.adapters.fr.castorama import CastoramaAdapter
+from airco_tracker.adapters.fr.costway import CostwayFranceAdapter
 from airco_tracker.adapters.fr.create_store import _parse_card as parse_create_fr_card
 from airco_tracker.adapters.fr.delonghi import _product_urls as delonghi_fr_product_urls
+from airco_tracker.adapters.fr.electrodepot import ElectroDepotFranceAdapter
 from airco_tracker.adapters.fr.evolarshop import _parse_hit as parse_evolar_fr_hit
 from airco_tracker.adapters.fr.klarstein import KlarsteinFranceAdapter
 from airco_tracker.adapters.fr.lidl import _product_urls as lidl_fr_product_urls
+from airco_tracker.adapters.fr.maison_energy import MaisonEnergyAdapter
 from airco_tracker.adapters.fr.rueducommerce import RueDuCommerceAdapter
 from airco_tracker.adapters.fr.trotec import _parse_hit as parse_trotec_fr_hit
 from airco_tracker.models import Product
@@ -202,6 +206,40 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(products[0].available)
         self.assertEqual(products[0].price_eur, 499.99)
 
+    def test_bricodepot_fr_reads_json_ld_stock_and_filters_humidifiers(self) -> None:
+        item_list = {
+            "@context": "https://schema.org",
+            "@type": "ItemList",
+            "name": "Climatiseur mobile",
+            "itemListElement": [
+                {
+                    "@type": "ListItem",
+                    "item": {
+                        "@type": "Product",
+                        "name": "Mini humidificateur pour chambre",
+                        "url": "https://www.bricodepot.fr/p/humidificateur",
+                        "offers": {"price": 30, "availability": "https://schema.org/InStock"},
+                    },
+                },
+                {
+                    "@type": "ListItem",
+                    "item": {
+                        "@type": "Product",
+                        "name": 'Climatiseur mobile 3 en 1 "13 000 BTU"',
+                        "url": "https://www.bricodepot.fr/p/climatiseur-13000-btu",
+                        "category": "Climatiseur mobile",
+                        "offers": {"price": 299, "availability": "https://schema.org/InStock"},
+                    },
+                },
+            ],
+        }
+        html = f'<script type="application/ld+json">{json.dumps(item_list)}</script>'
+        products = BricoDepotFranceAdapter(DummyFetcher()).parse(BeautifulSoup(html, "html.parser"), "https://www.bricodepot.fr/")
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].price_eur, 299.0)
+        self.assertEqual(products[0].btu, 13000)
+
     def test_castorama_fr_keeps_store_check_out_of_immediate_stock(self) -> None:
         html = """
         <div data-testid="product">
@@ -247,6 +285,47 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(products[0].available)
         self.assertEqual(products[0].btu, 12000)
 
+    def test_electrodepot_fr_uses_embedded_stock_and_filters_accessories(self) -> None:
+        payload = {
+            "initialProducts": [
+                {
+                    "item": {
+                        "price": "999.98",
+                        "attributeInfo": [
+                            {"attributeName": "name", "vals": [{"label": "Climatiseur monobloc HTW 30m² AAM35DA-R290"}]},
+                            {"attributeName": "itemUrl", "vals": [{"label": "climatiseur-monobloc-htw-aam35da-r290"}]},
+                            {
+                                "attributeName": "cle_attribut_2",
+                                "vals": [{"label": "Puissance frigorifique (Btu) : 12000"}],
+                            },
+                            {"attributeName": "stock", "vals": [{"label": "3.00"}]},
+                        ],
+                    },
+                },
+                {
+                    "item": {
+                        "price": "14.98",
+                        "attributeInfo": [
+                            {"attributeName": "name", "vals": [{"label": "Kit fenêtre Valberg pour climatiseur mobile"}]},
+                            {
+                                "attributeName": "itemUrl",
+                                "vals": [{"label": "climatiseur-monobloc-valberg-kit-fenetre-pour-clim-mobile"}],
+                            },
+                            {"attributeName": "cle_attribut_2", "vals": [{"label": "Puissance frigorifique (Btu) : 0"}]},
+                            {"attributeName": "stock", "vals": [{"label": "405.00"}]},
+                        ],
+                    },
+                },
+            ]
+        }
+        props = html_module.escape(json.dumps(payload), quote=True)
+        html = f'<div class="productlist-wrapper" data-vue-props="{props}"></div>'
+        products = ElectroDepotFranceAdapter(DummyFetcher()).parse(BeautifulSoup(html, "html.parser"), "https://www.electrodepot.fr/")
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].price_eur, 999.98)
+        self.assertEqual(products[0].btu, 12000)
+
     def test_rueducommerce_fr_filters_accessories(self) -> None:
         html = """
         <li class="pdt-item">
@@ -268,6 +347,39 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(products[0].available)
         self.assertEqual(products[0].btu, 8300)
 
+    def test_costway_fr_marks_preorder_and_filters_air_coolers(self) -> None:
+        html = """
+        <li class="item product">
+          <a class="product-item-photo qty-4" href="/preorder.html"></a>
+          <a class="product-item-link" href="/preorder.html">
+            Climatiseur Mobile 4 en 1 Silencieux 9000 BTU Ventilateur Rafraîchisseur Chauffage
+          </a>
+          <span class="price">399,99 €</span>
+          <span>Précommande Stock &lt; 4</span>
+        </li>
+        <li class="item product">
+          <a class="product-item-photo qty-0" href="/sold-out.html"></a>
+          <a class="product-item-link" href="/sold-out.html">Climatiseur Mobile 7000 BTU</a>
+          <span class="price">299,99 €</span>
+          <span>EN EUPTURE DE STOCK</span>
+        </li>
+        <li class="item product">
+          <a class="product-item-photo qty-7" href="/cooler.html"></a>
+          <a class="product-item-link" href="/cooler.html">Refroidisseur d’Air 75W Portable</a>
+          <span class="price">79,99 €</span>
+        </li>
+        <li class="item product">
+          <a class="product-item-photo qty-3" href="/split.html"></a>
+          <a class="product-item-link" href="/split.html">Climatiseur Mini Split 12000 BTU avec Pompe à Chaleur</a>
+          <span class="price">549,99 €</span>
+        </li>"""
+        products = CostwayFranceAdapter(DummyFetcher()).parse(BeautifulSoup(html, "html.parser"), "https://www.costway.fr/")
+        self.assertEqual(len(products), 2)
+        self.assertTrue(products[0].available)
+        self.assertTrue(products[0].presale)
+        self.assertEqual(products[0].btu, 9000)
+        self.assertFalse(products[1].available)
+
     def test_create_fr_marks_preorder_as_presale(self) -> None:
         html = """
         <div class="c-product-card">
@@ -285,6 +397,40 @@ class ParserTests(unittest.TestCase):
         assert product is not None
         self.assertTrue(product.available)
         self.assertTrue(product.presale)
+
+    def test_maison_energy_non_available_preorder_does_not_count_as_stock(self) -> None:
+        html = """
+        <article>
+          <a href="https://www.maison-energy.com/pacw9hp.html">
+            <h2 class="product-title" itemprop="name">
+              Climatiseur mobile monobloc PACW29COL 2,8 kWatts Froid seul
+            </h2>
+          </a>
+          <div class="description">Puissance frigorifique: 2,8 kw</div>
+          <span class="price">507,90 €</span>
+          <div itemprop="offers">
+            <meta itemprop="price" content="507.9"/>
+            <meta itemprop="availability" content="https://schema.org/PreOrder"/>
+          </div>
+          <span>Non disponible</span>
+          <button>Demande de devis</button>
+        </article>
+        <article>
+          <a href="https://www.maison-energy.com/mural.html">
+            <h2 class="product-title" itemprop="name">Climatiseur Mural Mitsubishi MSZ-HR25VFK</h2>
+          </a>
+          <meta itemprop="availability" content="https://schema.org/InStock"/>
+          <button>Ajouter au panier</button>
+        </article>"""
+        products = MaisonEnergyAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.maison-energy.com/recherche?search_query=climatiseur%20mobile",
+        )
+        self.assertEqual(len(products), 1)
+        self.assertFalse(products[0].available)
+        self.assertFalse(products[0].presale)
+        self.assertEqual(products[0].btu, 9554)
+        self.assertIn("Non disponible", products[0].delivery or "")
 
     def test_evolar_fr_uses_custom_delivery_for_presale(self) -> None:
         hit = {
