@@ -16,6 +16,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from ..models import normalize_country, site_id_for
+from .fr import ADAPTERS as _FR_ADAPTERS
 from .nl import ADAPTERS as _NL_ADAPTERS
 
 REGION_DELIVERY_TOKENS = frozenset({"eu", "eea", "nordics", "benelux", "dach"})
@@ -23,6 +24,7 @@ _ISO2_RE = re.compile(r"^[a-z]{2}$")
 
 # Map of country code -> ordered list of adapter classes.
 _ADAPTERS_BY_COUNTRY: dict[str, list[type]] = {
+    "fr": _FR_ADAPTERS,
     "nl": _NL_ADAPTERS,
 }
 
@@ -33,6 +35,17 @@ _ADAPTERS_BY_COUNTRY: dict[str, list[type]] = {
 # Country-selector links alone are not enough evidence; they usually point to
 # separate storefronts whose inventory and availability may differ.
 _DELIVERY_COVERAGE_BY_SITE_ID: dict[str, frozenset[str]] = {
+    "fr:Boulanger": frozenset({"fr"}),
+    "fr:Castorama": frozenset({"fr"}),
+    "fr:Auchan": frozenset({"fr"}),
+    "fr:Rue du Commerce": frozenset({"fr"}),
+    "fr:Create France": frozenset({"fr"}),
+    "fr:Evolarshop France": frozenset({"fr"}),
+    "fr:Klarstein France": frozenset({"fr"}),
+    "fr:Trotec France": frozenset({"fr"}),
+    "fr:De'Longhi France": frozenset({"fr"}),
+    "fr:Lidl France": frozenset({"fr"}),
+    "fr:Action France": frozenset({"fr"}),
     "nl:Coolblue": frozenset({"nl"}),
     "nl:MediaMarkt": frozenset({"nl"}),
     "nl:EP.nl": frozenset({"nl"}),

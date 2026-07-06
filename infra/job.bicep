@@ -18,7 +18,7 @@ param emailLang string = 'zh'
 
 @description('Five-field UTC cron expression.')
 param cronExpression string = '*/10 * * * *'
-param countries string = 'nl'
+param countries string = 'nl,fr'
 param minBtu string = '7000'
 param maxPriceEur string = '1500'
 param keyVaultEnvMap string = 'EMAIL_TO=notification-email'

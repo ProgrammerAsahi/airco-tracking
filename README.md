@@ -6,7 +6,7 @@
   <a href="./README.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/README-Nederlands-f58220"></a>
 </p>
 
-一个轻量的荷兰便携空调库存追踪器，支持本地运行和无密码 Azure 部署。当前监控：
+一个轻量的荷兰/法国便携空调库存追踪器，支持本地运行和无密码 Azure 部署。当前监控荷兰站点：
 
 - Coolblue
 - MediaMarkt NL
@@ -37,7 +37,23 @@
 - Airco-Webwinkel
 - Bostools
 
+法国第一批 MVP 站点：
+
+- Boulanger
+- Castorama
+- Auchan
+- Rue du Commerce
+- Create France
+- Evolarshop France
+- Klarstein France
+- Trotec France
+- De’Longhi France
+- Lidl France
+- Action France
+
 它只在商品首次被发现为可购买，或从缺货变为有货时发送邮件；不会每 10 分钟轰炸邮箱。单个零售商失效时，其余站点仍会继续检查。
+
+法国站点同样区分即时现货和预售：`Pré-commande`、`Expédition à partir`、`livraison prévue semaine` 和多周交期会显示为预售库存，但不会触发现货邮件。Action France 当前搜索结果主要是冷风机/风扇，因此会被严格过滤；Cdiscount、E.Leclerc 以及直接 403 的法国站点暂未启用，避免把反爬页或 JS 壳误当库存来源。
 
 EP.nl 通过服务器输出的商品卡识别在线库存；Electro World 使用其网页公开调用的只读商品搜索索引，并在每次运行时动态读取公开搜索配置；Wehkamp 读取分类页的主商品数据。三者均不需要账号或秘密凭据。Wehkamp 会把售罄商品从分类移除，因此明确的空分类是正常状态；商品补货并重新出现时会立即触发首次有货提醒。
 

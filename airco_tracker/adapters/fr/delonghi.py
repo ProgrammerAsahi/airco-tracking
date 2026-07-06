@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+import logging
+from urllib.parse import urljoin, urlsplit, urlunsplit
+
+from bs4 import BeautifulSoup
+
+from ...fetch import Fetcher
+from ...models import Product
+from ..base import clean_text, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
+from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
+
+
+LOG = logging.getLogger(__name__)
+
+
+class DelonghiFranceAdapter:
+    site = "De'Longhi France"
+    search_url = "https://www.delonghi.com/fr-fr/search?q=climatiseur%20mobile"
+
+    def __init__(self, fetcher: Fetcher) -> None:
+        self.fetcher = fetcher
+
+    def fetch_products(self) -> list[Product]:
+        urls = _product_urls(self.fetcher.get(self.search_url), self.search_url)
+        if not urls:
+            raise RuntimeError("De'Longhi France search contained no portable air conditioners")
+        products: dict[str, Product] = {}
+        failures: list[str] = []
+        for url in urls:
+            try:
+                product = _parse_product_page(self.fetcher.get(url), url)
+            except Exception as exc:
+                failures.append(f"{url}: {exc}")
+                LOG.warning("De'Longhi France product check failed for %s: %s", url, exc)
+                continue
+            products[product.url] = product
+        if not products:
+            raise RuntimeError("De'Longhi France product pages could not be parsed: " + "; ".join(failures))
+        return list(products.values())
+
+
+def _product_urls(page: str, base_url: str) -> list[str]:
+    soup = BeautifulSoup(page, "html.parser")
+    urls: list[str] = []
+    for link in soup.select('a[href*="/fr-fr/p/"]'):
+        url = _canonical_product_url(urljoin(base_url, str(link.get("href", ""))))
+        if "/p/climatiseurs-mobiles-" in url.casefold():
+            urls.append(url)
+    return list(dict.fromkeys(urls))
+
+
+def _canonical_product_url(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme or "https", parts.netloc or "www.delonghi.com", parts.path, parts.query, ""))
+
+
+def _parse_product_page(page: str, page_url: str) -> Product:
+    soup = BeautifulSoup(page, "html.parser")
+    data = product_json_ld(soup)
+    name = str(data.get("name", "")).strip()
+    description = str(data.get("description", ""))
+    offer = first_offer(data)
+    if not name or not offer:
+        raise RuntimeError("De'Longhi France product data did not contain a name and offer")
+    text = clean_text(soup)
+    available = schema_in_stock(offer) and "en rupture de stock" not in text.casefold()
+    return Product(
+        site="De'Longhi France",
+        name=name,
+        url=str(offer.get("url") or page_url),
+        available=available,
+        price_eur=offer_price(offer),
+        delivery="Livraison standard" if available else "En rupture de stock",
+        btu=(
+            parse_btu(f"{name} {description} {text}")
+            or parse_cooling_watts_btu(f"{description} {text}")
+            or parse_product_page_btu(page)
+        ),
+    )

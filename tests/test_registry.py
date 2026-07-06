@@ -41,7 +41,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(specs[0].delivery_coverage, frozenset({"eu", "ch"}))
 
     def test_registered_sites_have_explicit_delivery_coverage(self) -> None:
-        specs = registry.load_adapter_specs(["nl"])
+        specs = registry.load_adapter_specs(["nl", "fr"])
 
         self.assertEqual(
             {spec.site_id for spec in specs},

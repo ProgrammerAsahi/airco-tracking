@@ -36,11 +36,23 @@ from airco_tracker.adapters.nl.vrijbuiter import _parse_product_page as parse_vr
 from airco_tracker.adapters.nl.wehkamp import WehkampAdapter
 from airco_tracker.adapters.base import (
     enrich_available_btu,
+    is_presale_delivery,
     parse_btu,
     parse_cooling_watts_btu,
     parse_price,
     parse_product_page_btu,
 )
+from airco_tracker.adapters.fr.action import ActionFranceAdapter
+from airco_tracker.adapters.fr.auchan import AuchanAdapter
+from airco_tracker.adapters.fr.boulanger import BoulangerAdapter
+from airco_tracker.adapters.fr.castorama import CastoramaAdapter
+from airco_tracker.adapters.fr.create_store import _parse_card as parse_create_fr_card
+from airco_tracker.adapters.fr.delonghi import _product_urls as delonghi_fr_product_urls
+from airco_tracker.adapters.fr.evolarshop import _parse_hit as parse_evolar_fr_hit
+from airco_tracker.adapters.fr.klarstein import KlarsteinFranceAdapter
+from airco_tracker.adapters.fr.lidl import _product_urls as lidl_fr_product_urls
+from airco_tracker.adapters.fr.rueducommerce import RueDuCommerceAdapter
+from airco_tracker.adapters.fr.trotec import _parse_hit as parse_trotec_fr_hit
 from airco_tracker.models import Product
 
 
@@ -148,6 +160,11 @@ class ParserTests(unittest.TestCase):
         """
         self.assertEqual(parse_product_page_btu(page), 9400)
 
+    def test_french_presale_and_cooling_capacity_markers(self) -> None:
+        self.assertTrue(is_presale_delivery("Pré-commande, livraison prévue semaine 29"))
+        self.assertTrue(is_presale_delivery("Délai de livraison : X à Y semaines"))
+        self.assertEqual(parse_cooling_watts_btu("Capacité de refroidissement 2,6 kW"), 8871)
+
     def test_btu_enrichment_fetches_only_available_unknown_products(self) -> None:
         class DetailFetcher:
             def __init__(self) -> None:
@@ -166,6 +183,208 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(products[0].btu, 6824)
         self.assertIsNone(products[1].btu)
         self.assertEqual(products[2].btu, 9000)
+
+    def test_boulanger_fr_reads_card_stock_and_price(self) -> None:
+        html = """
+        <li class="product-list__item-original" data-product-id="1">
+          <a href="/ref/123"
+             data-analytics_product_availability="true"
+             data-analytics_product_unitprice_ati="499.99">
+             MIDEA Climatiseur mobile 9000 BTU
+          </a>
+          <button>Ajouter au panier</button>
+        </li>"""
+        products = BoulangerAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.boulanger.com/resultats?tr=climatiseur%20mobile",
+        )
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].price_eur, 499.99)
+
+    def test_castorama_fr_keeps_store_check_out_of_immediate_stock(self) -> None:
+        html = """
+        <div data-testid="product">
+          <a data-testid="product-link" href="/climatiseur-mobile-goodhome/1_CAFR.prd">
+            <p data-testid="product-name">Climatiseur mobile GoodHome 2600W</p>
+          </a>
+          <span>339,90 €</span>
+          <p>Ce produit rencontre un grand succès. Vérifiez sa disponibilité auprès de votre magasin.</p>
+        </div>
+        <div data-testid="product">
+          <a data-testid="product-link" href="/kit-de-fenetre/2_CAFR.prd">
+            <p data-testid="product-name">Kit de fenêtre pour climatiseur mobile</p>
+          </a>
+          <span>29,90 €</span>
+          <button>Ajouter au panier</button>
+        </div>"""
+        products = CastoramaAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.castorama.fr/",
+        )
+        self.assertEqual(len(products), 1)
+        self.assertFalse(products[0].available)
+        self.assertIn("magasin", products[0].delivery or "")
+
+    def test_auchan_fr_reads_microdata_offer(self) -> None:
+        html = """
+        <article class="product-thumbnail" itemtype="http://schema.org/Product">
+          <a href="/finlandek-climatiseur/pr-abc"><span itemprop="name">
+            FINLANDEK Climatiseur Portable Réversible 12000 Btu
+          </span></a>
+          <span class="delivery-promise">Livraison dès 5/6 jours</span>
+          <div itemprop="offers" itemtype="http://schema.org/Offer">
+            <meta itemprop="price" content="1469.99"/>
+            <meta itemprop="availability" content="https://schema.org/InStock"/>
+          </div>
+          <button>Ajouter au panier</button>
+        </article>"""
+        products = AuchanAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.auchan.fr/category",
+        )
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].btu, 12000)
+
+    def test_rueducommerce_fr_filters_accessories(self) -> None:
+        html = """
+        <li class="pdt-item">
+          <a href="/p/m24075763073.html"><h3>DeLonghi PAC ES72 - Blanc</h3></a>
+          <a class="listing-product__desc">- Climatiseur mobile 8300 BTU</a>
+          <div class="price"><div class="price">769,96€</div></div>
+          <div class="listing-product__stock"><span>En stock</span></div>
+        </li>
+        <li class="pdt-item">
+          <a href="/p/m25129272096.html"><h3>Kit calfeutrage fenêtre universel pour climatiseur mobile</h3></a>
+          <div class="price"><div class="price">61,00€</div></div>
+          <div class="listing-product__stock"><span>En stock</span></div>
+        </li>"""
+        products = RueDuCommerceAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.rueducommerce.fr/recherche/climatiseur%20mobile/",
+        )
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].btu, 8300)
+
+    def test_create_fr_marks_preorder_as_presale(self) -> None:
+        html = """
+        <div class="c-product-card">
+          <div class="c-product-card__title">
+            <a href="/fr/acheter-climatiseur-mobile/silkair.html">
+              SILKAIR 5000 Climatiseur portable 3 en 1 5000 BTU
+            </a>
+          </div>
+          <div class="c-product-card__price--final">249,95 €</div>
+          <span>Pre-order</span>
+          <span>Expédition à partir du 23/08/2026</span>
+        </div>"""
+        product = parse_create_fr_card(BeautifulSoup(html, "html.parser").select_one(".c-product-card"), "https://www.create-store.com/fr/")
+        self.assertIsNotNone(product)
+        assert product is not None
+        self.assertTrue(product.available)
+        self.assertTrue(product.presale)
+
+    def test_evolar_fr_uses_custom_delivery_for_presale(self) -> None:
+        hit = {
+            "name": "Midea PortaSplit Climatiseur split mobile - 8 000 BTU - Refroidissement",
+            "url": "https://www.evolarshop.fr/midea-portasplit",
+            "price": 1399,
+            "available": True,
+            "availability": "InStock",
+            "customFields": [
+                {"key": "product_card_usp", "value": "Pré-commande, livraison prévue semaine 29"},
+                {"key": "product_card_subtitle", "value": "8000 BTU / 2,35 kW"},
+            ],
+        }
+        product = parse_evolar_fr_hit(hit)
+        self.assertIsNotNone(product)
+        assert product is not None
+        self.assertTrue(product.available)
+        self.assertTrue(product.presale)
+        self.assertEqual(product.btu, 8000)
+
+    def test_evolar_fr_filters_no_exhaust_hose_coolers(self) -> None:
+        hit = {
+            "name": "Evolar EVO-ES1800W - Climatiseur mobile sans tuyau d'évacuation",
+            "url": "https://www.evolarshop.fr/no-hose",
+            "price": 329,
+            "available": True,
+            "availability": "InStock",
+            "customFields": [],
+        }
+        self.assertIsNone(parse_evolar_fr_hit(hit))
+
+    def test_klarstein_fr_uses_data_stock(self) -> None:
+        html = """
+        <form class="productTeaser" data-stock="out-of-stock">
+          <a class="card-product__content-title" href="/climatiseur.html">
+            Kraftwerk Smart 12000 BTU Climatiseur mobile
+          </a>
+          <span class="card-product__content-label">non disponible</span>
+          <span>589,99 €</span>
+        </form>"""
+        products = KlarsteinFranceAdapter(DummyFetcher()).parse(BeautifulSoup(html, "html.parser"), "https://www.klarstein.fr/")
+        self.assertEqual(len(products), 1)
+        self.assertFalse(products[0].available)
+
+    def test_trotec_fr_distinguishes_stock_presale_and_unavailable(self) -> None:
+        stocked = {
+            "name": "Climatiseur local PAC 2015 E",
+            "url": "https://fr.trotec.com/shop/pac-2015.html",
+            "availability_status": "Stock limité",
+            "sold_out": "Non",
+            "price": {"EUR": {"default": 399.99}},
+            "main_characteristic_3_value": "7000 Btu/h",
+            "categories_without_path": ["Climatiseur mobile"],
+        }
+        presale = dict(stocked, url="https://fr.trotec.com/shop/pac-2020.html", availability_status="Délai de livraison : X à Y semaines")
+        unavailable = dict(stocked, url="https://fr.trotec.com/shop/pac-3000.html", availability_status="Actuellement indisponible")
+        self.assertTrue(parse_trotec_fr_hit(stocked).available)  # type: ignore[union-attr]
+        self.assertTrue(parse_trotec_fr_hit(presale).presale)  # type: ignore[union-attr]
+        self.assertFalse(parse_trotec_fr_hit(unavailable).available)  # type: ignore[union-attr]
+
+    def test_trotec_fr_rejects_category_matched_accessories(self) -> None:
+        accessory = {
+            "name": "Adaptateur de conduit d'évacuation pour climatiseurs mobiles",
+            "url": "https://fr.trotec.com/shop/buse-adaptateur.html",
+            "availability_status": "En stock",
+            "sold_out": "Non",
+            "price": {"EUR": {"default": 7.99}},
+            "categories_without_path": ["Climatiseur mobile"],
+        }
+        self.assertIsNone(parse_trotec_fr_hit(accessory))
+
+    def test_lidl_fr_product_urls_filter_sitemap(self) -> None:
+        sitemap = gzip.compress(
+            b"""<urlset>
+            <url><loc>https://www.lidl.fr/p/silvercrest-climatiseur-mobile-9000-btu/p1</loc></url>
+            <url><loc>https://www.lidl.fr/p/rafraichisseur-d-air/p2</loc></url>
+            </urlset>"""
+        )
+        self.assertEqual(lidl_fr_product_urls(sitemap), ["https://www.lidl.fr/p/silvercrest-climatiseur-mobile-9000-btu/p1"])
+
+    def test_delonghi_fr_extracts_only_mobile_aircon_links(self) -> None:
+        page = """
+        <a href="/fr-fr/p/climatiseurs-mobiles-climatiseur-mobile-pinguino/PAC.html?pid=1"></a>
+        <a href="/fr-fr/p/DLSC032.html?pid=2">Kit LatteCrema Cool</a>
+        """
+        self.assertEqual(
+            delonghi_fr_product_urls(page, "https://www.delonghi.com/fr-fr/search?q=x"),
+            ["https://www.delonghi.com/fr-fr/p/climatiseurs-mobiles-climatiseur-mobile-pinguino/PAC.html?pid=1"],
+        )
+
+    def test_action_fr_filters_coolers_and_fans(self) -> None:
+        html = """
+        <div data-testid="product-card">
+          <a data-testid="product-card-link" href="/fr-fr/p/3215453/refroidisseur-d-air-nedis/">
+            Refroidisseur d'air Nedis 80 watts | 4 l 39,95 €/pce
+          </a>
+        </div>"""
+        parsed = ActionFranceAdapter(DummyFetcher())
+        parsed.fetcher.get = lambda _url: html
+        self.assertEqual(parsed.fetch_products(), [])
 
     def test_coolblue_out_of_stock_and_available(self) -> None:
         html = """

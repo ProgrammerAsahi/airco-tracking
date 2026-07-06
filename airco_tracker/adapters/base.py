@@ -23,13 +23,29 @@ PRESALE_MARKERS = (
     "voorbestelling",
     "pre-order",
     "pre order",
+    "pré-commande",
+    "précommande",
+    "precommande",
     "levering vanaf",
     "leverbaar vanaf",
     "verzending vanaf",
+    "expédition à partir",
+    "expedition a partir",
+    "expédié à partir",
+    "expedie a partir",
+    "livraison à partir",
+    "livraison a partir",
+    "livraison prévue semaine",
+    "livraison prevue semaine",
+    "délai de livraison",
+    "delai de livraison",
     "verwachte levering week",
     "weken",  # multi-week lead time, e.g. "Binnen 3-5 weken leverbaar"
+    "semaines",  # multi-week lead time, e.g. "Délai de livraison : X à Y semaines"
     "binnenkort beschikbaar",
     "tijdelijk niet beschikbaar",
+    "bientôt disponible",
+    "bientot disponible",
 )
 
 
@@ -47,12 +63,20 @@ PRICE_PATTERNS = (
 )
 BTU_RE = re.compile(r"(?<![\d.,])(\d{1,2}[., ]\d{3}|\d{3,5})(?!\d)\s*BTU\b", re.I)
 BTU_AFTER_LABEL_RE = re.compile(
-    r"(?:koelcapaciteit|koelvermogen|maximaal\s+koelvermogen)"
+    r"(?:"
+    r"koelcapaciteit|koelvermogen|maximaal\s+koelvermogen|"
+    r"capacit[ée]\s+de\s+refroidissement|puissance\s+frigorifique|"
+    r"puissance\s+de\s+refroidissement"
+    r")"
     r"[^\d]{0,40}\bBTU(?:\s*/\s*[hu])?[^\d]{0,15}"
     r"(\d{1,2}[., ]\d{3}|\d{3,5})(?!\d)",
     re.I,
 )
-COOLING_LABEL = r"(?:koelvermogen|koelcapaciteit|cooling\s+capacity)"
+COOLING_LABEL = (
+    r"(?:koelvermogen|koelcapaciteit|cooling\s+capacity|"
+    r"capacit[ée]\s+de\s+refroidissement|puissance\s+frigorifique|"
+    r"puissance\s+de\s+refroidissement)"
+)
 COOLING_WATTS_AFTER_RE = re.compile(
     rf"{COOLING_LABEL}.{{0,50}}?(\d+(?:[.,]\d+)?)\s*(kW|Watt|W)\b",
     re.I,

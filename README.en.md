@@ -6,7 +6,7 @@
   <a href="./README.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/README-Nederlands-f58220"></a>
 </p>
 
-A lightweight portable air-conditioner stock tracker for the Netherlands, with local execution and passwordless Azure deployment. It currently monitors:
+A lightweight portable air-conditioner stock tracker for the Netherlands and France, with local execution and passwordless Azure deployment. It currently monitors these Dutch sites:
 
 - Coolblue
 - MediaMarkt NL
@@ -37,7 +37,23 @@ A lightweight portable air-conditioner stock tracker for the Netherlands, with l
 - Airco-Webwinkel
 - Bostools
 
+French MVP sites:
+
+- Boulanger
+- Castorama
+- Auchan
+- Rue du Commerce
+- Create France
+- Evolarshop France
+- Klarstein France
+- Trotec France
+- De'Longhi France
+- Lidl France
+- Action France
+
 It sends an email only when a product is first found available or changes from unavailable to available. It does not send the same notification every ten minutes. If one retailer fails, checks for the other retailers continue.
+
+French adapters also split immediate stock from presale inventory: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine`, and multi-week lead times are shown as presale and do not trigger immediate-stock email alerts. Action France currently returns mostly coolers/fans for the query and is strictly filtered. Cdiscount, E.Leclerc, and the direct-403 French retailers are not enabled yet so anti-bot pages or JS shells are not treated as stock sources.
 
 EP.nl stock is read from server-rendered product cards. Electro World is read through the public, read-only product search index used by its own storefront, with the public search configuration discovered dynamically on every run. Wehkamp is read from the primary product data on its category page. None of these three integrations requires an account or secret credentials. Wehkamp removes sold-out products from the category, so an explicit empty category is a valid state; a restocked product triggers a first-seen availability alert as soon as it reappears.
 
