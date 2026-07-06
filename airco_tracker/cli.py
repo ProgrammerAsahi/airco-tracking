@@ -61,6 +61,7 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
             "country": spec.country,
             "site": spec.site,
             "site_id": spec.site_id,
+            "delivery_coverage": sorted(spec.delivery_coverage),
         }
         for spec, _adapter in adapters
     }

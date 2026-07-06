@@ -32,6 +32,7 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(snapshot["immediate_product_count"], 2)
         self.assertEqual(snapshot["presale_product_count"], 0)
         self.assertFalse(snapshot["sites"]["nl:Shop"]["stale"])
+        self.assertEqual(snapshot["sites"]["nl:Shop"]["delivery_coverage"], ["nl"])
 
     def test_successful_empty_result_clears_previous_inventory(self) -> None:
         old = self._old_inventory()
@@ -93,6 +94,24 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(site["immediate_product_count"], 1)
         self.assertEqual(site["presale_product_count"], 1)
         self.assertTrue(site["products"][1]["presale"])
+
+    def test_delivery_coverage_is_saved_on_site_records(self) -> None:
+        snapshot = updated_inventory(
+            empty_inventory(),
+            [Product("Shop", "Immediate", "https://shop.test/now", True, 499.0, "Morgen", 9000)],
+            all_sites={
+                "nl:Shop": {
+                    "country": "nl",
+                    "site": "Shop",
+                    "site_id": "nl:Shop",
+                    "delivery_coverage": ["eu", "ch"],
+                }
+            },
+            checked_sites={"nl:Shop"},
+            now=NOW,
+        )
+
+        self.assertEqual(snapshot["sites"]["nl:Shop"]["delivery_coverage"], ["ch", "eu"])
 
     def test_failed_new_site_id_retains_legacy_site_name_inventory(self) -> None:
         old = self._old_inventory()

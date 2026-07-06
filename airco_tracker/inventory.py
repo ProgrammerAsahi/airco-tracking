@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable as IterableABC
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -35,7 +36,7 @@ def updated_inventory(
     old_inventory: dict[str, Any],
     products: Iterable[Product],
     *,
-    all_sites: set[str] | Mapping[str, Mapping[str, str]],
+    all_sites: set[str] | Mapping[str, Mapping[str, Any]],
     checked_sites: set[str],
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -81,6 +82,7 @@ def updated_inventory(
                 "country": site_identity["country"],
                 "site": site_identity["site"],
                 "site_id": site_id,
+                "delivery_coverage": site_identity["delivery_coverage"],
                 "last_attempt_at": timestamp,
                 "last_success_at": timestamp,
                 "available_product_count": len(site_products),
@@ -113,6 +115,7 @@ def updated_inventory(
             "country": site_identity["country"],
             "site": site_identity["site"],
             "site_id": site_id,
+            "delivery_coverage": site_identity["delivery_coverage"],
             "last_attempt_at": timestamp,
             "last_success_at": previous.get("last_success_at"),
             "available_product_count": len(retained_products),
@@ -137,9 +140,9 @@ def updated_inventory(
     }
 
 
-def _normalise_site_map(all_sites: set[str] | Mapping[str, Mapping[str, str]]) -> dict[str, dict[str, str]]:
+def _normalise_site_map(all_sites: set[str] | Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     if isinstance(all_sites, Mapping):
-        result: dict[str, dict[str, str]] = {}
+        result: dict[str, dict[str, Any]] = {}
         for raw_key, raw_identity in all_sites.items():
             identity = raw_identity if isinstance(raw_identity, Mapping) else {}
             site = str(identity.get("site") or raw_key).strip()
@@ -147,13 +150,22 @@ def _normalise_site_map(all_sites: set[str] | Mapping[str, Mapping[str, str]]) -
             site_id = str(identity.get("site_id") or raw_key or site_id_for(country, site)).strip()
             if not site_id:
                 site_id = site_id_for(country, site)
-            result[site_id] = {"country": country, "site": site, "site_id": site_id}
+            result[site_id] = {
+                "country": country,
+                "site": site,
+                "site_id": site_id,
+                "delivery_coverage": _normalise_delivery_coverage_record(
+                    identity.get("delivery_coverage"),
+                    default_country=country,
+                ),
+            }
         return result
     return {
         site_id_for(DEFAULT_COUNTRY, str(site)): {
             "country": DEFAULT_COUNTRY,
             "site": str(site),
             "site_id": site_id_for(DEFAULT_COUNTRY, str(site)),
+            "delivery_coverage": [DEFAULT_COUNTRY],
         }
         for site in all_sites
     }
@@ -176,7 +188,7 @@ def _normalise_checked_sites(checked_sites: set[str], site_map: Mapping[str, Map
     return normalised
 
 
-def _normalise_product_record(product: dict[str, Any], site_identity: Mapping[str, str]) -> dict[str, Any]:
+def _normalise_product_record(product: dict[str, Any], site_identity: Mapping[str, Any]) -> dict[str, Any]:
     country = normalize_country(str(product.get("country") or site_identity["country"]))
     site = str(product.get("site") or site_identity["site"])
     normalised = dict(product)
@@ -185,6 +197,19 @@ def _normalise_product_record(product: dict[str, Any], site_identity: Mapping[st
     normalised["site_id"] = str(product.get("site_id") or site_id_for(country, site))
     normalised["presale"] = bool(product.get("presale", False))
     return normalised
+
+
+def _normalise_delivery_coverage_record(value: Any, *, default_country: str) -> list[str]:
+    if value is None:
+        return [normalize_country(default_country)]
+    if isinstance(value, str):
+        raw_tokens = [value]
+    elif isinstance(value, IterableABC):
+        raw_tokens = [str(token) for token in value]
+    else:
+        raw_tokens = []
+    tokens = sorted({token.strip().lower() for token in raw_tokens if token.strip()})
+    return tokens or [normalize_country(default_country)]
 
 
 def _immediate_count(products: Iterable[Mapping[str, Any]]) -> int:

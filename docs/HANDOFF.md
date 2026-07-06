@@ -8,7 +8,7 @@ Run a reliable, low-maintenance portable-air-conditioner stock tracker for deliv
 
 The 2026-07-05 rename round generalized the project from `airco-tracking-nl` to `airco-tracking`: the GitHub repository was renamed, the 27 Dutch retailer adapters moved into `airco_tracker/adapters/nl/`, and a `registry.py` with `load_adapter_classes(countries)` replaced the hardcoded 28-adapter import list in `cli.py`. A `COUNTRIES` env var (default `nl`) selects active countries. The distribution package was renamed `airco-tracker-nl` → `airco-tracker`, the OIDC federated-credential subject was updated to the new repo path, and a pre-existing `i18n_local.json` packaging bug was fixed so a Table Storage outage no longer crashes the job. Azure resources were consolidated into a single new `airco-tracker-rg` resource group: 9 resources were moved from the old `airco-tracker-nl-rg`, and the 2 UAMIs + Communication EmailService (which do not support move) were recreated from scratch in the new RG with new clientIds/principalId and a new sender domain. The old `airco-tracker-nl-rg` is fully deleted. All 6 role assignments and 2 OIDC federated credentials were recreated on the new identities/resources.
 
-The 2026-07-06 hardening round finished the migration pieces that were only adapter-level before: inventory and product records now include `country` and stable `site_id`, alert state is keyed by `country:url` with legacy URL fallback, and inventory snapshots expose separate `immediate_product_count` and `presale_product_count` while keeping `available_product_count` as the total visible orderable products. Presale products still appear on the dashboard but do not alert; a presale-to-immediate transition now triggers an alert. Azure clients now share a helper that explicitly uses the configured UAMI (`AZURE_CLIENT_ID`), and the Table i18n loader derives the Table endpoint from the Blob endpoint. `infra/job.bicep` now exposes a `countries` parameter and sets `COUNTRIES` in the Job environment.
+The 2026-07-06 hardening round finished the migration pieces that were only adapter-level before: inventory and product records now include `country` and stable `site_id`, alert state is keyed by `country:url` with legacy URL fallback, and inventory snapshots expose separate `immediate_product_count` and `presale_product_count` while keeping `available_product_count` as the total visible orderable products. Site inventory records now also include `delivery_coverage`, a conservative list of destination tokens (ISO-2 countries plus `eu`/`eea`/`nordics`/`benelux`/`dach`) so future country-aware frontend filtering can be added without another backend schema migration. Presale products still appear on the dashboard but do not alert; a presale-to-immediate transition now triggers an alert. Azure clients now share a helper that explicitly uses the configured UAMI (`AZURE_CLIENT_ID`), and the Table i18n loader derives the Table endpoint from the Blob endpoint. `infra/job.bicep` now exposes a `countries` parameter and sets `COUNTRIES` in the Job environment.
 
 The latest retailer round added Bostools as retailer 28, covering its WooCommerce mobile-airco and caravan-airco categories. Dated `Leverbaar vanaf` products remain visible as presale inventory without email alerts; explicit sold-out, collection-only, unboxed display products, and accessories stay unavailable. Consumer VAT-inclusive prices are parsed separately from adjacent `excl. btw` prices. Prior rounds added presale separation, the inventory snapshot, 27 retailers, Azure Key Vault recipient storage, EUR 1,500 / 7,000 BTU alert filters, bol.com removal, and a BTU accuracy audit. Conrad remains pending because its public pages reject automated requests and its official API requires separate approval.
 
@@ -124,6 +124,7 @@ A Developer Portal registration attempt on 2026-07-03 was rejected with "your em
 - The Blob container remains private. Never replace the frontend API with direct browser access, a public container, Storage Key, connection string, or long-lived SAS token.
 - Backend producer: `airco_tracker/inventory.py`; persistence: `airco_tracker/inventory_store.py`.
 - Frontend validator: `~/airco-tracking-web/server/inventory.ts`; browser types: `src/types.ts`; fixture: `test-fixtures/inventory.sample.json`.
+- `delivery_coverage` is site-level metadata, not product-level metadata. The 2026-07-06 NL delivery audit is intentionally conservative: only official policy-page evidence widened coverage beyond `["nl"]`. Current widened entries are Kampeerwereld (`nl`,`be`), Vrijbuiter (`nl`,`be`,`de`; large Extra@Home deliveries are more limited and should be revisited if product-level delivery coverage is added), Solago (`nl`,`be`), and Airco-Webwinkel (`nl`,`be`,`lu`,`de`). Country-selector footers on shops such as Alternate, Create, Evolar, and Klarstein were not treated as cross-border evidence because they can point to separate storefronts with different inventory.
 - A schema or semantics change must update and verify both repositories together: backend producer/tests, frontend validator/tests, browser types/UI, fixture, README, and both handoffs. Bump the schema version for breaking changes instead of silently reinterpreting version `1`.
 - The frontend first production deployment succeeded in GitHub Actions run `28681867269`, scaled 0–2 replicas, and verified 27 sites / 15 available products from the live private Blob at that moment. Counts are time-sensitive.
 
@@ -181,14 +182,14 @@ All previously listed NL candidates have been investigated and resolved. The NL 
 
 ## Next concrete steps
 
-1. **France expansion** — the user's stated next direction. Create `airco_tracker/adapters/fr/` with a `__init__.py` exposing an `ADAPTERS` list, register `"fr"` in `registry._ADAPTERS_BY_COUNTRY`, and deploy with `countries=nl,fr` in `infra/job.bicep` (or update the Job env to `COUNTRIES=nl,fr`). Research French retailers (Darty, Boulanger, Fnac, etc.) for portable airco categories that deliver to French addresses. The registry and `site_id` architecture mean `cli.py`, inventory state keys, and the frontend schema do not need another migration for duplicate retailer names.
+1. **France expansion** — the user's stated next direction. Create `airco_tracker/adapters/fr/` with a `__init__.py` exposing an `ADAPTERS` list, register `"fr"` in `registry._ADAPTERS_BY_COUNTRY`, add explicit `_DELIVERY_COVERAGE_BY_SITE_ID` entries for the new French sites, and deploy with `countries=nl,fr` in `infra/job.bicep` (or update the Job env to `COUNTRIES=nl,fr`). Research French retailers (Darty, Boulanger, Fnac, etc.) for portable airco categories that deliver to French addresses. The registry, `site_id`, and `delivery_coverage` architecture mean `cli.py`, inventory state keys, and the frontend schema do not need another migration for duplicate retailer names or country-aware site visibility.
 2. **Conrad API** — still awaiting allowlist response; check the Developer Portal before starting work.
 3. **AliExpress API** — approval window has elapsed; re-check the portal status before starting work.
 4. **Email send verification** — the new EmailService sender (`DoNotReply@a6522f3e-...azurecomm.net`) has not been exercised end-to-end (no new stock alerts since rebuild). Run `airco-tracker send-test` from the Job container, or wait for the next real alert, to confirm ACS delivery works with the new sender.
 
 ## Development history (compact)
 
-- **2026-07-06**: Hardened the post-rename architecture: added `country`/`site_id`, country-scoped state keys with legacy fallback, immediate vs presale counts, presale-to-immediate alerts, explicit UAMI credential helper, Blob→Table endpoint derivation, and a `countries` Bicep parameter. Backend tests: 81.
+- **2026-07-06**: Hardened the post-rename architecture: added `country`/`site_id`, country-scoped state keys with legacy fallback, immediate vs presale counts, site-level `delivery_coverage`, presale-to-immediate alerts, explicit UAMI credential helper, Blob→Table endpoint derivation, and a `countries` Bicep parameter. Backend tests: 90.
 - **2026-07-05**: Renamed `airco-tracking-nl` → `airco-tracking`; moved 27 adapters into `adapters/nl/`; added `registry.py` with `load_adapter_classes(countries)`; fixed `i18n_local.json` packaging; consolidated all Azure resources into `airco-tracker-rg` (old `airco-tracker-nl-rg` deleted); recreated UAMIs + EmailService with new clientIds; fixed OIDC bicep federated-credential name to be idempotent. Backend tests: 74. (commits `afdde97`, `db7cda6`)
 - **2026-07-05**: Added Bostools as retailer 28 (WooCommerce mobile/caravan categories; dated presale; VAT-inclusive prices). (commit `6e50bf4`)
 - **2026-07-04**: Frontend retailer detail page, presale tabs, and zh/nl/en localization (CSP-safe inert JSON). (frontend commits `d8fcc49`, `5d022fc`)
@@ -201,7 +202,7 @@ All previously listed NL candidates have been investigated and resolved. The NL 
 ```bash
 cd ~/airco-tracking
 .venv/bin/pip install --no-deps --force-reinstall .   # after code changes
-.venv/bin/python -m unittest discover -v              # 81 tests
+.venv/bin/python -m unittest discover -v              # 90 tests
 PYTHONPYCACHEPREFIX=/tmp/airco-pycache .venv/bin/python -m compileall -q airco_tracker tests
 bash -n scripts/*.sh
 git diff --check
@@ -252,7 +253,7 @@ curl -s https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontaine
 
 ## Verification snapshot
 
-- Unit tests: 85 passed, including the rewritten `test_cli.py` (patches `load_adapter_specs` instead of 28 individual adapter names), registry duplicate-site validation, Bostools stock/presale/price semantics, inventory filter separation, immediate/presale counts, successful-empty replacement, failed-site retention, country-scoped state keys, presale-to-immediate alerts, local-store round trip, dry-run no-write, and email-failure ordering.
+- Unit tests: 90 passed, including the rewritten `test_cli.py` (patches `load_adapter_specs` instead of 28 individual adapter names), registry duplicate-site and delivery-coverage validation, Bostools stock/presale/price semantics, inventory filter separation, immediate/presale counts, successful-empty replacement, failed-site retention, country-scoped state keys, presale-to-immediate alerts, local-store round trip, dry-run no-write, and email-failure ordering.
 - Shell syntax: clean.
 - `git diff --check`: clean.
 - Live local dry-run on 2026-07-05 (post-rename): all 28 retailers completed via the registry path; the snapshot preview contained 21 available products and the alert filter selected 12.
@@ -290,20 +291,20 @@ Multi-language support (zh/nl/en) is backed by Azure Table Storage:
 
 ## Adapter registry architecture (2026-07-05)
 
-The 27 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`. Country-agnostic parsing helpers (`base.py` with the `Adapter` ABC and price/BTU/presale parsing, `schema.py` with JSON-LD helpers, `sitemap.py` with sitemap discovery) remain at `airco_tracker/adapters/` top level.
+The 28 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`. Country-agnostic parsing helpers (`base.py` with the `Adapter` ABC and price/BTU/presale parsing, `schema.py` with JSON-LD helpers, `sitemap.py` with sitemap discovery) remain at `airco_tracker/adapters/` top level.
 
 - `adapters/nl/__init__.py` exports the 28 adapter classes and defines `ADAPTERS` (ordered list, matching the previous `cli.py` runtime order).
-- `adapters/registry.py` aggregates `ADAPTERS` by country into `_ADAPTERS_BY_COUNTRY`, exposes `load_adapter_specs(countries)`, and fail-fast validates duplicate `site_id` values so same-country adapters cannot silently overwrite each other.
+- `adapters/registry.py` aggregates `ADAPTERS` by country into `_ADAPTERS_BY_COUNTRY`, exposes `load_adapter_specs(countries)`, and fail-fast validates duplicate `site_id` values and malformed delivery-coverage tokens so same-country adapters cannot silently overwrite each other or publish unusable country filters.
 - `cli.py` calls `load_adapter_specs(config.countries)` and instantiates the spec-bound classes; it no longer imports the 28 adapter names. Runtime products are stamped with the adapter country and stable `site_id`.
 - `config.py` reads `COUNTRIES` (default `nl`, comma-separated) into `Config.countries`.
-- Adding a country: create `adapters/<cc>/__init__.py` with an `ADAPTERS` list, register it in `registry._ADAPTERS_BY_COUNTRY`, and deploy `countries=nl,<cc>` / `COUNTRIES=nl,<cc>`. No `cli.py` or `test_cli.py` changes needed.
+- Adding a country: create `adapters/<cc>/__init__.py` with an `ADAPTERS` list, register it in `registry._ADAPTERS_BY_COUNTRY`, add conservative `_DELIVERY_COVERAGE_BY_SITE_ID` entries, and deploy `countries=nl,<cc>` / `COUNTRIES=nl,<cc>`. No `cli.py` or `test_cli.py` changes needed.
 - `test_cli.py` patches `airco_tracker.cli.load_adapter_specs` to inject fake adapter specs instead of patching 28 individual names on the `cli` module.
 
 ### Adding a country (checklist)
 
 1. Create `airco_tracker/adapters/<cc>/` with one module per retailer (copy an existing NL adapter as a template; use `from ...models import Product`, `from ..base import ...` — three dots to reach `airco_tracker.models`, two dots to reach `adapters.base`).
 2. In `airco_tracker/adapters/<cc>/__init__.py`, import each adapter class and define `ADAPTERS = [...]` (ordered list). Do not export internal base classes.
-3. In `airco_tracker/adapters/registry.py`, add `from .<cc> import ADAPTERS as _<cc>_ADAPTERS` and register `_ADAPTERS_BY_COUNTRY["<cc>"] = _<cc>_ADAPTERS`.
+3. In `airco_tracker/adapters/registry.py`, add `from .<cc> import ADAPTERS as _<cc>_ADAPTERS`, register `_ADAPTERS_BY_COUNTRY["<cc>"] = _<cc>_ADAPTERS`, and add conservative `_DELIVERY_COVERAGE_BY_SITE_ID` entries for every new `site_id`.
 4. Add parser tests in `tests/test_parsers.py` using `from airco_tracker.adapters.<cc>.<module> import ...`.
 5. Set `COUNTRIES=nl,<cc>` in production: pass the `countries` param in `infra/job.bicep` or update the Job env via `az containerapp job update`. The `Config.countries` field reads the `COUNTRIES` env var (comma-separated, default `nl`).
 6. Run `.venv/bin/python -m unittest discover -v` and `.venv/bin/python -m airco_tracker check --dry-run`; confirm the new country's retailers appear in the snapshot.

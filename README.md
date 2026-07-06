@@ -267,6 +267,6 @@ git push -u origin main
 
 ## 维护与扩站
 
-每个网站位于 `airco_tracker/adapters/` 的独立适配器中。新增网站时继承 `Adapter` 并在 `cli.py` 注册即可。网页结构改变会在日志中报出“parser found no products”，不会静默假装成功。
+每个网站位于 `airco_tracker/adapters/<country>/` 的独立适配器中。新增网站时继承 `Adapter`，在该国家包的 `ADAPTERS` 列表和 `adapters/registry.py` 中注册，并为站点维护保守的 `delivery_coverage` 配送覆盖（ISO-2 国家码或 `eu`/`eea`/`nordics`/`benelux`/`dach` 区域别名）。网页结构改变会在日志中报出“parser found no products”，不会静默假装成功。
 
 请保持 10 分钟或更长的检查间隔。库存和配送信息最终以商品页面为准。

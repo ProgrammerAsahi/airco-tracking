@@ -11,14 +11,56 @@ an ``ADAPTERS`` list and registering it here; the CLI and tests do not change.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from ..models import normalize_country, site_id_for
 from .nl import ADAPTERS as _NL_ADAPTERS
 
+REGION_DELIVERY_TOKENS = frozenset({"eu", "eea", "nordics", "benelux", "dach"})
+_ISO2_RE = re.compile(r"^[a-z]{2}$")
+
 # Map of country code -> ordered list of adapter classes.
 _ADAPTERS_BY_COUNTRY: dict[str, list[type]] = {
     "nl": _NL_ADAPTERS,
+}
+
+# Explicit delivery coverage for registered sites. Tokens are lower-case ISO 3166-1 alpha-2
+# country codes plus a small set of region aliases defined in
+# REGION_DELIVERY_TOKENS. Keep entries conservative: only widen beyond the
+# adapter's market country when delivery to that destination has been verified.
+# Country-selector links alone are not enough evidence; they usually point to
+# separate storefronts whose inventory and availability may differ.
+_DELIVERY_COVERAGE_BY_SITE_ID: dict[str, frozenset[str]] = {
+    "nl:Coolblue": frozenset({"nl"}),
+    "nl:MediaMarkt": frozenset({"nl"}),
+    "nl:EP.nl": frozenset({"nl"}),
+    "nl:Electro World": frozenset({"nl"}),
+    "nl:Wehkamp": frozenset({"nl"}),
+    "nl:Lidl": frozenset({"nl"}),
+    "nl:GAMMA": frozenset({"nl"}),
+    "nl:KARWEI": frozenset({"nl"}),
+    "nl:Praxis": frozenset({"nl"}),
+    "nl:Alternate.nl": frozenset({"nl"}),
+    "nl:Trotec": frozenset({"nl"}),
+    "nl:Klarstein": frozenset({"nl"}),
+    "nl:FlinQ": frozenset({"nl"}),
+    "nl:Action Webshop": frozenset({"nl"}),
+    "nl:Expert.nl": frozenset({"nl"}),
+    "nl:De'Longhi NL": frozenset({"nl"}),
+    "nl:Obelink": frozenset({"nl"}),
+    "nl:Kampeerwereld": frozenset({"nl", "be"}),
+    "nl:Create NL": frozenset({"nl"}),
+    "nl:Costway NL": frozenset({"nl"}),
+    "nl:Evolarshop": frozenset({"nl"}),
+    "nl:Airco voor in huis": frozenset({"nl"}),
+    "nl:Solago": frozenset({"nl", "be"}),
+    "nl:Hubo": frozenset({"nl"}),
+    "nl:Vrijbuiter": frozenset({"nl", "be", "de"}),
+    "nl:Klimaatshop": frozenset({"nl"}),
+    "nl:Airco-Webwinkel": frozenset({"nl", "be", "lu", "de"}),
+    "nl:Bostools": frozenset({"nl"}),
 }
 
 
@@ -42,6 +84,39 @@ class AdapterSpec:
     def site_id(self) -> str:
         return site_id_for(self.country, self.site)
 
+    @property
+    def delivery_coverage(self) -> frozenset[str]:
+        raw = _DELIVERY_COVERAGE_BY_SITE_ID.get(self.site_id)
+        if raw is None:
+            raw = getattr(self.adapter_class, "delivery_coverage", None)
+        return normalize_delivery_coverage(raw, default_country=self.country)
+
+
+def normalize_delivery_coverage(
+    coverage: Iterable[str] | None,
+    *,
+    default_country: str,
+) -> frozenset[str]:
+    if coverage is None:
+        return frozenset({normalize_country(default_country)})
+
+    tokens = frozenset(str(token).strip().lower() for token in coverage if str(token).strip())
+    if not tokens:
+        return frozenset({normalize_country(default_country)})
+
+    invalid = sorted(
+        token
+        for token in tokens
+        if token not in REGION_DELIVERY_TOKENS and _ISO2_RE.fullmatch(token) is None
+    )
+    if invalid:
+        raise ValueError(
+            "Invalid delivery coverage token(s): "
+            + ", ".join(invalid)
+            + f"; expected ISO-2 countries or one of {', '.join(sorted(REGION_DELIVERY_TOKENS))}"
+        )
+    return tokens
+
 
 def load_adapter_specs(countries: list[str]) -> list[AdapterSpec]:
     """Return country-bound adapter specs for the given country codes.
@@ -63,6 +138,7 @@ def load_adapter_specs(countries: list[str]) -> list[AdapterSpec]:
             spec = AdapterSpec(country=country, adapter_class=adapter_class)
             if not spec.site:
                 raise ValueError(f"Adapter {adapter_class.__name__} is missing a non-empty site name")
+            _ = spec.delivery_coverage
             if spec.site_id in seen_site_ids:
                 raise ValueError(
                     f"Duplicate adapter site_id {spec.site_id!r}: "
