@@ -11,6 +11,9 @@ an ``ADAPTERS`` list and registering it here; the CLI and tests do not change.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from ..models import normalize_country, site_id_for
 from .nl import ADAPTERS as _NL_ADAPTERS
 
 # Map of country code -> ordered list of adapter classes.
@@ -19,15 +22,57 @@ _ADAPTERS_BY_COUNTRY: dict[str, list[type]] = {
 }
 
 
-def load_adapter_classes(countries: list[str]) -> list[type]:
-    """Return the ordered adapter classes for the given country codes."""
-    classes: list[type] = []
-    for country in countries:
+@dataclass(frozen=True)
+class AdapterSpec:
+    """A retailer adapter bound to an explicit country.
+
+    Keeping country assignment in the registry avoids relying on module-name
+    inference in the runtime path, which becomes fragile once adapters are
+    shared across countries or generated dynamically in tests.
+    """
+
+    country: str
+    adapter_class: type
+
+    @property
+    def site(self) -> str:
+        return str(getattr(self.adapter_class, "site", "")).strip()
+
+    @property
+    def site_id(self) -> str:
+        return site_id_for(self.country, self.site)
+
+
+def load_adapter_specs(countries: list[str]) -> list[AdapterSpec]:
+    """Return country-bound adapter specs for the given country codes.
+
+    The returned list is fail-fast validated so two adapters cannot silently
+    collapse into the same inventory/state site key.
+    """
+    specs: list[AdapterSpec] = []
+    seen_site_ids: dict[str, str] = {}
+    for raw_country in countries:
+        country = normalize_country(raw_country)
         adapters = _ADAPTERS_BY_COUNTRY.get(country)
         if adapters is None:
             raise ValueError(
                 f"Unknown country {country!r}; registered: "
                 f"{', '.join(sorted(_ADAPTERS_BY_COUNTRY))}"
             )
-        classes.extend(adapters)
-    return classes
+        for adapter_class in adapters:
+            spec = AdapterSpec(country=country, adapter_class=adapter_class)
+            if not spec.site:
+                raise ValueError(f"Adapter {adapter_class.__name__} is missing a non-empty site name")
+            if spec.site_id in seen_site_ids:
+                raise ValueError(
+                    f"Duplicate adapter site_id {spec.site_id!r}: "
+                    f"{seen_site_ids[spec.site_id]} and {adapter_class.__name__}"
+                )
+            seen_site_ids[spec.site_id] = adapter_class.__name__
+            specs.append(spec)
+    return specs
+
+
+def load_adapter_classes(countries: list[str]) -> list[type]:
+    """Return the ordered adapter classes for the given country codes."""
+    return [spec.adapter_class for spec in load_adapter_specs(countries)]

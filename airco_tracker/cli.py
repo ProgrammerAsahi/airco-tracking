@@ -6,13 +6,13 @@ import logging
 import sys
 from dataclasses import replace
 
-from .adapters.registry import load_adapter_classes
+from .adapters.registry import load_adapter_specs
 from .config import Config
 from .fetch import Fetcher
 from .inventory import updated_inventory
 from .inventory_store import build_inventory_store
 from .mailer import build_message, send_message
-from .models import Product, normalize_country, site_id_for
+from .models import Product
 from .state import select_alerts, updated_state
 from .state_store import build_state_store
 
@@ -36,38 +36,51 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    for logger_name in ("azure", "azure.core.pipeline.policies.http_logging_policy"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def _mask_email(address: str | None) -> str:
+    if not address or "@" not in address:
+        return "configured recipient"
+    local, domain = address.rsplit("@", 1)
+    if not local or not domain:
+        return "configured recipient"
+    visible = local[0]
+    return f"{visible}***@{domain}"
 
 
 def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
     fetcher = Fetcher(config.request_timeout_seconds)
-    adapter_classes = load_adapter_classes(config.countries)
-    adapters = [cls(fetcher) for cls in adapter_classes]
+    adapter_specs = load_adapter_specs(config.countries)
+    adapters = [(spec, spec.adapter_class(fetcher)) for spec in adapter_specs]
     products: list[Product] = []
     failures: list[str] = []
     site_identity = {
-        site_id_for(_adapter_country(adapter, config.countries[0]), adapter.site): {
-            "country": _adapter_country(adapter, config.countries[0]),
-            "site": adapter.site,
+        spec.site_id: {
+            "country": spec.country,
+            "site": spec.site,
+            "site_id": spec.site_id,
         }
-        for adapter in adapters
+        for spec, _adapter in adapters
     }
     successful_sites: set[str] = set()
-    for adapter in adapters:
-        country = _adapter_country(adapter, config.countries[0])
-        adapter_site_id = site_id_for(country, adapter.site)
+    for spec, adapter in adapters:
+        country = spec.country
+        adapter_site_id = spec.site_id
         try:
             found = adapter.fetch_products()
             found = [
-                replace(product, site=adapter.site, country=country)
+                replace(product, site=spec.site, country=country)
                 for product in found
             ]
             products.extend(found)
             successful_sites.add(adapter_site_id)
             available = sum(product.available for product in found)
-            LOG.info("%s/%s: %d products, %d available", country, adapter.site, len(found), available)
+            LOG.info("%s/%s: %d products, %d available", country, spec.site, len(found), available)
         except Exception as exc:  # Keep other retailers running.
-            failures.append(f"{country}/{adapter.site}: {exc}")
-            LOG.exception("Retailer check failed: %s/%s", country, adapter.site)
+            failures.append(f"{country}/{spec.site}: {exc}")
+            LOG.exception("Retailer check failed: %s/%s", country, spec.site)
 
     if failures:
         LOG.warning(
@@ -111,7 +124,13 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         min_btu=config.min_btu,
     )
     visible = products if show_all else [product for product in products if product.available]
-    print(json.dumps([product.to_dict() for product in visible], ensure_ascii=False, indent=2))
+    if dry_run or show_all:
+        print(json.dumps([product.to_dict() for product in visible], ensure_ascii=False, indent=2))
+    else:
+        LOG.info(
+            "Product JSON omitted from production stdout; use --dry-run or --show-all to print %d visible products",
+            len(visible),
+        )
 
     if dry_run:
         LOG.info(
@@ -130,18 +149,6 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         LOG.info("No new stock; no email sent")
     state_store.save(updated_state(old_state, products, checked_sites=successful_sites))
     return 0
-
-
-def _adapter_country(adapter: object, default_country: str) -> str:
-    explicit = getattr(adapter, "country", None)
-    if isinstance(explicit, str) and explicit.strip():
-        return normalize_country(explicit)
-    module_parts = adapter.__class__.__module__.split(".")
-    if len(module_parts) >= 2:
-        candidate = module_parts[-2]
-        if len(candidate) == 2:
-            return normalize_country(candidate)
-    return normalize_country(default_country)
 
 
 def doctor(config: Config) -> int:
@@ -175,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         config = Config.from_env()
         if args.command == "send-test":
             send_message(config, build_message(config, [], test=True))
-            print(f"Test email sent to {config.email_to}")
+            print(f"Test email sent to {_mask_email(config.email_to)}")
             return 0
         if args.command == "doctor":
             return doctor(config)

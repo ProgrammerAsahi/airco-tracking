@@ -97,7 +97,7 @@ A Developer Portal registration attempt on 2026-07-03 was rejected with "your em
 
 - `MAX_PRICE_EUR=1500`
 - `MIN_BTU=7000`
-- `COUNTRIES=nl` (comma-separated country codes; default `nl`; drives `load_adapter_classes` in the registry)
+- `COUNTRIES=nl` (comma-separated country codes; default `nl`; drives `load_adapter_specs` in the registry)
 - `EMAIL_LANG=zh` in production (`zh`, `nl`, and `en` are supported)
 - The production recipient is stored as Key Vault secret `notification-email`.
 - GitHub stores only `KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email`; it does not store the address.
@@ -252,7 +252,7 @@ curl -s https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontaine
 
 ## Verification snapshot
 
-- Unit tests: 81 passed, including the rewritten `test_cli.py` (patches `load_adapter_classes` instead of 28 individual adapter names), Bostools stock/presale/price semantics, inventory filter separation, immediate/presale counts, successful-empty replacement, failed-site retention, country-scoped state keys, presale-to-immediate alerts, local-store round trip, dry-run no-write, and email-failure ordering.
+- Unit tests: 85 passed, including the rewritten `test_cli.py` (patches `load_adapter_specs` instead of 28 individual adapter names), registry duplicate-site validation, Bostools stock/presale/price semantics, inventory filter separation, immediate/presale counts, successful-empty replacement, failed-site retention, country-scoped state keys, presale-to-immediate alerts, local-store round trip, dry-run no-write, and email-failure ordering.
 - Shell syntax: clean.
 - `git diff --check`: clean.
 - Live local dry-run on 2026-07-05 (post-rename): all 28 retailers completed via the registry path; the snapshot preview contained 21 available products and the alert filter selected 12.
@@ -292,11 +292,11 @@ Multi-language support (zh/nl/en) is backed by Azure Table Storage:
 The 27 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`. Country-agnostic parsing helpers (`base.py` with the `Adapter` ABC and price/BTU/presale parsing, `schema.py` with JSON-LD helpers, `sitemap.py` with sitemap discovery) remain at `airco_tracker/adapters/` top level.
 
 - `adapters/nl/__init__.py` exports the 28 adapter classes and defines `ADAPTERS` (ordered list, matching the previous `cli.py` runtime order).
-- `adapters/registry.py` aggregates `ADAPTERS` by country into `_ADAPTERS_BY_COUNTRY` and exposes `load_adapter_classes(countries)`.
-- `cli.py` calls `load_adapter_classes(config.countries)` and instantiates `[cls(fetcher) for cls in classes]`; it no longer imports the 28 adapter names. Runtime products are stamped with the adapter country and stable `site_id`.
+- `adapters/registry.py` aggregates `ADAPTERS` by country into `_ADAPTERS_BY_COUNTRY`, exposes `load_adapter_specs(countries)`, and fail-fast validates duplicate `site_id` values so same-country adapters cannot silently overwrite each other.
+- `cli.py` calls `load_adapter_specs(config.countries)` and instantiates the spec-bound classes; it no longer imports the 28 adapter names. Runtime products are stamped with the adapter country and stable `site_id`.
 - `config.py` reads `COUNTRIES` (default `nl`, comma-separated) into `Config.countries`.
 - Adding a country: create `adapters/<cc>/__init__.py` with an `ADAPTERS` list, register it in `registry._ADAPTERS_BY_COUNTRY`, and deploy `countries=nl,<cc>` / `COUNTRIES=nl,<cc>`. No `cli.py` or `test_cli.py` changes needed.
-- `test_cli.py` patches `airco_tracker.cli.load_adapter_classes` to inject fake adapter classes instead of patching 28 individual names on the `cli` module.
+- `test_cli.py` patches `airco_tracker.cli.load_adapter_specs` to inject fake adapter specs instead of patching 28 individual names on the `cli` module.
 
 ### Adding a country (checklist)
 

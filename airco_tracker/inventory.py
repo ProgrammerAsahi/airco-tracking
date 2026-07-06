@@ -9,8 +9,15 @@ from .adapters.base import is_presale_delivery
 from .models import Product, DEFAULT_COUNTRY, normalize_country, site_id_for
 
 
+# Version 1 is the compatible country-aware inventory contract currently
+# consumed by airco-tracking-web. Only bump this for a breaking schema change;
+# additive fields stay on the current version so frontend/backend deploy order
+# cannot briefly break production.
+INVENTORY_SCHEMA_VERSION = 1
+
+
 EMPTY_INVENTORY: dict[str, Any] = {
-    "version": 1,
+    "version": INVENTORY_SCHEMA_VERSION,
     "updated_at": None,
     "refresh_interval_seconds": 600,
     "site_count": 0,
@@ -118,7 +125,7 @@ def updated_inventory(
     immediate_product_count = sum(int(item["immediate_product_count"]) for item in sites.values())
     presale_product_count = sum(int(item["presale_product_count"]) for item in sites.values())
     return {
-        "version": 1,
+        "version": INVENTORY_SCHEMA_VERSION,
         "updated_at": timestamp,
         "refresh_interval_seconds": 600,
         "site_count": len(sites),

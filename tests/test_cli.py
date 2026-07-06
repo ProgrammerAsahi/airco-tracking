@@ -6,7 +6,8 @@ from contextlib import contextmanager, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from airco_tracker.cli import check
+from airco_tracker.adapters.registry import AdapterSpec
+from airco_tracker.cli import _mask_email, check
 from airco_tracker.models import Product
 
 
@@ -91,13 +92,18 @@ class _InventoryStore:
 
 @contextmanager
 def _patched_adapters(default, *, fail_sites: tuple[str, ...] = (), stock_site: str | None = None):
-    """Patch load_adapter_classes to return a fake adapter-class list."""
+    """Patch load_adapter_specs to return a fake adapter-spec list."""
     classes = _adapter_classes(default, fail_sites=fail_sites, stock_site=stock_site)
-    with patch("airco_tracker.cli.load_adapter_classes", return_value=classes):
+    specs = [AdapterSpec(country="nl", adapter_class=cls) for cls in classes]
+    with patch("airco_tracker.cli.load_adapter_specs", return_value=specs):
         yield
 
 
 class CliTests(unittest.TestCase):
+    def test_mask_email_keeps_test_output_private(self) -> None:
+        self.assertEqual(_mask_email("alice@example.com"), "a***@example.com")
+        self.assertEqual(_mask_email(None), "configured recipient")
+
     def test_all_retailers_succeed(self) -> None:
         config = SimpleNamespace(
             request_timeout_seconds=1,

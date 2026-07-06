@@ -30,7 +30,7 @@ Maintain a reliable, low-cost stock tracker for real portable compressor air con
 
 - Python package: `airco_tracker/`
 - Country-agnostic parsing helpers: `airco_tracker/adapters/base.py` (the `Adapter` ABC, price/BTU/presale parsing), `schema.py` (JSON-LD), `sitemap.py`
-- Country-based adapter registry: `airco_tracker/adapters/registry.py` — `load_adapter_classes(countries)` aggregates each country's `ADAPTERS` list
+- Country-based adapter registry: `airco_tracker/adapters/registry.py` — `load_adapter_specs(countries)` binds each adapter to an explicit country/site_id and fail-fast validates duplicates; `load_adapter_classes(countries)` remains available for class-only callers
 - Retailer integrations: `airco_tracker/adapters/nl/` (Dutch retailers); add `adapters/<country>/` for new countries
 - CLI/orchestration: `airco_tracker/cli.py`
 - State transitions: `airco_tracker/state.py`
