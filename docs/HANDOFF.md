@@ -90,6 +90,7 @@ Deferred French adapters:
 - Brico Dépôt France: local requests can read the category JSON-LD and Fasterize/smartcache fragment, but Azure Container Apps outbound requests receive too-small/unusable responses. The parser remains in `adapters/fr/bricodepot.py`; keep it out of `ADAPTERS` until a stable page API or official/public alternative source is found.
 - First-batch backlog: Leroy Merlin, Darty, ManoMano, Fnac, and Carrefour return direct 403/anti-bot responses for normal requests; Cdiscount and E.Leclerc currently expose anti-bot/SPA shells without stable server-side product data.
 - Second-batch backlog: BUT, Conforama, Ubaldi, Bricomarché, Mr.Bricolage, Weldom, Qlima, Rakuten France, and La Redoute are blocked by 403/captcha/anti-bot responses; Habitat et Jardin does not expose stable product cards for the search page; Olimpia Splendid France and Midea France are brand/catalog sources without reliable direct stock; Climshop and Clim Planete are fixed/window/split-heavy for the tested entries and are not safe for mobile-stock alerts yet.
+- Dedicated 403/anti-bot backlog: see `docs/FRANCE_403_BACKLOG.md`.
 
 Removed:
 

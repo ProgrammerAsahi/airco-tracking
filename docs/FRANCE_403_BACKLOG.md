@@ -1,0 +1,69 @@
+# France 403 / anti-bot retailer backlog
+
+Last updated: 2026-07-06
+
+This document tracks French retailer sites that are worth revisiting but are not
+currently enabled because normal tracker requests hit direct `403`, captcha, or
+similar anti-bot blocking. Keep these separate from normal parser backlog items:
+do not register an adapter until a stable, public, production-safe data source
+has been found and verified from Azure Container Apps.
+
+## Strict direct-403 sites
+
+These were explicitly observed or recorded as direct `403` blockers during the
+France expansion work.
+
+| Site | Entry URL | Type | Why it matters | Next exploration path |
+| --- | --- | --- | --- | --- |
+| Leroy Merlin | <https://www.leroymerlin.fr/recherche/climatiseur%20mobile> | DIY / home improvement | One of the highest-value French home-improvement retailers. | Look for page-internal product/search APIs, sitemap category URLs, or official/public product feeds. |
+| Darty | <https://www.darty.com/nav/recherche/climatiseur%20mobile.html> | Electronics / appliance chain | Major appliance retailer; same ecosystem as Fnac. | Inspect browser network calls and any structured search endpoints; verify direct product pages separately. |
+| ManoMano | <https://www.manomano.fr/q/climatiseur-mobile> | DIY marketplace | Very relevant category coverage, especially portable AC and HVAC accessories. | Search for public search APIs or marketplace feed endpoints; filtering must be strict because accessories are common. |
+| Fnac | <https://www.fnac.com/SearchResult/ResultList.aspx?Search=climatiseur%20mobile> | General marketplace / Fnac-Darty group | Could add incremental marketplace coverage beyond Darty. | Investigate shared Fnac/Darty APIs; watch for third-party marketplace stock and presale ambiguity. |
+| Carrefour | <https://www.carrefour.fr/s?q=climatiseur%20mobile> | Hypermarket / marketplace | Large French retail footprint; heatwave seasonal stock is plausible. | Look for search JSON endpoints, product feeds, or store-independent online availability data. |
+| Ubaldi | <https://www.ubaldi.com/recherche/climatiseur-mobile.php> | Appliance e-commerce | Strong French appliance specialist. | Explore category/product structured data and any public search endpoint exposed to the browser. |
+| Bricomarché | <https://www.bricomarche.com/recherche?text=climatiseur%20mobile> | DIY / home improvement | Regional store network; useful long-tail coverage. | Find true category/search endpoints and separate online delivery from store-only availability. |
+| Mr.Bricolage | <https://www.mr-bricolage.fr/recherche?search_query=climatiseur%20mobile> | DIY / home improvement | Long-tail DIY retailer with seasonal portable AC stock. | Investigate product/category APIs and whether stock is local-store-only. |
+| Qlima France | <https://www.qlima.fr/climatiseur-mobile/> | Brand / HVAC | Qlima is highly relevant in portable AC. | Look for official catalog/product feeds or alternate storefront URLs with reliable stock semantics. |
+
+## 403 / captcha / anti-bot equivalent blockers
+
+These are treated as blocked for tracker purposes even when the first symptom
+was not always a plain direct `403`. They require the same level of caution:
+find a stable public data path first, then verify from Azure before enabling.
+
+| Site | Entry URL | Type | Observed blocker | Next exploration path |
+| --- | --- | --- | --- | --- |
+| BUT | <https://www.but.fr/recherche?text=climatiseur%20mobile> | Furniture / appliance chain | Grouped with 403/captcha/anti-bot blocked requests during implementation. | Inspect browser-side search API and product detail JSON; filter coolers/fans aggressively. |
+| Conforama | <https://www.conforama.fr/recherche?search=climatiseur%20mobile> | Furniture / appliance chain | Grouped with 403/captcha/anti-bot blocked requests during implementation. | Look for category APIs and online-delivery stock fields; products may mix ACs and air coolers. |
+| Weldom | <https://www.weldom.fr/> | DIY / home improvement | Page reachable in survey, but search routing/data was not stable and later grouped with blocked backlog. | Locate the real search/category URL first, then verify server-rendered or public API product data. |
+| Rakuten France | <https://fr.shopping.rakuten.com/s/climatiseur+mobile> | Marketplace | Grouped with 403/captcha/anti-bot blocked requests; high false-positive risk from third-party listings. | Only consider if a stable public listing API exposes clear condition, seller, stock, and presale fields. |
+| La Redoute | <https://www.laredoute.fr/search.aspx?searchkeyword=climatiseur%20mobile> | Marketplace / home | Grouped with 403/captcha/anti-bot blocked requests; likely third-party mixed listings. | Look for public search data and strict marketplace filtering; avoid ambiguous seller/backorder stock. |
+
+## Adjacent French backlog that is not counted as 403
+
+These should stay out of the 403 list so future work can pick the right
+strategy.
+
+| Site | Current status | Notes |
+| --- | --- | --- |
+| Boulanger | Azure production read timeout | Local/GitHub-hosted requests can read the page, but Azure Container Apps consistently hits a 60-second read timeout. |
+| Brico Dépôt France | Azure production receives too-small/unusable responses | Parser code and tests are retained, but both the normal category page and smartcache fragment are unstable from Azure. |
+| Cdiscount | JS shell / anti-bot / no stable server-side product data yet | Worth revisiting, but not recorded as a plain direct-403 site. |
+| E.Leclerc | SPA / anti-bot / no stable server-side product data yet | Worth revisiting, but not recorded as a plain direct-403 site. |
+| Habitat et Jardin | No stable product cards on tested search page | Needs a better category/search data source rather than anti-bot work. |
+| Olimpia Splendid France | Brand/catalog source without reliable direct stock | Useful for product reference, not currently a stock-alert source. |
+| Midea France | Brand/catalog source without reliable direct stock | Useful for product reference, not currently a stock-alert source. |
+| Climshop | Fixed/window/split-heavy tested entries | Do not enable until mobile/portable stock can be separated reliably. |
+| Clim Planete | Fixed/window/split-heavy tested entries | Do not enable until mobile/portable stock can be separated reliably. |
+
+## Revisit checklist
+
+Before moving any site from this backlog into `ADAPTERS`:
+
+1. Prefer official/public APIs, product feeds, sitemaps, or server-rendered data.
+2. Do not bypass captcha or anti-bot controls.
+3. Verify the source from both local development and Azure Container Apps; local-only success is not enough.
+4. Prove that immediate stock, presale/backorder, store-only stock, and unavailable states are distinct.
+5. Filter out air coolers, fans, humidifiers, accessories, fixed split systems, and quote-only listings.
+6. Add parser tests for stock, presale, false-positive filtering, and markup/API drift.
+7. Run a production job after deployment and require `stale_site_count == 0` before considering the site active.
