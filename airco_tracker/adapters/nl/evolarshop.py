@@ -1,50 +1,30 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import replace
 from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
-from ..base import clean_text, is_presale_delivery, parse_btu, parse_product_page_btu
-from ...fetch import Fetcher
 from ...models import Product
+from ..base import clean_text, is_presale_delivery, parse_btu, parse_product_page_btu
+from ..shared.evolarshop import NostoCategoryAdapter
 
 
 LOG = logging.getLogger(__name__)
 
 
-class EvolarshopAdapter:
-    """Evolarshop — Hyva/Magento storefront rendered through the public Nosto search API.
-
-    The category page itself is client-rendered via Alpine.js/Nosto, so the tracker
-    queries the same public GraphQL endpoint the browser uses. No credentials are
-    required; the account id is read from the page's Nosto include script.
-    """
+class EvolarshopAdapter(NostoCategoryAdapter):
+    """Evolarshop — Hyva/Magento storefront rendered through public Nosto search."""
 
     site = "Evolarshop"
     category_url = "https://www.evolarshop.nl/airco-s/mobiele-airco"
-    search_url = "https://search.nosto.com/v1/graphql"
     category_path = "Airco's/Mobiele Airco"
-    _account_re = re.compile(r"connect\.nosto\.com/include/([a-z0-9]+)", re.I)
 
-    def __init__(self, fetcher: Fetcher) -> None:
-        self.fetcher = fetcher
+    def parse_hit(self, hit: dict[str, Any]) -> Product | None:
+        return _parse_hit(hit)
 
-    def fetch_products(self) -> list[Product]:
-        account_id = self._account_id(self.fetcher.get(self.category_url))
-        hits = self._search_hits(account_id)
-        products: dict[str, Product] = {}
-        for hit in hits:
-            product = _parse_hit(hit)
-            if product is not None:
-                products[product.url] = product
-        if not products:
-            raise RuntimeError("Evolarshop: Nosto search returned no products")
-        return self._enrich_available_details(list(products.values()))
-
-    def _enrich_available_details(self, products: list[Product]) -> list[Product]:
+    def enrich_products(self, products: list[Product]) -> list[Product]:
         enriched: list[Product] = []
         for product in products:
             if not product.available:
@@ -58,41 +38,6 @@ class EvolarshopAdapter:
                 continue
             enriched.append(_parse_detail_page(page, product))
         return enriched
-
-    def _account_id(self, page: str) -> str:
-        match = self._account_re.search(page)
-        if not match:
-            raise RuntimeError("Evolarshop page did not contain a Nosto account id")
-        return match.group(1)
-
-    def _search_hits(self, account_id: str) -> list[dict[str, Any]]:
-        query = (
-            "query ($products: InputSearchProducts) {"
-            f'  search (accountId: "{account_id}", products: $products) {{'
-            "    products { hits { productId name url price available availability } }"
-            "  }"
-            "}"
-        )
-        variables = {
-            "products": {
-                "categoryPath": self.category_path,
-                "size": 100,
-                "from": 0,
-                "variationId": "NOT LOGGED IN",
-            }
-        }
-        response = self.fetcher.session.post(
-            self.search_url,
-            json={"query": query, "variables": variables},
-            timeout=self.fetcher.timeout,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-        )
-        response.raise_for_status()
-        payload = response.json()
-        try:
-            return payload["data"]["search"]["products"]["hits"]
-        except (KeyError, TypeError):
-            raise RuntimeError("Evolarshop Nosto search returned an invalid response")
 
 
 def _parse_hit(hit: dict[str, Any]) -> Product | None:

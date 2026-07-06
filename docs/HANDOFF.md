@@ -327,19 +327,27 @@ Multi-language support (zh/nl/en) is backed by Azure Table Storage:
 
 ## Adapter registry architecture (2026-07-05)
 
-The 28 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`; the first 15 French adapter modules live in `airco_tracker/adapters/fr/`, with 14 currently active and Boulanger deferred. Country-agnostic parsing helpers (`base.py` with the `Adapter` ABC and price/BTU/presale parsing, `schema.py` with JSON-LD helpers, `sitemap.py` with sitemap discovery) remain at `airco_tracker/adapters/` top level.
+The 28 Dutch retailer adapter modules live in `airco_tracker/adapters/nl/`; the 19 French retailer adapter modules live in `airco_tracker/adapters/fr/`, with 17 currently active and Boulanger/Brico Dépôt deferred. Country-agnostic parsing helpers (`base.py` with the `Adapter` ABC and price/BTU/presale parsing, `schema.py` with JSON-LD helpers, `sitemap.py` with sitemap discovery) remain at `airco_tracker/adapters/` top level. Multi-country retailer-family logic lives in `airco_tracker/adapters/shared/`.
 
 - `adapters/nl/__init__.py` exports the 28 adapter classes and defines `ADAPTERS` (ordered list, matching the previous `cli.py` runtime order).
 - `adapters/fr/__init__.py` exports the French adapter classes, defines active `ADAPTERS` for `COUNTRIES=fr`, and keeps Boulanger in `DEFERRED_ADAPTERS` until its production fetch path is stable.
+- `adapters/shared/` contains reusable flows for retailer families with country storefronts:
+  - `lidl.py`: product sitemap discovery + JSON-LD product-page parsing.
+  - `klarstein.py`: Oxid `productTeaser` card parsing with country-specific filter/price/stock hooks.
+  - `create_store.py`: Create category card lifecycle, dedupe, and BTU enrichment.
+  - `evolarshop.py`: public Nosto GraphQL category search lifecycle.
+  - `delonghi.py`: De'Longhi JSON-LD product-page stock parsing.
+  - `magento.py`: small Magento/Hyvä card utilities such as `qty-N` stock extraction.
 - `adapters/registry.py` aggregates `ADAPTERS` by country into `_ADAPTERS_BY_COUNTRY`, exposes `load_adapter_specs(countries)`, and fail-fast validates duplicate `site_id` values and malformed delivery-coverage tokens so same-country adapters cannot silently overwrite each other or publish unusable country filters.
 - `cli.py` calls `load_adapter_specs(config.countries)` and instantiates the spec-bound classes; it no longer imports the 28 adapter names. Runtime products are stamped with the adapter country and stable `site_id`.
 - `config.py` reads `COUNTRIES` (default `nl`, comma-separated) into `Config.countries`.
 - Adding a country: create `adapters/<cc>/__init__.py` with an `ADAPTERS` list, register it in `registry._ADAPTERS_BY_COUNTRY`, add conservative `_DELIVERY_COVERAGE_BY_SITE_ID` entries, and deploy `countries=nl,<cc>` / `COUNTRIES=nl,<cc>`. No `cli.py` or `test_cli.py` changes needed.
 - `test_cli.py` patches `airco_tracker.cli.load_adapter_specs` to inject fake adapter specs instead of patching 28 individual names on the `cli` module.
+- Sharing rule of thumb: put code in `shared/` when the network mechanism and DOM/API contract are materially the same across country storefronts, and keep language-, URL-, filter-, and delivery-text decisions inside the country module. Do not force a shared superclass when one country uses a different transport or much stricter filtering; in those cases, share only small utilities. Current examples: Lidl/Create/Evolarshop/Klarstein/De'Longhi share reusable flows; Trotec, Action, and most Costway logic remain country-specific.
 
 ### Adding a country (checklist)
 
-1. Create `airco_tracker/adapters/<cc>/` with one module per retailer (copy an existing NL adapter as a template; use `from ...models import Product`, `from ..base import ...` — three dots to reach `airco_tracker.models`, two dots to reach `adapters.base`).
+1. Create `airco_tracker/adapters/<cc>/` with one module per retailer (copy an existing country adapter as a template; use `from ...models import Product`, `from ..base import ...`, and `from ..shared.<family> import ...` when a reusable family flow exists).
 2. In `airco_tracker/adapters/<cc>/__init__.py`, import each adapter class and define `ADAPTERS = [...]` (ordered list). Do not export internal base classes.
 3. In `airco_tracker/adapters/registry.py`, add `from .<cc> import ADAPTERS as _<cc>_ADAPTERS`, register `_ADAPTERS_BY_COUNTRY["<cc>"] = _<cc>_ADAPTERS`, and add conservative `_DELIVERY_COVERAGE_BY_SITE_ID` entries for every new `site_id`.
 4. Add parser tests in `tests/test_parsers.py` using `from airco_tracker.adapters.<cc>.<module> import ...`.

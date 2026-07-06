@@ -2,34 +2,21 @@ from __future__ import annotations
 
 import re
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import Tag
 
-from ...fetch import Fetcher
 from ...models import Product
-from ..base import canonical_url, clean_text, enrich_available_btu, is_presale_delivery, parse_btu
+from ..base import canonical_url, clean_text, is_presale_delivery, parse_btu
+from ..shared.create_store import CreateCategoryAdapter
 from .common import is_real_air_conditioner_fr, parse_french_price
 
 
-class CreateFranceAdapter:
+class CreateFranceAdapter(CreateCategoryAdapter):
     site = "Create France"
     category_url = "https://www.create-store.com/fr/3939-acheter-climatiseur-mobile"
+    empty_message = "Create France category contained no portable air conditioners"
 
-    def __init__(self, fetcher: Fetcher) -> None:
-        self.fetcher = fetcher
-
-    def fetch_products(self) -> list[Product]:
-        soup = BeautifulSoup(self.fetcher.get(self.category_url), "html.parser")
-        cards = soup.select(".c-product-card")
-        if not cards:
-            raise RuntimeError("Create France category contained no portable air conditioners")
-        products: dict[str, Product] = {}
-        for card in cards:
-            product = _parse_card(card, self.category_url)
-            if product is not None:
-                previous = products.get(product.url)
-                if previous is None or _lower_price(product, previous):
-                    products[product.url] = product
-        return enrich_available_btu(self.fetcher, list(products.values()))
+    def parse_card(self, card: Tag, page_url: str) -> Product | None:
+        return _parse_card(card, page_url)
 
 
 def _parse_card(card: Tag, page_url: str) -> Product | None:
@@ -65,9 +52,3 @@ def _delivery(text: str) -> str:
         re.I,
     )
     return match.group(0).strip() if match else ""
-
-
-def _lower_price(candidate: Product, current: Product) -> bool:
-    if candidate.price_eur is None:
-        return False
-    return current.price_eur is None or candidate.price_eur < current.price_eur

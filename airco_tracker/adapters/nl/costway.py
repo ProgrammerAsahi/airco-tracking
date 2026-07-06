@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 
 from ...models import Product
 from ..base import Adapter, canonical_url, clean_text, parse_btu, parse_price
+from ..shared.magento import stock_quantity_from_qty_class
 
 
 class CostwayAdapter(Adapter):
@@ -43,14 +44,9 @@ class CostwayAdapter(Adapter):
 
 def _in_stock(card: BeautifulSoup, text: str) -> bool:
     """Costway marks the product photo with a ``qty-N`` class; N>0 means in stock."""
-    photo = card.select_one(".product-item-photo")
-    if photo is not None:
-        for cls in photo.get("class", []):
-            if cls.startswith("qty-"):
-                try:
-                    return int(cls[4:]) > 0
-                except ValueError:
-                    break
+    qty = stock_quantity_from_qty_class(card)
+    if qty is not None:
+        return qty > 0
     # Fall back to the visible out-of-stock label.
     return "uitverkocht" not in text.lower()
 

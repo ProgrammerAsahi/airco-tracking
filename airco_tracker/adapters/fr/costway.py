@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ...models import Product
 from ..base import Adapter, canonical_url, clean_text, is_presale_delivery, parse_btu, parse_cooling_watts_btu
+from ..shared.magento import stock_quantity_from_qty_class
 from .common import parse_french_price
 
 
@@ -54,20 +55,7 @@ def _parse_card(card: Tag, page_url: str) -> Product | None:
 
 
 def _stock_quantity(card: Tag) -> int | None:
-    photo = card.select_one(".product-item-photo")
-    if photo is None:
-        return None
-    classes = photo.get("class", [])
-    if isinstance(classes, str):
-        classes = classes.split()
-    for cls in classes:
-        if not str(cls).startswith("qty-"):
-            continue
-        try:
-            return int(str(cls)[4:])
-        except ValueError:
-            return None
-    return None
+    return stock_quantity_from_qty_class(card)
 
 
 def _delivery_text(text: str, *, available: bool, presale: bool, unavailable: bool) -> str:

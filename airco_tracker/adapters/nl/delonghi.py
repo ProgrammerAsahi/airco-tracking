@@ -8,8 +8,7 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
-from ..base import clean_text, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
-from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
+from ..shared.delonghi import parse_delonghi_product_page
 
 
 LOG = logging.getLogger(__name__)
@@ -70,25 +69,11 @@ def _dutch_url(url: str) -> str:
 
 
 def _parse_product_page(page: str, page_url: str) -> Product:
-    soup = BeautifulSoup(page, "html.parser")
-    data = product_json_ld(soup)
-    name = str(data.get("name", "")).strip()
-    description = str(data.get("description", ""))
-    offer = first_offer(data)
-    if not name or not offer:
-        raise RuntimeError("De'Longhi product data did not contain a name and offer")
-    text = clean_text(soup)
-    available = schema_in_stock(offer) and "breng mij op de hoogte" not in text.lower()
-    return Product(
+    return parse_delonghi_product_page(
+        page,
+        page_url,
         site="De'Longhi NL",
-        name=name,
-        url=str(offer.get("url") or page_url),
-        available=available,
-        price_eur=offer_price(offer),
-        delivery="Levering binnen 2-4 werkdagen" if available else "Niet op voorraad",
-        btu=(
-            parse_btu(f"{name} {description} {text}")
-            or parse_cooling_watts_btu(f"{description} {text}")
-            or parse_product_page_btu(page)
-        ),
+        unavailable_markers=("breng mij op de hoogte",),
+        available_delivery="Levering binnen 2-4 werkdagen",
+        unavailable_delivery="Niet op voorraad",
     )
