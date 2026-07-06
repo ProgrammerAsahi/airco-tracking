@@ -208,7 +208,7 @@ KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email
 - `.github/workflows/ci.yml`：Pull Request 执行 Python、Shell 和 Bicep 验证。
 - `.github/workflows/deploy.yml`：`main` 推送通过测试后，用 commit SHA 构建不可变镜像并更新 Azure Job。
 
-Azure 登录使用 GitHub OIDC 短期令牌，不创建 Client Secret。联邦身份只信任该仓库的 `main` 分支，并且只拥有目标资源组的 Contributor 权限；它不能创建角色分配，也不会读取应用的 Key Vault secrets。
+Azure 登录使用 GitHub OIDC 短期令牌，不创建 Client Secret。联邦身份只信任该仓库的 `main` 分支，并通过 `Airco GitHub Deployer Minimal` 自定义角色获得部署所需的最小权限；它没有目标资源组 Contributor 权限，不能创建角色分配，也不会读取应用的 Key Vault secrets。
 
 ### 首次引导顺序
 

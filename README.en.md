@@ -207,7 +207,7 @@ The `ProgrammerAsahi/airco-tracking` repository has two workflows:
 - `.github/workflows/ci.yml`: validates Python, shell scripts, and Bicep on pull requests.
 - `.github/workflows/deploy.yml`: after a successful test run on a `main` push, builds an immutable image tagged with the commit SHA and updates the Azure Job.
 
-Azure authentication uses a short-lived GitHub OIDC token and no Client Secret. The federated identity trusts only the `main` branch of this repository and has Contributor access only to the target resource group. It cannot create role assignments or read application secrets from Key Vault.
+Azure authentication uses a short-lived GitHub OIDC token and no Client Secret. The federated identity trusts only the `main` branch of this repository and has only the custom `Airco GitHub Deployer Minimal` role needed for deployment. It does not have target resource-group Contributor access, cannot create role assignments, and cannot read application secrets from Key Vault.
 
 ### Initial setup order
 

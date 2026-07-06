@@ -207,7 +207,7 @@ De repository `ProgrammerAsahi/airco-tracking` heeft twee workflows:
 - `.github/workflows/ci.yml`: valideert Python, shellscripts en Bicep bij pull requests.
 - `.github/workflows/deploy.yml`: bouwt na geslaagde tests bij een push naar `main` een onveranderlijke image met de commit-SHA als tag en werkt de Azure Job bij.
 
-Azure-aanmelding gebruikt een kortlevend GitHub OIDC-token en geen Client Secret. De federatieve identiteit vertrouwt alleen de `main`-branch van deze repository en heeft uitsluitend Contributor-rechten op de doelresourcegroep. Deze identiteit kan geen roltoewijzingen maken en geen applicatiegeheimen uit Key Vault lezen.
+Azure-aanmelding gebruikt een kortlevend GitHub OIDC-token en geen Client Secret. De federatieve identiteit vertrouwt alleen de `main`-branch van deze repository en heeft alleen de aangepaste rol `Airco GitHub Deployer Minimal` die nodig is voor deployments. Deze identiteit heeft geen Contributor-rechten op de doelresourcegroep, kan geen roltoewijzingen maken en kan geen applicatiegeheimen uit Key Vault lezen.
 
 ### Volgorde voor de eerste configuratie
 
