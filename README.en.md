@@ -39,7 +39,6 @@ A lightweight portable air-conditioner stock tracker for the Netherlands and Fra
 
 French MVP sites:
 
-- Boulanger
 - Castorama
 - Auchan
 - Rue du Commerce
@@ -51,9 +50,11 @@ French MVP sites:
 - Lidl France
 - Action France
 
+Boulanger adapter code is kept in the repository but is not registered in production yet: the page is reachable locally, while Azure Container Apps outbound requests consistently hit a 60-second read timeout. Enable it only after a stable page API or official/public alternative source is found.
+
 It sends an email only when a product is first found available or changes from unavailable to available. It does not send the same notification every ten minutes. If one retailer fails, checks for the other retailers continue.
 
-French adapters also split immediate stock from presale inventory: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine`, and multi-week lead times are shown as presale and do not trigger immediate-stock email alerts. Action France currently returns mostly coolers/fans for the query and is strictly filtered. Cdiscount, E.Leclerc, and the direct-403 French retailers are not enabled yet so anti-bot pages or JS shells are not treated as stock sources.
+French adapters also split immediate stock from presale inventory: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine`, and multi-week lead times are shown as presale and do not trigger immediate-stock email alerts. Action France currently returns mostly coolers/fans for the query and is strictly filtered. Boulanger, Cdiscount, E.Leclerc, and the direct-403 French retailers are not enabled yet so timeouts, anti-bot pages, or JS shells are not treated as stock sources.
 
 EP.nl stock is read from server-rendered product cards. Electro World is read through the public, read-only product search index used by its own storefront, with the public search configuration discovered dynamically on every run. Wehkamp is read from the primary product data on its category page. None of these three integrations requires an account or secret credentials. Wehkamp removes sold-out products from the category, so an explicit empty category is a valid state; a restocked product triggers a first-seen availability alert as soon as it reappears.
 

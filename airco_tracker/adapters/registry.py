@@ -35,7 +35,6 @@ _ADAPTERS_BY_COUNTRY: dict[str, list[type]] = {
 # Country-selector links alone are not enough evidence; they usually point to
 # separate storefronts whose inventory and availability may differ.
 _DELIVERY_COVERAGE_BY_SITE_ID: dict[str, frozenset[str]] = {
-    "fr:Boulanger": frozenset({"fr"}),
     "fr:Castorama": frozenset({"fr"}),
     "fr:Auchan": frozenset({"fr"}),
     "fr:Rue du Commerce": frozenset({"fr"}),

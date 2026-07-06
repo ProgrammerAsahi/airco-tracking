@@ -39,7 +39,6 @@ Een lichte voorraadtracker voor mobiele airco's in Nederland en Frankrijk, gesch
 
 Franse MVP-sites:
 
-- Boulanger
 - Castorama
 - Auchan
 - Rue du Commerce
@@ -51,9 +50,11 @@ Franse MVP-sites:
 - Lidl France
 - Action France
 
+De Boulanger-adaptercode blijft in de repository staan, maar is nog niet in productie geregistreerd: de pagina is lokaal bereikbaar, terwijl Azure Container Apps-uitgaand verkeer consequent een read-timeout van 60 seconden krijgt. Schakel deze pas in zodra er een stabiele pagina-API of officiële/openbare alternatieve bron is gevonden.
+
 Er wordt alleen een e-mail verstuurd wanneer een product voor het eerst als bestelbaar wordt gevonden of van niet leverbaar naar leverbaar verandert. Dezelfde melding wordt dus niet elke tien minuten opnieuw verstuurd. Als één winkel niet bereikbaar is, gaan de controles van de andere winkels gewoon door.
 
-Ook Franse adapters onderscheiden directe voorraad van voorverkoop: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine` en levertijden van meerdere weken worden als voorverkoop getoond en veroorzaken geen e-mail voor directe voorraad. Action France geeft voor deze zoekopdracht momenteel vooral luchtkoelers/ventilatoren terug en wordt daarom streng gefilterd. Cdiscount, E.Leclerc en de Franse sites met directe 403 zijn nog niet ingeschakeld, zodat anti-botpagina's of JS-shells niet als voorraadbron worden gebruikt.
+Ook Franse adapters onderscheiden directe voorraad van voorverkoop: `Pré-commande`, `Expédition à partir`, `livraison prévue semaine` en levertijden van meerdere weken worden als voorverkoop getoond en veroorzaken geen e-mail voor directe voorraad. Action France geeft voor deze zoekopdracht momenteel vooral luchtkoelers/ventilatoren terug en wordt daarom streng gefilterd. Boulanger, Cdiscount, E.Leclerc en de Franse sites met directe 403 zijn nog niet ingeschakeld, zodat time-outs, anti-botpagina's of JS-shells niet als voorraadbron worden gebruikt.
 
 De voorraad van EP.nl wordt gelezen uit server-side weergegeven productkaarten. Electro World wordt gelezen via de openbare, alleen-lezen productzoekindex die de webwinkel zelf gebruikt; de openbare zoekconfiguratie wordt bij elke uitvoering dynamisch opgehaald. Wehkamp wordt gelezen uit de primaire productgegevens op de categoriepagina. Geen van deze drie integraties vereist een account of geheime inloggegevens. Wehkamp verwijdert uitverkochte producten uit de categorie, waardoor een expliciet lege categorie een geldige status is; zodra een product na aanvulling terugkeert, volgt direct een melding voor nieuw gevonden voorraad.
 

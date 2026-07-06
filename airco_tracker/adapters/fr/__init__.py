@@ -14,7 +14,6 @@ from .trotec import TrotecFranceAdapter
 
 
 ADAPTERS = [
-    BoulangerAdapter,
     CastoramaAdapter,
     AuchanAdapter,
     RueDuCommerceAdapter,
@@ -25,4 +24,8 @@ ADAPTERS = [
     DelonghiFranceAdapter,
     LidlFranceAdapter,
     ActionFranceAdapter,
+]
+
+DEFERRED_ADAPTERS = [
+    BoulangerAdapter,
 ]
