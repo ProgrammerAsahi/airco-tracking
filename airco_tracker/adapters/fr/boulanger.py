@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+
+import requests
 from bs4 import BeautifulSoup, Tag
 
 from ...models import Product
@@ -7,9 +10,43 @@ from ..base import Adapter, canonical_url, clean_text, is_presale_delivery, pars
 from .common import is_real_air_conditioner_fr, parse_float, parse_french_price
 
 
+LOG = logging.getLogger(__name__)
+
+
 class BoulangerAdapter(Adapter):
     site = "Boulanger"
     urls = ("https://www.boulanger.com/resultats?tr=climatiseur%20mobile",)
+    timeout = 60
+
+    def fetch_products(self) -> list[Product]:
+        """Fetch Boulanger with a single longer request.
+
+        Boulanger is fast from local residential networks but can hold Azure
+        datacenter connections open long enough to exhaust the shared
+        Fetcher's 25s read timeout three times. A single longer request is
+        less noisy and keeps the whole scheduled run comfortably within the
+        container job timeout.
+        """
+        products: dict[str, Product] = {}
+        headers = dict(self.fetcher.session.headers)
+        headers.update(
+            {
+                "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+                "Referer": "https://www.boulanger.com/",
+            }
+        )
+        for url in self.urls:
+            LOG.info("Fetching %s", url)
+            response = requests.get(url, headers=headers, timeout=max(self.fetcher.timeout, self.timeout))
+            response.raise_for_status()
+            if len(response.content) < 10_000:
+                raise RuntimeError(f"Suspiciously small response from {url}")
+            soup = BeautifulSoup(response.text, "html.parser")
+            for product in self.parse(soup, url):
+                products[product.url] = product
+        if not products:
+            raise RuntimeError(f"{self.site}: parser found no products; site markup may have changed")
+        return list(products.values())
 
     def parse(self, soup: BeautifulSoup, page_url: str) -> list[Product]:
         products: dict[str, Product] = {}
