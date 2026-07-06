@@ -21,7 +21,6 @@ ADAPTERS = [
     CastoramaAdapter,
     AuchanAdapter,
     RueDuCommerceAdapter,
-    BricoDepotFranceAdapter,
     ElectroDepotFranceAdapter,
     CostwayFranceAdapter,
     MaisonEnergyAdapter,
@@ -36,4 +35,5 @@ ADAPTERS = [
 
 DEFERRED_ADAPTERS = [
     BoulangerAdapter,
+    BricoDepotFranceAdapter,
 ]
