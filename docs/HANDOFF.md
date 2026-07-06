@@ -16,8 +16,8 @@ The latest retailer round added Bostools as retailer 28, covering its WooCommerc
 
 - Repository: `https://github.com/ProgrammerAsahi/airco-tracking`
 - Branch: `main`
-- Feature commit: `afdde97` (registry refactor + rename + i18n packaging fix)
-- Last verified production image: commit `afdde97`
+- Feature commit: `352338c` (site-level delivery coverage metadata)
+- Last verified production image: commit `352338c`
 - GitHub workflow: `Deploy to Azure`
 - Azure resource group: `airco-tracker-rg` (all 12 resources consolidated here; old `airco-tracker-nl-rg` deleted)
 - Deployer UAMI clientId (GitHub Actions `AZURE_CLIENT_ID`): `8adc0579-710f-4fcb-8762-28cea100a8a9`
@@ -30,8 +30,8 @@ The latest retailer round added Bostools as retailer 28, covering its WooCommerc
 - Runtime identity: user-assigned Managed Identity (`aircontrack-identity`, clientId `ee7911d7-5ab9-4332-b9cc-b97fcd85d5d8`)
 - Dashboard consumer repository: `https://github.com/ProgrammerAsahi/airco-tracking-web`
 - Dashboard live URL: `https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontainerapps.io`
-- Dashboard deployed image commit: `069f587e0cc84b7f1c82d3e04020c71e8b5c38d2` (last code deploy; subsequent commits were doc-only with `[skip ci]`)
-- Dashboard handoff/docs head: `26b39bc`
+- Dashboard deployed image commit: `d78766428dd017e4fb31b7a4cb74ed3c5e60ae4d`
+- Dashboard handoff/docs head: see `airco-tracking-web` `main`; doc-only commits may use `[skip ci]` and do not imply a new deployed image.
 
 ## Active retailers
 
@@ -261,7 +261,8 @@ curl -s https://airco-tracking-web.livelystone-5966d837.westeurope.azurecontaine
 - Live local dry-run on 2026-07-03: all 27 retailers completed; snapshot preview contained 19 available products and the alert filter selected 13. Known low-BTU and over-EUR-1,500 products remained in the snapshot but were excluded from alerts.
 - Rename + registry deployment: Actions run `28745071912` for commit `afdde97`: succeeded in 3m59s. Verification execution `airco-tracker-job-ftzu1v6`: Succeeded. OIDC login succeeded with the updated subject `repo:ProgrammerAsahi/airco-tracking:ref:refs/heads/main`. Production API verified 2026-07-05T15:14Z: 28 sites, 20 available products, 0 stale sites. Frontend verify script passed: 28 sites, 20 available products.
 - First deploy run `28744264341` for commit `59e58bc` failed its verification execution because of a pre-existing `i18n_local.json` packaging bug: when the Azure Table Storage i18n query failed, the local fallback raised `FileNotFoundError`. Fixed in `afdde97` by adding `[tool.setuptools.package-data]` for `i18n_local.json`; the second deploy succeeded.
-- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:afdde97...` (full SHA tag).
+- Delivery coverage deployment 2026-07-06: backend Actions run `28789725432` for commit `352338c` succeeded in 4m24s; frontend Actions run `28789724133` for commit `d787664` succeeded in 2m41s. Production images: `airco-tracker:352338c02f5ee9b868766cb973e00ccc762245f4` and `airco-tracking-web:d78766428dd017e4fb31b7a4cb74ed3c5e60ae4d`. Production API verified `2026-07-06T12:01:31.736406+00:00`: 28 sites, 22 available products (12 immediate, 10 presale), 0 stale, `delivery_coverage` present on all sites; widened values confirmed for Kampeerwereld (`be`,`nl`), Solago (`be`,`nl`), Vrijbuiter (`be`,`de`,`nl`), and Airco-Webwinkel (`be`,`de`,`lu`,`nl`). Frontend deployment verifier passed against the live URL.
+- Production image: `aircotrackertdzvfmmi.azurecr.io/airco-tracker:352338c02f5ee9b868766cb973e00ccc762245f4` (full SHA tag).
 - Scheduled job executions after deploy: `29721060`, `29721070` both Succeeded.
 - GitHub deployer least-privilege hardening 2026-07-06: replaced the deployer UAMI's resource-group Contributor assignment with the custom role `Airco GitHub Deployer Minimal`. The first custom-role-only workflow test exposed the need for `Microsoft.App/managedEnvironments/join/action`; after adding that action, both backend and frontend `workflow_dispatch` deployments succeeded with only the custom role. The role is now codified in `infra/github-deployer-role.bicep` and assigned by `infra/github-oidc.bicep`.
 - OIDC bicep fix 2026-07-05: changed `infra/github-oidc.bicep` (both repos) from `uniqueString()` to `last(split(githubRepository,'/'))` so the federated-credential name matches the deployed credentials (`github-airco-tracking`, `github-airco-tracking-web`). Redeployed both bicep files; the deployer role assignment was also recreated via bicep's `guid()` for idempotency. Re-running `bootstrap-github-oidc.sh` is now safe. (commits `db7cda6` backend, `f150a2b` frontend)
