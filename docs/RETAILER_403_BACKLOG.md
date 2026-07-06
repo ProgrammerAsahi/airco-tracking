@@ -1,14 +1,17 @@
-# France 403 / anti-bot retailer backlog
+# Retailer 403 / anti-bot backlog
 
 Last updated: 2026-07-06
 
-This document tracks French retailer sites that are worth revisiting but are not
-currently enabled because normal tracker requests hit direct `403`, captcha, or
-similar anti-bot blocking. Keep these separate from normal parser backlog items:
-do not register an adapter until a stable, public, production-safe data source
-has been found and verified from Azure Container Apps.
+This document tracks country-specific retailer sites that are worth revisiting
+but are not currently enabled because normal tracker requests hit direct `403`,
+captcha, or similar anti-bot blocking. Keep these separate from normal parser
+backlog items: do not register an adapter until a stable, public,
+production-safe data source has been found and verified from Azure Container
+Apps.
 
-## Strict direct-403 sites
+## France
+
+### Strict direct-403 sites
 
 These were explicitly observed or recorded as direct `403` blockers during the
 France expansion work.
@@ -25,7 +28,7 @@ France expansion work.
 | Mr.Bricolage | <https://www.mr-bricolage.fr/recherche?search_query=climatiseur%20mobile> | DIY / home improvement | Long-tail DIY retailer with seasonal portable AC stock. | Investigate product/category APIs and whether stock is local-store-only. |
 | Qlima France | <https://www.qlima.fr/climatiseur-mobile/> | Brand / HVAC | Qlima is highly relevant in portable AC. | Look for official catalog/product feeds or alternate storefront URLs with reliable stock semantics. |
 
-## 403 / captcha / anti-bot equivalent blockers
+### 403 / captcha / anti-bot equivalent blockers
 
 These are treated as blocked for tracker purposes even when the first symptom
 was not always a plain direct `403`. They require the same level of caution:
@@ -39,7 +42,7 @@ find a stable public data path first, then verify from Azure before enabling.
 | Rakuten France | <https://fr.shopping.rakuten.com/s/climatiseur+mobile> | Marketplace | Grouped with 403/captcha/anti-bot blocked requests; high false-positive risk from third-party listings. | Only consider if a stable public listing API exposes clear condition, seller, stock, and presale fields. |
 | La Redoute | <https://www.laredoute.fr/search.aspx?searchkeyword=climatiseur%20mobile> | Marketplace / home | Grouped with 403/captcha/anti-bot blocked requests; likely third-party mixed listings. | Look for public search data and strict marketplace filtering; avoid ambiguous seller/backorder stock. |
 
-## Adjacent French backlog that is not counted as 403
+### Adjacent French backlog that is not counted as 403
 
 These should stay out of the 403 list so future work can pick the right
 strategy.
