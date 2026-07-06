@@ -10,9 +10,13 @@ from .create_store import CreateFranceAdapter
 from .delonghi import DelonghiFranceAdapter
 from .electrodepot import ElectroDepotFranceAdapter
 from .evolarshop import EvolarshopFranceAdapter
+from .h2r import H2REquipementsAdapter
 from .klarstein import KlarsteinFranceAdapter
 from .lidl import LidlFranceAdapter
 from .maison_energy import MaisonEnergyAdapter
+from .mon_camping_car import MonCampingCarAdapter
+from .narbonne import NarbonneAccessoiresAdapter
+from .obelink import ObelinkFranceAdapter
 from .rueducommerce import RueDuCommerceAdapter
 from .trotec import TrotecFranceAdapter
 
@@ -31,6 +35,10 @@ ADAPTERS = [
     DelonghiFranceAdapter,
     LidlFranceAdapter,
     ActionFranceAdapter,
+    H2REquipementsAdapter,
+    ObelinkFranceAdapter,
+    NarbonneAccessoiresAdapter,
+    MonCampingCarAdapter,
 ]
 
 DEFERRED_ADAPTERS = [

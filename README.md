@@ -52,12 +52,16 @@
 - De’Longhi France
 - Lidl France
 - Action France
+- H2R Équipements
+- Obelink France
+- Narbonne Accessoires
+- Mon Camping Car
 
 Boulanger 和 Brico Dépôt France 的适配器代码已保留，但暂未在生产注册：Boulanger 页面本地可访问，而 Azure Container Apps 出站请求会稳定卡到 60 秒读取超时；Brico Dépôt 的普通分类页和 smartcache fragment 本地可读，但 Azure 出站请求会返回过小/不可用响应。两者都需要找到稳定的页面内 API 或官方/公开替代源后再启用。
 
 它只在商品首次被发现为可购买，或从缺货变为有货时发送邮件；不会每 10 分钟轰炸邮箱。单个零售商失效时，其余站点仍会继续检查。
 
-法国站点同样区分即时现货和预售：`Pré-commande`、`Expédition à partir`、`livraison prévue semaine` 和多周交期会显示为预售库存，但不会触发现货邮件。Electro Dépôt France 读取页面内 Vue JSON 的 `stock` 数字；Costway France 读取 Magento 分类页的 `qty-N` 库存和 `Précommande` 标签，并排除 split、冷风机和配件；Maison Energy 会让 `Non disponible`/`Demande de devis` 优先于 schema `PreOrder`，避免不可下单商品触发现货。Action France 当前搜索结果主要是冷风机/风扇，因此会被严格过滤；Boulanger、Brico Dépôt France、Cdiscount、E.Leclerc 以及直接 403 的法国站点暂未启用，避免把超时、反爬页或 JS 壳误当库存来源。
+法国站点同样区分即时现货和预售：`Pré-commande`、`Expédition à partir`、`livraison prévue semaine`、`Sur commande` 和多周交期会显示为预售库存，但不会触发现货邮件。Electro Dépôt France 读取页面内 Vue JSON 的 `stock` 数字；Costway France 读取 Magento 分类页的 `qty-N` 库存和 `Précommande` 标签，并排除 split、冷风机和配件；Maison Energy 会让 `Non disponible`/`Demande de devis` 优先于 schema `PreOrder`，避免不可下单商品触发现货。H2R Équipements 只读取房车/露营车的 `climatisation nomade` 分类，`En stock` 才算即时现货，`Sur commande`/`Retour en stock prévu` 不会触发现货提醒；Obelink France 通过公开 JSON-LD 分类和商品页追踪 mobile/split 露营空调；Narbonne Accessoires 只在 `Livraison à Domicile` 明确 `En stock` 时算可配送，避免把仅门店自取误报为现货；Mon Camping Car 的 `BackOrder`/`Disponible à partir` 会作为预售展示。Action France 当前搜索结果主要是冷风机/风扇，因此会被严格过滤；Boulanger、Brico Dépôt France、Cdiscount、E.Leclerc 以及直接 403 的法国站点暂未启用，避免把超时、反爬页或 JS 壳误当库存来源。
 
 EP.nl 通过服务器输出的商品卡识别在线库存；Electro World 使用其网页公开调用的只读商品搜索索引，并在每次运行时动态读取公开搜索配置；Wehkamp 读取分类页的主商品数据。三者均不需要账号或秘密凭据。Wehkamp 会把售罄商品从分类移除，因此明确的空分类是正常状态；商品补货并重新出现时会立即触发首次有货提醒。
 

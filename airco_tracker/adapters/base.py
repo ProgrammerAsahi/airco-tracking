@@ -39,6 +39,11 @@ PRESALE_MARKERS = (
     "livraison prevue semaine",
     "délai de livraison",
     "delai de livraison",
+    "sur commande",
+    "retour en stock prévu",
+    "retour en stock prevu",
+    "disponible à partir",
+    "disponible a partir",
     "verwachte levering week",
     "weken",  # multi-week lead time, e.g. "Binnen 3-5 weken leverbaar"
     "semaines",  # multi-week lead time, e.g. "Délai de livraison : X à Y semaines"

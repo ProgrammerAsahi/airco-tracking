@@ -41,6 +41,8 @@ find a stable public data path first, then verify from Azure before enabling.
 | Weldom | <https://www.weldom.fr/> | DIY / home improvement | Page reachable in survey, but search routing/data was not stable and later grouped with blocked backlog. | Locate the real search/category URL first, then verify server-rendered or public API product data. |
 | Rakuten France | <https://fr.shopping.rakuten.com/s/climatiseur+mobile> | Marketplace | Grouped with 403/captcha/anti-bot blocked requests; high false-positive risk from third-party listings. | Only consider if a stable public listing API exposes clear condition, seller, stock, and presale fields. |
 | La Redoute | <https://www.laredoute.fr/search.aspx?searchkeyword=climatiseur%20mobile> | Marketplace / home | Grouped with 403/captcha/anti-bot blocked requests; likely third-party mixed listings. | Look for public search data and strict marketplace filtering; avoid ambiguous seller/backorder stock. |
+| Euro Accessoires | <https://www.euro-accessoires.fr/recherche?controller=search&s=climatiseur> | Camper / accessories | Normal requests receive a tiny JavaScript/AES challenge page instead of usable product data. | Look for an official/public feed or sitemap path that does not require solving the JS challenge. |
+| Manutan France | <https://www.manutan.fr/fr/maf/search?text=climatiseur%20mobile> | B2B / industrial | Normal requests are redirected to a Radware Bot Manager captcha page. | Do not bypass the captcha; only revisit if a public API/feed is documented or exposed without anti-bot gating. |
 
 ### Adjacent French backlog that is not counted as 403
 
@@ -58,6 +60,12 @@ strategy.
 | Midea France | Brand/catalog source without reliable direct stock | Useful for product reference, not currently a stock-alert source. |
 | Climshop | Fixed/window/split-heavy tested entries | Do not enable until mobile/portable stock can be separated reliably. |
 | Clim Planete | Fixed/window/split-heavy tested entries | Do not enable until mobile/portable stock can be separated reliably. |
+| Alternate France | Search/sitemap currently yields EcoFlow WAVE accessories, not air conditioners | Low value until real portable AC products appear in the public sitemap/search results. |
+| Maxiburo | B2B Nuxt/SPA search without stable server-rendered product data | Low priority; revisit only if a public product API with stock semantics is identified. |
+| Bruneau | B2B Nuxt/SPA search without stable server-rendered product data | Same platform family as Maxiburo; low priority for consumer heatwave alerts. |
+| Seton | Search returned safety/signage/mobile-industrial false positives rather than air conditioners | Not anti-bot blocked for the tested catalogsearch path, but not relevant enough to track. |
+| Airton | Fixed split/monobloc installation-heavy catalog | Useful as a brand/catalog reference, not aligned with the current mobile/portable stock model. |
+| Espace Aubade | Search paths returned 404/500-style unstable pages | HVAC/showroom channel; revisit only with a stable category/API and clear direct-stock semantics. |
 
 ## Revisit checklist
 
