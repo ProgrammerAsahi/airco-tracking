@@ -3,14 +3,13 @@
 <p align="center">
   <a href="./RETAILER_403_BACKLOG.zh.md"><img alt="简体中文" src="https://img.shields.io/badge/docs-简体中文-d73a49"></a>
   <a href="./RETAILER_403_BACKLOG.md"><img alt="English" src="https://img.shields.io/badge/docs-English-0969da"></a>
-  <a href="./RETAILER_403_BACKLOG.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/docs-Nederlands-f58220"></a>
 </p>
 
 最后更新：2026-07-06
 
 本文档记录值得后续重新探索、但目前因为普通 tracker 请求遇到直接 `403`、captcha 或类似反爬拦截而未启用的各国零售商站点。它们应与普通 parser backlog 分开管理：只有在找到稳定、公开、生产安全的数据源，并且从 Azure Container Apps 验证成功后，才可以注册 adapter。
 
-修改本文档时，必须同步更新中文、英语和荷兰语版本。
+修改本文档时，必须同步更新中文和英语版本。
 
 ## France
 

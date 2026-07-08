@@ -3,12 +3,11 @@
 <p align="center">
   <a href="./HANDOFF.zh.md"><img alt="简体中文" src="https://img.shields.io/badge/HANDOFF-简体中文-d73a49"></a>
   <a href="./HANDOFF.md"><img alt="English" src="https://img.shields.io/badge/HANDOFF-English-0969da"></a>
-  <a href="./HANDOFF.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/HANDOFF-Nederlands-f58220"></a>
 </p>
 
 最后更新：2026-07-08（Europe/Amsterdam）
 
-文档规则：当前状态、验证证据、blocker 或下一步变化时，必须同时更新中文、英语和荷兰语 handoff。
+文档规则：当前状态、验证证据、blocker 或下一步变化时，必须同时更新中文和英语 handoff。
 
 ## 当前目标
 

@@ -3,7 +3,6 @@
 <p align="center">
   <a href="./README.md"><img alt="简体中文" src="https://img.shields.io/badge/README-简体中文-d73a49"></a>
   <a href="./README.en.md"><img alt="English" src="https://img.shields.io/badge/README-English-0969da"></a>
-  <a href="./README.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/README-Nederlands-f58220"></a>
 </p>
 
 A lightweight portable air-conditioner stock tracker for the Netherlands and France, with local execution and passwordless Azure deployment. It currently monitors these Dutch sites:
@@ -296,4 +295,4 @@ Keep the polling interval at ten minutes or longer. Product pages remain the fin
 
 ## Documentation language maintenance
 
-All Markdown documentation should have Chinese, English, and Dutch versions with language-switch badges at the top. Whenever any document changes, update all three language versions together.
+All Markdown documentation should have Chinese and English versions with language-switch badges at the top. Whenever any document changes, update both language versions together.

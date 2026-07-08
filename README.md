@@ -3,7 +3,6 @@
 <p align="center">
   <a href="./README.md"><img alt="简体中文" src="https://img.shields.io/badge/README-简体中文-d73a49"></a>
   <a href="./README.en.md"><img alt="English" src="https://img.shields.io/badge/README-English-0969da"></a>
-  <a href="./README.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/README-Nederlands-f58220"></a>
 </p>
 
 一个轻量的荷兰/法国便携空调库存追踪器，支持本地运行和无密码 Azure 部署。当前监控荷兰站点：
@@ -297,4 +296,4 @@ git push -u origin main
 
 ## 文档语言维护
 
-所有 Markdown 文档都应提供中文、英语和荷兰语版本，并在顶部提供语言切换 badge。以后修改任何文档时，必须同步更新三种语言版本。
+所有 Markdown 文档都应提供中文和英语版本，并在顶部提供语言切换 badge。以后修改任何文档时，必须同步更新两个语言版本。

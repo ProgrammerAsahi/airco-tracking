@@ -3,7 +3,6 @@
 <p align="center">
   <a href="./AGENTS.zh.md"><img alt="简体中文" src="https://img.shields.io/badge/AGENTS-简体中文-d73a49"></a>
   <a href="./AGENTS.md"><img alt="English" src="https://img.shields.io/badge/AGENTS-English-0969da"></a>
-  <a href="./AGENTS.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/AGENTS-Nederlands-f58220"></a>
 </p>
 
 ## 使命
@@ -14,9 +13,9 @@
 
 1. 阅读 `docs/HANDOFF.md`，了解当前状态和下一项任务。
 2. 编辑前阅读相关 adapter、测试和基础设施文件。
-3. 面向用户的 setup 细节使用语言专属 README（`README.md`、`README.en.md`、`README.nl.md`）。行为变化时保持三者同步。
+3. 面向用户的 setup 细节使用语言专属 README（`README.md`、`README.en.md`）。行为变化时保持两者同步。
 4. 如果涉及库存 schema 或语义，编辑前检查 `~/airco-tracking-web/server/inventory.ts`、`src/types.ts`、fixture/tests 和前端 handoff。
-5. 所有 Markdown 文档都必须维护中文、英语和荷兰语版本。修改任意文档时，在同一变更中更新所有语言版本。
+5. 所有 Markdown 文档都必须维护中文和英语版本。修改任意文档时，在同一变更中更新两个语言版本。
 
 ## 不可协商的规则
 
