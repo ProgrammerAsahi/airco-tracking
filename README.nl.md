@@ -293,3 +293,7 @@ Een geslaagde winkelcontrole vervangt de volledige winkelvoorraad, ook met nul p
 Elke winkel heeft een eigen adapter onder `airco_tracker/adapters/<country>/`. Voeg een winkel toe door een adapter te implementeren, deze in de `ADAPTERS`-lijst van dat land en in `adapters/registry.py` te registreren, en conservatieve `delivery_coverage`-metadata voor de site bij te houden (ISO-2-landcodes of de regio-aliassen `eu`/`eea`/`nordics`/`benelux`/`dach`). Als de structuur van een webpagina verandert en er geen producten kunnen worden verwerkt, meldt de applicatie `parser found no products` in plaats van stilzwijgend te doen alsof alles uitverkocht is.
 
 Houd een controle-interval van ten minste tien minuten aan. De productpagina blijft uiteindelijk bepalend voor voorraad, prijs en bezorging.
+
+## Onderhoud van documenttalen
+
+Alle Markdown-documentatie moet Chinese, Engelse en Nederlandse versies hebben met taalbadges bovenaan. Wanneer een document wijzigt, moeten alle drie taalversies samen worden bijgewerkt.

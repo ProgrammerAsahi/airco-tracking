@@ -293,3 +293,7 @@ A successful retailer check fully replaces that retailer's inventory, including 
 Each retailer has an independent adapter under `airco_tracker/adapters/<country>/`. Add a retailer by implementing an adapter, registering it in that country's `ADAPTERS` list and `adapters/registry.py`, and maintaining conservative `delivery_coverage` metadata for the site (ISO-2 country codes or the `eu`/`eea`/`nordics`/`benelux`/`dach` region aliases). If a page structure changes and no products can be parsed, the application reports `parser found no products` instead of silently pretending that everything is out of stock.
 
 Keep the polling interval at ten minutes or longer. Product pages remain the final authority for stock, price, and delivery information.
+
+## Documentation language maintenance
+
+All Markdown documentation should have Chinese, English, and Dutch versions with language-switch badges at the top. Whenever any document changes, update all three language versions together.

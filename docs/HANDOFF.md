@@ -1,6 +1,14 @@
 # Airco Tracker — current handoff
 
+<p align="center">
+  <a href="./HANDOFF.zh.md"><img alt="简体中文" src="https://img.shields.io/badge/HANDOFF-简体中文-d73a49"></a>
+  <a href="./HANDOFF.md"><img alt="English" src="https://img.shields.io/badge/HANDOFF-English-0969da"></a>
+  <a href="./HANDOFF.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/HANDOFF-Nederlands-f58220"></a>
+</p>
+
 Last updated: 2026-07-06 (Europe/Amsterdam)
+
+Documentation rule: update the Chinese, English, and Dutch handoff variants together whenever current status, verification evidence, blockers, or next steps change.
 
 ## Current objective
 

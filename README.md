@@ -294,3 +294,7 @@ git push -u origin main
 每个网站位于 `airco_tracker/adapters/<country>/` 的独立适配器中。新增网站时继承 `Adapter`，在该国家包的 `ADAPTERS` 列表和 `adapters/registry.py` 中注册，并为站点维护保守的 `delivery_coverage` 配送覆盖（ISO-2 国家码或 `eu`/`eea`/`nordics`/`benelux`/`dach` 区域别名）。网页结构改变会在日志中报出“parser found no products”，不会静默假装成功。
 
 请保持 10 分钟或更长的检查间隔。库存和配送信息最终以商品页面为准。
+
+## 文档语言维护
+
+所有 Markdown 文档都应提供中文、英语和荷兰语版本，并在顶部提供语言切换 badge。以后修改任何文档时，必须同步更新三种语言版本。

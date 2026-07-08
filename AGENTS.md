@@ -1,5 +1,11 @@
 # Airco Tracker — shared agent instructions
 
+<p align="center">
+  <a href="./AGENTS.zh.md"><img alt="简体中文" src="https://img.shields.io/badge/AGENTS-简体中文-d73a49"></a>
+  <a href="./AGENTS.md"><img alt="English" src="https://img.shields.io/badge/AGENTS-English-0969da"></a>
+  <a href="./AGENTS.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/AGENTS-Nederlands-f58220"></a>
+</p>
+
 ## Mission
 
 Maintain a reliable, low-cost stock tracker for real portable compressor air conditioners that can be delivered to a Dutch address. Notify only when a product is newly available or changes from unavailable to available, and publish a trustworthy private inventory snapshot for the public read-only dashboard.
@@ -10,6 +16,7 @@ Maintain a reliable, low-cost stock tracker for real portable compressor air con
 2. Read the relevant adapter, tests, and infrastructure files before editing.
 3. Use the language-specific README only for user-facing setup details (`README.md`, `README.en.md`, `README.nl.md`). Keep all three synchronized when behavior changes.
 4. If inventory schema or semantics are involved, inspect `~/airco-tracking-web/server/inventory.ts`, `src/types.ts`, its fixture/tests, and the frontend handoff before editing.
+5. All Markdown documentation must be maintained in Chinese, English, and Dutch. When changing any doc, update every language variant in the same change.
 
 ## Non-negotiable rules
 

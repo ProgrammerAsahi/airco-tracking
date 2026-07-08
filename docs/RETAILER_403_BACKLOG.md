@@ -1,5 +1,11 @@
 # Retailer 403 / anti-bot backlog
 
+<p align="center">
+  <a href="./RETAILER_403_BACKLOG.zh.md"><img alt="简体中文" src="https://img.shields.io/badge/docs-简体中文-d73a49"></a>
+  <a href="./RETAILER_403_BACKLOG.md"><img alt="English" src="https://img.shields.io/badge/docs-English-0969da"></a>
+  <a href="./RETAILER_403_BACKLOG.nl.md"><img alt="Nederlands" src="https://img.shields.io/badge/docs-Nederlands-f58220"></a>
+</p>
+
 Last updated: 2026-07-06
 
 This document tracks country-specific retailer sites that are worth revisiting
@@ -8,6 +14,8 @@ captcha, or similar anti-bot blocking. Keep these separate from normal parser
 backlog items: do not register an adapter until a stable, public,
 production-safe data source has been found and verified from Azure Container
 Apps.
+
+When this file changes, update the Chinese, English, and Dutch variants together.
 
 ## France
 
