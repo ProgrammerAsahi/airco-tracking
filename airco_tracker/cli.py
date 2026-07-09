@@ -158,6 +158,7 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
     # succeeds so a failed delivery is retried on the next run.
     if alerts:
         recipients = load_alert_recipients(config)
+        LOG.info("Loaded %d stock-alert recipient(s)", len(recipients))
         sent_count = 0
         coverage_by_site = {
             spec.site_id: spec.delivery_coverage
@@ -170,10 +171,21 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
                 if _product_matches_recipient(product, recipient, coverage_by_site)
             ]
             if not recipient_alerts:
+                LOG.info(
+                    "No matching alerts for %s (delivery_country=%s)",
+                    _mask_email(recipient.email),
+                    recipient.delivery_country or "all",
+                )
                 continue
             recipient_config = _config_for_recipient(config, recipient)
             send_message(recipient_config, build_message(recipient_config, recipient_alerts))
             sent_count += 1
+            LOG.info(
+                "Sent stock alert for %d product(s) to %s (delivery_country=%s)",
+                len(recipient_alerts),
+                _mask_email(recipient.email),
+                recipient.delivery_country or "all",
+            )
         LOG.info(
             "Sent stock alert for %d products to %d recipient(s)",
             len(alerts),
