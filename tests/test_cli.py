@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from airco_tracker.adapters.registry import AdapterSpec
 from airco_tracker.cli import _mask_email, check
 from airco_tracker.models import Product
+from airco_tracker.subscribers import AlertRecipient
 
 
 class _SuccessAdapter:
@@ -156,6 +157,8 @@ class CliTests(unittest.TestCase):
             min_btu=None,
             countries=["nl"],
             email_lang="zh",
+            email_to="recipient@example.com",
+            azure_storage_account_url="",
             validate_email=lambda: None,
         )
 
@@ -185,6 +188,7 @@ class CliTests(unittest.TestCase):
         inventory_store.load.return_value = {"version": 1, "sites": {}}
         with (
             _patched_adapters(_SuccessAdapter, stock_site="Stocked shop"),
+            patch("airco_tracker.cli.load_alert_recipients", return_value=[AlertRecipient("subscriber@example.com", "zh", "nl")]),
             patch("airco_tracker.cli.send_message") as mock_send,
             patch("airco_tracker.cli.build_message", return_value="msg"),
             patch("airco_tracker.cli.build_state_store", return_value=store),
@@ -211,6 +215,7 @@ class CliTests(unittest.TestCase):
 
         with (
             _patched_adapters(_SuccessAdapter, stock_site="Stocked shop"),
+            patch("airco_tracker.cli.load_alert_recipients", return_value=[AlertRecipient("subscriber@example.com", "zh", "nl")]),
             patch("airco_tracker.cli.send_message", side_effect=fail_email),
             patch("airco_tracker.cli.build_message", return_value="msg"),
             patch("airco_tracker.cli.build_state_store", return_value=state_store),

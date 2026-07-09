@@ -94,16 +94,16 @@ def _parse_product_page(page: str, page_url: str) -> Product | None:
     offer = first_offer(data)
     if not offer:
         raise RuntimeError("Hubo product data did not contain an offer")
-    available = schema_in_stock(offer)
     description = str(data.get("description", ""))
     text = clean_text(soup)
+    available, delivery = _availability_from_page(offer, text)
     return Product(
         site="Hubo",
         name=name,
         url=canonical_url(page_url, str(offer.get("url") or data.get("url") or page_url)),
         available=available,
         price_eur=offer_price(offer),
-        delivery="Op voorraad" if available else "Niet op voorraad",
+        delivery=delivery,
         btu=parse_btu(f"{name} {description} {text}"),
     )
 
@@ -122,3 +122,31 @@ def _is_portable_airco(name: str) -> bool:
     if any(term in lower for term in excluded):
         return False
     return "mobiele airco" in lower or "mobiele airconditioner" in lower or "airco" in lower
+
+
+def _availability_from_page(offer: dict[str, Any], text: str) -> tuple[bool, str]:
+    lower = text.casefold()
+    store_only_markers = (
+        "alleen verkrijgbaar in de winkel",
+    )
+    unavailable_markers = (
+        "uitverkocht",
+        "niet op voorraad",
+        "niet beschikbaar",
+        "tijdelijk niet leverbaar",
+    )
+    online_order_markers = (
+        "in winkelwagen",
+        "toevoegen aan winkelwagen",
+        "online op voorraad",
+        "thuisbezorgd",
+        "bezorgen",
+    )
+    if any(marker in lower for marker in store_only_markers):
+        return False, "Alleen verkrijgbaar in de winkel"
+    if any(marker in lower for marker in unavailable_markers):
+        return False, "Niet op voorraad"
+    if any(marker in lower for marker in online_order_markers):
+        return True, "Online op voorraad"
+    available = schema_in_stock(offer)
+    return available, "Op voorraad" if available else "Niet op voorraad"

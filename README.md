@@ -83,11 +83,12 @@ Conrad.nl 暂未启用：普通网页从 Azure 和本地请求都会收到 Cloud
 ```text
 Container Apps Scheduled Job
   ├─ Managed Identity → Blob Storage（提醒状态 + 实时库存快照）
+  ├─ Managed Identity → Table Storage（订阅用户和邮件语言/配送国家）
   ├─ Managed Identity → Communication Services Email（通知）
-  └─ Managed Identity → Key Vault（收件地址和第三方密钥）
+  └─ Managed Identity → Key Vault（本地/应急回退收件地址和第三方密钥）
 ```
 
-Azure 模式不保存邮箱密码、Storage Key、Communication Services Key 或 ACR 密码。收件地址作为 `notification-email` secret 存在 Key Vault；GitHub 只保存 `EMAIL_TO=notification-email` 映射。价格和 BTU 限制作为普通环境配置传入。
+Azure 模式不保存邮箱密码、Storage Key、Communication Services Key 或 ACR 密码。正式库存提醒会读取 Web 项目的 `users` Table，只给仍在有效期内且有邮件提醒权益的订阅用户发送，并按用户的配送国家过滤站点。`notification-email`/`EMAIL_TO` 只作为本地运行、`send-test` 和生产 Table 临时不可用时的应急回退。价格和 BTU 限制作为普通环境配置传入。
 
 ## 本地运行
 
@@ -209,7 +210,7 @@ az containerapp job logs show \
 
 ### Key Vault 配置加载
 
-生产收件地址保存在 Key Vault，不进入源码或 GitHub Variables。已有部署可运行以下脚本迁移或更换地址：
+正式库存提醒收件人来自 Web 项目的 `users` Table。Key Vault 中的 `notification-email` 仅作为本地运行、`send-test` 或订阅用户表临时不可用时的应急回退地址；已有部署可运行以下脚本迁移或更换这个回退地址：
 
 ```bash
 ./scripts/configure-notification-email.sh
@@ -222,7 +223,7 @@ AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
 KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email
 ```
 
-程序通过 Managed Identity 读取，secret 不进入代码、镜像或 Bicep 参数。
+程序通过 Managed Identity 读取，secret 不进入代码、镜像或 Bicep 参数。若要更换真实订阅用户的收件邮箱，应在 Web 端 Profile 中修改用户邮箱，而不是修改 `notification-email`。
 
 ## GitHub Actions CI/CD
 

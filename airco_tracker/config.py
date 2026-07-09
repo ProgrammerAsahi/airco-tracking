@@ -86,6 +86,7 @@ class Config:
     azure_inventory_blob: str
     acs_endpoint: str
     azure_key_vault_url: str
+    auth_users_table: str
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -116,6 +117,7 @@ class Config:
             azure_inventory_blob=os.getenv("AZURE_INVENTORY_BLOB", "inventory.json").strip(),
             acs_endpoint=os.getenv("ACS_ENDPOINT", "").strip(),
             azure_key_vault_url=os.getenv("AZURE_KEY_VAULT_URL", "").strip(),
+            auth_users_table=os.getenv("AUTH_USERS_TABLE", "users").strip() or "users",
         )
 
     def validate_email(self) -> None:

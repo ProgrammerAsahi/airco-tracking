@@ -1470,6 +1470,27 @@ class ParserTests(unittest.TestCase):
         self.assertIsNotNone(product)
         self.assertFalse(product.available)
 
+    def test_hubo_store_only_stock_is_unavailable_for_delivery(self) -> None:
+        data = {
+            "@type": "Product",
+            "name": "Qlima P 534 mobiele airconditioner 10000BTU",
+            "offers": {
+                "@type": "Offer",
+                "availability": "https://schema.org/InStock",
+                "price": "529.00",
+                "priceCurrency": "EUR",
+            },
+        }
+        page = (
+            f'<script type="application/ld+json">{json.dumps(data)}</script>'
+            "<button>Bekijk winkelvoorraad</button>"
+            "<p>Alleen verkrijgbaar in de winkel</p>"
+        )
+        product = parse_hubo_page(page, "https://www.hubo.nl/products/qlima-p-534-mobiele-airconditioner-10000btu")
+        self.assertIsNotNone(product)
+        self.assertFalse(product.available)
+        self.assertEqual(product.delivery, "Alleen verkrijgbaar in de winkel")
+
     # --- Vrijbuiter ---
 
     def test_vrijbuiter_reads_graph_product_offer(self) -> None:

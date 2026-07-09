@@ -83,11 +83,12 @@ The production environment uses:
 ```text
 Container Apps Scheduled Job
   ├─ Managed Identity → Blob Storage (stock state)
+  ├─ Managed Identity → Table Storage (subscribed users, email language, and delivery country)
   ├─ Managed Identity → Communication Services Email (notifications)
-  └─ Managed Identity → Key Vault (recipient address and optional third-party credentials)
+  └─ Managed Identity → Key Vault (local/emergency fallback recipient and optional third-party credentials)
 ```
 
-Azure mode stores no mailbox password, Storage key, Communication Services key, or ACR password. The recipient address is stored as the `notification-email` secret in Key Vault; GitHub stores only the `EMAIL_TO=notification-email` mapping. Price and BTU limits remain ordinary environment configuration.
+Azure mode stores no mailbox password, Storage key, Communication Services key, or ACR password. Production stock-alert recipients are read from the web app's `users` Table: only active subscribers with email-alert entitlement are notified, and alerts are filtered by each user's delivery country. `notification-email`/`EMAIL_TO` is now only a local-run, `send-test`, and emergency fallback when the production Table is temporarily unavailable. Price and BTU limits remain ordinary environment configuration.
 
 ## Run locally
 
@@ -208,7 +209,7 @@ If Docker is installed:
 
 ### Key Vault secret loading
 
-To replace the production notification address without committing it or storing it in GitHub, run:
+Production stock-alert recipients come from the web app's `users` Table. The `notification-email` secret is only a local-run, `send-test`, or emergency fallback recipient. To migrate or replace that fallback address without committing it or storing it in GitHub, run:
 
 ```bash
 ./scripts/configure-notification-email.sh
@@ -221,7 +222,7 @@ AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
 KEY_VAULT_SECRET_MAP=PARTNER_API_KEY=partner-api-key
 ```
 
-The application reads the secret through Managed Identity. The secret never enters source code, the image, or Bicep parameters.
+The application reads the secret through Managed Identity. The secret never enters source code, the image, or Bicep parameters. To change a real subscriber's alert address, update the user's email from the web Profile page instead of changing `notification-email`.
 
 ## GitHub Actions CI/CD
 

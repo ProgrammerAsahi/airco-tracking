@@ -4,7 +4,8 @@ import argparse
 import json
 import logging
 import sys
-from dataclasses import replace
+from copy import copy
+from dataclasses import is_dataclass, replace
 
 from .adapters.registry import load_adapter_specs
 from .config import Config
@@ -15,9 +16,26 @@ from .mailer import build_message, send_message
 from .models import Product
 from .state import select_alerts, updated_state
 from .state_store import build_state_store
+from .subscribers import AlertRecipient, load_alert_recipients
 
 
 LOG = logging.getLogger("airco_tracker")
+
+_REGION_DELIVERY_COUNTRIES = {
+    "eu": {
+        "at", "be", "bg", "hr", "cy", "cz", "dk", "ee", "fi", "fr", "de",
+        "gr", "hu", "ie", "it", "lv", "lt", "lu", "mt", "nl", "pl", "pt",
+        "ro", "sk", "si", "es", "se",
+    },
+    "eea": {
+        "at", "be", "bg", "hr", "cy", "cz", "dk", "ee", "fi", "fr", "de",
+        "gr", "hu", "ie", "it", "lv", "lt", "lu", "mt", "nl", "pl", "pt",
+        "ro", "sk", "si", "es", "se", "is", "li", "no",
+    },
+    "benelux": {"be", "lu", "nl"},
+    "dach": {"at", "ch", "de"},
+    "nordics": {"dk", "fi", "is", "no", "se"},
+}
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -110,11 +128,6 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         LOG.error("All retailer checks failed")
         return 2
 
-    # Keep production configuration checks strict, but only after the inventory
-    # snapshot is durable so a notification outage cannot make stock look stale.
-    if not dry_run:
-        config.validate_email()
-
     state_store = build_state_store(config)
     old_state = state_store.load()
     alerts = select_alerts(
@@ -144,12 +157,55 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
     # Inventory is already current. Keep alert state uncommitted until email
     # succeeds so a failed delivery is retried on the next run.
     if alerts:
-        send_message(config, build_message(config, alerts))
-        LOG.info("Sent stock alert for %d products", len(alerts))
+        recipients = load_alert_recipients(config)
+        sent_count = 0
+        coverage_by_site = {
+            spec.site_id: spec.delivery_coverage
+            for spec, _adapter in adapters
+        }
+        for recipient in recipients:
+            recipient_alerts = [
+                product
+                for product in alerts
+                if _product_matches_recipient(product, recipient, coverage_by_site)
+            ]
+            if not recipient_alerts:
+                continue
+            recipient_config = _config_for_recipient(config, recipient)
+            send_message(recipient_config, build_message(recipient_config, recipient_alerts))
+            sent_count += 1
+        LOG.info(
+            "Sent stock alert for %d products to %d recipient(s)",
+            len(alerts),
+            sent_count,
+        )
     else:
         LOG.info("No new stock; no email sent")
     state_store.save(updated_state(old_state, products, checked_sites=successful_sites))
     return 0
+
+
+def _product_matches_recipient(
+    product: Product,
+    recipient: AlertRecipient,
+    coverage_by_site: dict[str, frozenset[str]],
+) -> bool:
+    country = (recipient.delivery_country or "").strip().lower()
+    if not country:
+        return True
+    coverage = coverage_by_site.get(product.site_id) or frozenset({product.country})
+    if country in coverage:
+        return True
+    return any(country in _REGION_DELIVERY_COUNTRIES.get(token, set()) for token in coverage)
+
+
+def _config_for_recipient(config: Config, recipient: AlertRecipient) -> Config:
+    if is_dataclass(config):
+        return replace(config, email_to=recipient.email, email_lang=recipient.language)
+    test_config = copy(config)
+    setattr(test_config, "email_to", recipient.email)
+    setattr(test_config, "email_lang", recipient.language)
+    return test_config
 
 
 def doctor(config: Config) -> int:
