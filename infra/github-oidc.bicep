@@ -6,6 +6,9 @@ param githubBranch string = 'main'
 
 param identityName string = 'airco-github-deployer'
 
+@description('Create the resource-group role assignment. Set false when preserving an existing assignment with a legacy random ID.')
+param manageRoleAssignment bool = true
+
 @description('Stable custom role definition GUID for the Airco GitHub deployer role.')
 param deployRoleDefinitionGuid string = '3ba933f8-b598-41cd-a675-32daa4034b60'
 
@@ -37,7 +40,7 @@ module deployRole 'github-deployer-role.bicep' = {
   }
 }
 
-resource resourceGroupDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource resourceGroupDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageRoleAssignment) {
   name: guid(resourceGroup().id, deployIdentity.id, deployRoleDefinitionId)
   properties: {
     principalId: deployIdentity.properties.principalId

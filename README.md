@@ -78,17 +78,23 @@ Conrad.nl 暂未启用：普通网页从 Azure 和本地请求都会收到 Cloud
 
 ## Azure 架构
 
-生产环境采用：
+生产提醒已经从“扫描任务直接逐个发邮件”拆成异步流水线：
 
 ```text
-Container Apps Scheduled Job
-  ├─ Managed Identity → Blob Storage（提醒状态 + 实时库存快照）
-  ├─ Managed Identity → Table Storage（订阅用户和邮件语言/配送国家）
-  ├─ Managed Identity → Communication Services Email（通知）
-  └─ Managed Identity → Key Vault（本地/应急回退收件地址和第三方密钥）
+Scanner Job（每 10 分钟）
+  └─ Table outbox → Service Bus topic
+       └─ 32 个 recipient shard jobs
+            └─ 每位有效订阅用户一个 email job
+                 └─ 幂等 delivery ledger → ACS Email
 ```
 
-Azure 模式不保存邮箱密码、Storage Key、Communication Services Key 或 ACR 密码。正式库存提醒会读取 Web 项目的 `users` Table，只给仍在有效期内且有邮件提醒权益的订阅用户发送，并按用户的配送国家过滤站点。`notification-email`/`EMAIL_TO` 只作为本地运行、`send-test` 和生产 Table 临时不可用时的应急回退。价格和 BTU 限制作为普通环境配置传入。
+Scanner 只负责抓取、更新私有 `state.json`/`inventory.json` 并持久化确定性的库存事件，不会枚举用户或等待邮件发送。Container Apps workers 通过 Azure Service Bus Standard 独立扩缩容；用户投影按 32 个 Azure Table partitions 分片并流式读取，因此 subscriber 数量不会拖慢库存扫描。
+
+生产通过相互分离的 Managed Identities 承担 scanner/shared web runtime、outbox publisher、fan-out 和 email delivery；新流水线权限尽量限制到具体 entity/table。Service Bus 消息只保存匿名 user UUID，不保存邮箱、昵称、Stripe/payment 或卡片数据；Email worker 在发送前重新读取最新邮箱、语言、配送国家和订阅权益。`EMAIL_TO` 只属于本地 direct/SMTP mode，不是生产 subscriber 数据源。
+
+Azure Monitor 已启用四条 Service Bus metric alerts，分别监控 dead-letter messages、持续 backlog、throttled requests 和 server errors。生产通过 `aircontrack-operations-alerts` Action Group 通知运维。Receiver 地址只作为 secure foundation parameter `operationsAlertEmail` 传入，通常由本地 `AZURE_OPERATIONS_ALERT_EMAIL` 提供；它不会提交到仓库或保存为 GitHub Actions variable。重复部署 foundation 时，即使没有再次提供该环境变量，脚本也会保留 Action Group 现有 receiver。
+
+完整拓扑、幂等语义、配置、数据保留、扩容限制、部署顺序和运维命令见 [异步提醒流水线](./docs/ALERT_PIPELINE.zh.md)。
 
 ## 本地运行
 
@@ -166,20 +172,22 @@ tail -f ~/airco-tracking/tracker.log ~/airco-tracking/tracker.err.log
 
 ```bash
 cd ~/airco-tracking
-EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
+./scripts/deploy-azure.sh
+./scripts/bootstrap-github-oidc.sh
 ```
 
 脚本会：
 
-1. 创建 ACR、Blob Storage、Key Vault、Container Apps Environment、Managed Identity 和 Communication Services Email。
-2. 使用 ACR 云端构建镜像，本机不需要 Docker。
-3. 创建每 10 分钟运行一次的 Container Apps Job。
-4. 立即启动一次手动执行，便于检查抓取和邮件送达。
+1. 注册所需 Azure resource providers，创建 ACR、Storage、Key Vault、Container Apps Environment、Service Bus Standard、ACS Email 和按职责分离的 Managed Identities。
+2. 创建 `alertoutbox`、`alertrecipients`、`alertdeliveries` Tables，topic/subscription、两条 queues、四条 Service Bus metric alerts 和已配置的运维 Action Group。
+3. 使用 ACR 云端构建镜像，本机不需要 Docker。
+4. 部署 scanner/publisher/reconciler/retention jobs 和三个按 backlog 扩缩容的 worker apps。
+5. 按依赖顺序验证 recipient reconciliation、scanner 和 outbox publisher。真实邮件使用定向的 `pipeline-test` 另行验证，部署脚本不会给全体用户发测试邮件。
 
-Azure RBAC 新角色偶尔需要几分钟传播。如果第一次执行出现 ACR、Blob 或 Communication Services 的 403，请稍等后重新运行：
+Foundation 会创建 RBAC，必须由能创建 role assignments 的本地 Azure principal 运行。GitHub deployer 故意没有这项权限，只部署 application layer。Azure RBAC 新角色偶尔需要几分钟传播；首次出现 ACR、Storage、Service Bus 或 ACS 403 时，请等待后重跑 application deployment：
 
 ```bash
-az containerapp job start --name airco-tracker-job --resource-group airco-tracker-rg
+AZURE_RESOURCE_GROUP=airco-tracker-rg ./scripts/deploy-application.sh
 ```
 
 查看执行和日志：
@@ -210,27 +218,23 @@ az containerapp job logs show \
 
 ### Key Vault 配置加载
 
-正式库存提醒收件人来自 Web 项目的 `users` Table。Key Vault 中的 `notification-email` 仅作为本地运行、`send-test` 或订阅用户表临时不可用时的应急回退地址；已有部署可运行以下脚本迁移或更换这个回退地址：
+正式 fan-out 收件人来自 Web 项目同步维护的 `alertrecipients` Table。用户在 Profile 修改邮箱后会保留稳定 UUID，而 email worker 会在每次发送前按 UUID 点读 canonical 用户，因此投影短暂落后也不会发往旧地址。生产不会读取 `notification-email` 或 `EMAIL_TO` 作为回退；无法核对 canonical 账户时必须 fail closed。
 
-```bash
-./scripts/configure-notification-email.sh
-```
-
-容器通过以下映射和 Managed Identity 读取：
+Key Vault 只保留未来第三方 adapter 的秘密凭据。容器可通过 Managed Identity 和以下映射读取：
 
 ```text
 AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
-KEY_VAULT_SECRET_MAP=EMAIL_TO=notification-email
+KEY_VAULT_SECRET_MAP=PARTNER_API_KEY=partner-api-key
 ```
 
-程序通过 Managed Identity 读取，secret 不进入代码、镜像或 Bicep 参数。若要更换真实订阅用户的收件邮箱，应在 Web 端 Profile 中修改用户邮箱，而不是修改 `notification-email`。
+Secret 不进入代码、镜像、Bicep 参数或 Service Bus 消息。更换订阅邮箱必须通过 Web Profile，不能通过 Key Vault 或部署变量修改。
 
 ## GitHub Actions CI/CD
 
 仓库已为 `ProgrammerAsahi/airco-tracking` 配置两条流水线：
 
 - `.github/workflows/ci.yml`：Pull Request 执行 Python、Shell 和 Bicep 验证。
-- `.github/workflows/deploy.yml`：`main` 推送通过测试后，用 commit SHA 构建不可变镜像并更新 Azure Job。
+- `.github/workflows/deploy.yml`：符合触发条件的 `main` 推送通过测试后，用 commit SHA 构建不可变镜像，并更新 scanner/publisher/reconciler/retention jobs 以及 fan-out/email worker apps。
 
 Azure 登录使用 GitHub OIDC 短期令牌，不创建 Client Secret。联邦身份只信任该仓库的 `main` 分支，并通过 `Airco GitHub Deployer Minimal` 自定义角色获得部署所需的最小权限；它没有目标资源组 Contributor 权限，不能创建角色分配，也不会读取应用的 Key Vault secrets。
 
@@ -244,22 +248,26 @@ az login
 gh auth login
 
 cd ~/airco-tracking
-EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
+./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
 ```
 
-若 `gh` 未安装或未登录，引导脚本会打印以下六个值，请在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 中手动建立：
+若 `gh` 未安装或未登录，引导脚本会打印以下十个值，请在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 中手动建立：
 
 ```text
 AZURE_CLIENT_ID
 AZURE_TENANT_ID
 AZURE_SUBSCRIPTION_ID
 AZURE_RESOURCE_GROUP
+AZURE_PREFIX
 EMAIL_LANG
-KEY_VAULT_SECRET_MAP
+EMAIL_MIN_SEND_INTERVAL_SECONDS
+EMAIL_MAX_REPLICAS
+ACS_EMAIL_DOMAIN_NAME
+DEPLOYMENT_PAUSED
 ```
 
-这些都是标识符或普通配置，不是密码。不要创建或上传 `AZURE_CREDENTIALS`、Client Secret、Subscription Access Token。
+这些都是标识符或普通配置，不是密码。`DEPLOYMENT_PAUSED` 通常为 `false`；维护窗口临时设为 `true` 时，部署会保持 scanner/publisher 暂停且不会主动启动它们做验证。不要创建或上传 `AZURE_CREDENTIALS`、Client Secret、Subscription Access Token。
 
 ### 首次推送
 
@@ -274,7 +282,7 @@ git commit -m "Initial airco tracker with Azure CI/CD"
 git push -u origin main
 ```
 
-`.env`、`.venv`、状态和日志均已被 `.gitignore` 排除。之后每次合并或推送到 `main` 都会部署一次；镜像使用完整 Git commit SHA，不覆盖 `latest`。
+`.env`、`.venv`、状态和日志均已被 `.gitignore` 排除。之后每次符合条件的非文档 `main` 推送都会部署一次；纯文档和仅修改部署 workflow 的 push 会被忽略，必要时可使用 `workflow_dispatch` 发布。镜像使用完整 Git commit SHA，不覆盖 `latest`。
 
 ## 筛选条件
 

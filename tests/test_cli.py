@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from airco_tracker.adapters.registry import AdapterSpec
-from airco_tracker.cli import _mask_email, check
+from airco_tracker.cli import _mask_email, _parser, check
 from airco_tracker.models import Product
 from airco_tracker.subscribers import AlertRecipient
 
@@ -101,6 +101,12 @@ def _patched_adapters(default, *, fail_sites: tuple[str, ...] = (), stock_site: 
 
 
 class CliTests(unittest.TestCase):
+    def test_pipeline_test_accepts_opaque_recipient_ids_without_an_email_lookup(self) -> None:
+        recipient_id = "95bc3d32-8f2e-4cf0-a924-731efb4ebcf2"
+        args = _parser().parse_args(["pipeline-test", "--recipient-id", recipient_id])
+
+        self.assertEqual(args.recipient_id, [recipient_id])
+
     def test_mask_email_keeps_test_output_private(self) -> None:
         self.assertEqual(_mask_email("alice@example.com"), "a***@example.com")
         self.assertEqual(_mask_email(None), "configured recipient")

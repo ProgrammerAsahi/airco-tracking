@@ -87,6 +87,13 @@ def updated_state(
         record = product.to_dict()
         record["last_seen"] = now
         key = product_state_key(product.country, product.url)
+        old_record = records.get(key) or records.get(product.url)
+        old_generation = _availability_generation(old_record)
+        old_alertable = _record_is_alertable(old_record)
+        new_alertable = product.available and not product.presale
+        record["availability_generation"] = (
+            old_generation + 1 if new_alertable and not old_alertable else old_generation
+        )
         if key != product.url:
             records.pop(product.url, None)
         records[key] = record
@@ -109,3 +116,20 @@ def _record_site_id(record: dict[str, Any]) -> str | None:
         return None
     country = normalize_country(str(record.get("country") or DEFAULT_COUNTRY))
     return site_id_for(country, site)
+
+
+def _availability_generation(record: Any) -> int:
+    if not isinstance(record, dict):
+        return 0
+    try:
+        return max(0, int(record.get("availability_generation") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _record_is_alertable(record: Any) -> bool:
+    return (
+        isinstance(record, dict)
+        and bool(record.get("available", False))
+        and not bool(record.get("presale", False))
+    )

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import html
+import hashlib
+import json
 import smtplib
 import ssl
+from datetime import datetime, timezone
+from dataclasses import dataclass
 from email.message import EmailMessage
+from functools import lru_cache
+from email.utils import format_datetime
 
 from .azure_auth import default_azure_credential
 from .config import Config
@@ -53,12 +59,54 @@ def build_message(config: Config, products: list[Product], *, test: bool = False
     return message
 
 
-def send_message(config: Config, message: EmailMessage) -> None:
+@dataclass(frozen=True)
+class SendResult:
+    operation_id: str | None
+    status: str
+
+
+class PermanentEmailError(RuntimeError):
+    """The provider reached a final non-success state for this operation."""
+
+
+def message_fingerprint(
+    config: Config,
+    message: EmailMessage,
+    *,
+    delivery_id: str,
+) -> str:
+    """Hash the exact ACS payload without persisting any recipient PII.
+
+    The delivery ID acts as a per-delivery salt, so fingerprints cannot be
+    correlated across stock events. A retry may reuse its ACS operation ID
+    only while sender, recipient, subject, and both bodies remain identical.
+    """
+    canonical = json.dumps(
+        _acs_payload(config, message),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(f"{delivery_id}\0{canonical}".encode("utf-8")).hexdigest()
+
+
+def send_message(
+    config: Config,
+    message: EmailMessage,
+    *,
+    operation_id: str | None = None,
+    repeatability_first_sent: str | None = None,
+) -> SendResult:
     config.validate_email()
     if config.email_backend == "azure_communication":
-        _send_azure_communication(config, message)
-        return
+        return _send_azure_communication(
+            config,
+            message,
+            operation_id=operation_id,
+            repeatability_first_sent=repeatability_first_sent,
+        )
     _send_smtp(config, message)
+    return SendResult(operation_id=None, status="sent")
 
 
 def _send_smtp(config: Config, message: EmailMessage) -> None:
@@ -79,13 +127,55 @@ def _login_and_send(smtp: smtplib.SMTP, config: Config, message: EmailMessage) -
     smtp.send_message(message)
 
 
-def _send_azure_communication(config: Config, message: EmailMessage) -> None:
+def _send_azure_communication(
+    config: Config,
+    message: EmailMessage,
+    *,
+    operation_id: str | None,
+    repeatability_first_sent: str | None,
+) -> SendResult:
     try:
         from azure.communication.email import EmailClient
     except ImportError as exc:
         raise RuntimeError("Install the 'azure' extra to use Azure Communication Services") from exc
-    client = EmailClient(config.acs_endpoint, default_azure_credential())
-    client.begin_send(_acs_payload(config, message)).result()
+    client = _cached_email_client(config.acs_endpoint)
+    kwargs = {"operation_id": operation_id} if operation_id else {}
+    if operation_id and repeatability_first_sent:
+        kwargs["headers"] = {
+            "Repeatability-Request-ID": operation_id,
+            "Repeatability-First-Sent": _http_datetime(repeatability_first_sent),
+        }
+    # Keep the delivery-ledger lease longer than the client-side wait. If ACS
+    # accepted the operation but the poll timed out, the worker can retry with
+    # the same operation/repeatability IDs without a concurrent second sender.
+    result = client.begin_send(_acs_payload(config, message), **kwargs).result(timeout=180)
+    if isinstance(result, dict):
+        status = str(result.get("status") or "").strip()
+        if status.lower() not in {"succeeded", "accepted"}:
+            error = result.get("error")
+            error_code = str(error.get("code") or "unknown") if isinstance(error, dict) else "unknown"
+            raise PermanentEmailError(f"ACS email operation failed ({error_code[:80]})")
+        return SendResult(
+            operation_id=str(result.get("id") or operation_id or "") or None,
+            status=status,
+        )
+    return SendResult(operation_id=operation_id, status="accepted")
+
+
+@lru_cache(maxsize=4)
+def _cached_email_client(endpoint: str):
+    try:
+        from azure.communication.email import EmailClient
+    except ImportError as exc:
+        raise RuntimeError("Install the 'azure' extra to use Azure Communication Services") from exc
+    return EmailClient(endpoint, default_azure_credential())
+
+
+def _http_datetime(value: str) -> str:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return format_datetime(parsed.astimezone(timezone.utc), usegmt=True)
 
 
 def _acs_payload(config: Config, message: EmailMessage) -> dict:

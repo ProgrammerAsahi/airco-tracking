@@ -40,6 +40,10 @@ def load_alert_recipients(config: Config) -> list[AlertRecipient]:
             LOG.info("No active subscriber recipients found in Azure users table")
             return []
         except Exception as exc:
+            if getattr(config, "app_env", "local") == "azure":
+                raise RuntimeError(
+                    "Cannot load subscriber recipients from Azure users table; refusing legacy fallback"
+                ) from exc
             LOG.warning("Cannot load subscriber recipients from Azure users table: %s", exc)
 
     if config.email_to:
@@ -78,7 +82,7 @@ def _recipient_from_entity(entity: dict[str, Any], *, fallback_lang: str) -> Ale
     email = str(entity.get("email") or "").strip().lower()
     if "@" not in email:
         return None
-    if not _has_email_alert_entitlement(entity):
+    if not has_email_alert_entitlement(entity):
         return None
     language = str(entity.get("languagePreference") or fallback_lang or "zh").strip().lower()
     if not supported_lang(language):
@@ -87,7 +91,7 @@ def _recipient_from_entity(entity: dict[str, Any], *, fallback_lang: str) -> Ale
     return AlertRecipient(email=email, language=language, delivery_country=delivery_country)
 
 
-def _has_email_alert_entitlement(entity: dict[str, Any]) -> bool:
+def has_email_alert_entitlement(entity: dict[str, Any], *, now: datetime | None = None) -> bool:
     plan = str(entity.get("subscriptionPlan") or "").strip()
     status = str(entity.get("subscriptionStatus") or "").strip()
     if plan not in _PAID_PLANS or status not in _ENTITLED_STATUSES:
@@ -97,6 +101,11 @@ def _has_email_alert_entitlement(entity: dict[str, Any]) -> bool:
         return False
     try:
         expires_at = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
-    except ValueError:
+    except (TypeError, ValueError):
         return False
-    return expires_at > datetime.now(timezone.utc)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    return expires_at > reference

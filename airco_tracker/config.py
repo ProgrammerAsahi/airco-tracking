@@ -87,6 +87,22 @@ class Config:
     acs_endpoint: str
     azure_key_vault_url: str
     auth_users_table: str
+    alert_dispatch_backend: str
+    service_bus_namespace: str
+    stock_events_topic: str
+    stock_events_subscription: str
+    fanout_jobs_queue: str
+    email_jobs_queue: str
+    alert_outbox_table: str
+    alert_recipients_table: str
+    alert_deliveries_table: str
+    recipient_shard_count: int
+    recipient_page_size: int
+    email_min_send_interval_seconds: float
+    scanner_lease_seconds: int
+    alert_event_max_age_seconds: int
+    alert_outbox_retention_days: int
+    alert_delivery_retention_days: int
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -118,6 +134,32 @@ class Config:
             acs_endpoint=os.getenv("ACS_ENDPOINT", "").strip(),
             azure_key_vault_url=os.getenv("AZURE_KEY_VAULT_URL", "").strip(),
             auth_users_table=os.getenv("AUTH_USERS_TABLE", "users").strip() or "users",
+            alert_dispatch_backend=os.getenv("ALERT_DISPATCH_BACKEND", "direct").strip().lower(),
+            service_bus_namespace=os.getenv("SERVICE_BUS_NAMESPACE", "").strip(),
+            stock_events_topic=os.getenv("STOCK_EVENTS_TOPIC", "stock-events").strip(),
+            stock_events_subscription=os.getenv(
+                "STOCK_EVENTS_SUBSCRIPTION", "email-fanout"
+            ).strip(),
+            fanout_jobs_queue=os.getenv("FANOUT_JOBS_QUEUE", "email-fanout-jobs").strip(),
+            email_jobs_queue=os.getenv("EMAIL_JOBS_QUEUE", "email-jobs").strip(),
+            alert_outbox_table=os.getenv("ALERT_OUTBOX_TABLE", "alertoutbox").strip(),
+            alert_recipients_table=os.getenv(
+                "ALERT_RECIPIENTS_TABLE", "alertrecipients"
+            ).strip(),
+            alert_deliveries_table=os.getenv(
+                "ALERT_DELIVERIES_TABLE", "alertdeliveries"
+            ).strip(),
+            recipient_shard_count=int(os.getenv("ALERT_RECIPIENT_SHARDS", "32")),
+            recipient_page_size=int(os.getenv("ALERT_RECIPIENT_PAGE_SIZE", "250")),
+            email_min_send_interval_seconds=float(
+                os.getenv("EMAIL_MIN_SEND_INTERVAL_SECONDS", "0")
+            ),
+            scanner_lease_seconds=int(os.getenv("SCANNER_LEASE_SECONDS", "480")),
+            alert_event_max_age_seconds=int(os.getenv("ALERT_EVENT_MAX_AGE_SECONDS", "21600")),
+            alert_outbox_retention_days=int(os.getenv("ALERT_OUTBOX_RETENTION_DAYS", "30")),
+            alert_delivery_retention_days=int(
+                os.getenv("ALERT_DELIVERY_RETENTION_DAYS", "90")
+            ),
         )
 
     def validate_email(self) -> None:
@@ -163,6 +205,42 @@ class Config:
             raise ValueError("STATE_BACKEND must be local or azure_blob")
         if not self.azure_storage_account_url:
             raise ValueError("AZURE_STORAGE_ACCOUNT_URL is required for azure_blob state")
+
+    def validate_alert_pipeline(self) -> None:
+        if self.alert_dispatch_backend == "direct":
+            return
+        if self.alert_dispatch_backend != "service_bus":
+            raise ValueError("ALERT_DISPATCH_BACKEND must be direct or service_bus")
+        missing = [
+            name
+            for name, value in {
+                "SERVICE_BUS_NAMESPACE": self.service_bus_namespace,
+                "AZURE_STORAGE_ACCOUNT_URL": self.azure_storage_account_url,
+                "STOCK_EVENTS_TOPIC": self.stock_events_topic,
+                "STOCK_EVENTS_SUBSCRIPTION": self.stock_events_subscription,
+                "FANOUT_JOBS_QUEUE": self.fanout_jobs_queue,
+                "EMAIL_JOBS_QUEUE": self.email_jobs_queue,
+            }.items()
+            if not value
+        ]
+        if missing:
+            raise ValueError("Missing alert-pipeline configuration: " + ", ".join(missing))
+        if self.recipient_shard_count != 32:
+            raise ValueError(
+                "ALERT_RECIPIENT_SHARDS must be 32 to match the web projection contract"
+            )
+        if self.recipient_page_size <= 0 or self.recipient_page_size > 1000:
+            raise ValueError("ALERT_RECIPIENT_PAGE_SIZE must be between 1 and 1000")
+        if self.email_min_send_interval_seconds < 0:
+            raise ValueError("EMAIL_MIN_SEND_INTERVAL_SECONDS cannot be negative")
+        if self.scanner_lease_seconds <= 0:
+            raise ValueError("SCANNER_LEASE_SECONDS must be positive")
+        if self.alert_event_max_age_seconds <= 0:
+            raise ValueError("ALERT_EVENT_MAX_AGE_SECONDS must be positive")
+        if self.alert_outbox_retention_days <= 0:
+            raise ValueError("ALERT_OUTBOX_RETENTION_DAYS must be positive")
+        if self.alert_delivery_retention_days <= 0:
+            raise ValueError("ALERT_DELIVERY_RETENTION_DAYS must be positive")
 
 def _load_key_vault_secrets() -> None:
     """Optionally hydrate named environment variables from Key Vault.

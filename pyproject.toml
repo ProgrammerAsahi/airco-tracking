@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "airco-tracker"
-version = "0.8.0"
+version = "0.9.0"
 description = "Portable air-conditioner stock tracker for European retailers"
 requires-python = ">=3.9"
 dependencies = [
@@ -19,6 +19,7 @@ azure = [
   "azure-data-tables>=12.5,<13",
   "azure-identity>=1.17,<2",
   "azure-keyvault-secrets>=4.8,<5",
+  "azure-servicebus>=7.12,<8",
   "azure-storage-blob>=12.22,<13",
 ]
 

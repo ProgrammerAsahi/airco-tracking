@@ -78,17 +78,23 @@ Conrad.nl is not enabled yet: ordinary requests from both Azure and local execut
 
 ## Azure architecture
 
-The production environment uses:
+Production alerts are split from the scanner into an asynchronous pipeline:
 
 ```text
-Container Apps Scheduled Job
-  ├─ Managed Identity → Blob Storage (stock state)
-  ├─ Managed Identity → Table Storage (subscribed users, email language, and delivery country)
-  ├─ Managed Identity → Communication Services Email (notifications)
-  └─ Managed Identity → Key Vault (local/emergency fallback recipient and optional third-party credentials)
+Scanner Job (every 10 minutes)
+  └─ Table outbox → Service Bus topic
+       └─ 32 recipient-shard jobs
+            └─ one email job per entitled subscriber
+                 └─ idempotent delivery ledger → ACS Email
 ```
 
-Azure mode stores no mailbox password, Storage key, Communication Services key, or ACR password. Production stock-alert recipients are read from the web app's `users` Table: only active subscribers with email-alert entitlement are notified, and alerts are filtered by each user's delivery country. `notification-email`/`EMAIL_TO` is now only a local-run, `send-test`, and emergency fallback when the production Table is temporarily unavailable. Price and BTU limits remain ordinary environment configuration.
+The scanner only fetches retailers, updates private `state.json`/`inventory.json`, and persists deterministic stock events. It never enumerates users or waits for mail. Container Apps workers scale independently from Azure Service Bus Standard backlog; the recipient projection is spread across 32 Azure Table partitions and streamed page by page, so subscriber growth does not slow inventory scans.
+
+Production uses separate Managed Identities for the scanner/shared web runtime, outbox publisher, fan-out, and email delivery; new pipeline access is narrowed to the relevant entity/table wherever possible. Service Bus messages carry opaque user UUIDs rather than email, nickname, Stripe/payment, or card data. The email worker reloads the current email, language, delivery country, and entitlement immediately before sending. `EMAIL_TO` belongs only to local direct/SMTP mode and is not a production subscriber source.
+
+Azure Monitor has four enabled Service Bus metric alerts for dead-lettered messages, sustained backlog, throttled requests, and server errors. In production they notify the `aircontrack-operations-alerts` Action Group. The receiver address is supplied only as the secure foundation parameter `operationsAlertEmail`, normally through local `AZURE_OPERATIONS_ALERT_EMAIL`; it is never committed or stored as a GitHub Actions variable. Repeat foundation deployments preserve the Action Group's existing receiver when the environment variable is omitted.
+
+See [asynchronous alert pipeline](./docs/ALERT_PIPELINE.md) for the full topology, idempotency model, configuration, retention, scaling limits, deployment order, and runbook.
 
 ## Run locally
 
@@ -165,20 +171,22 @@ Deploy with:
 
 ```bash
 cd ~/airco-tracking
-EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
+./scripts/deploy-azure.sh
+./scripts/bootstrap-github-oidc.sh
 ```
 
 The script:
 
-1. Creates ACR, Blob Storage, Key Vault, a Container Apps Environment, Managed Identity, and Communication Services Email.
-2. Builds the image remotely in ACR, so Docker is not required locally.
-3. Creates a Container Apps Job that runs every ten minutes.
-4. Starts one immediate execution to verify scraping and email delivery.
+1. Registers required Azure resource providers and creates ACR, Storage, Key Vault, a Container Apps Environment, Service Bus Standard, ACS Email, and responsibility-separated Managed Identities.
+2. Creates the `alertoutbox`, `alertrecipients`, and `alertdeliveries` Tables, topic/subscription, two queues, four Service Bus metric alerts, and the configured operations Action Group.
+3. Builds the image remotely in ACR, so Docker is not required locally.
+4. Deploys scanner/publisher/reconciler/retention jobs and three backlog-scaled worker apps.
+5. Verifies recipient reconciliation, scanner, and outbox publisher in dependency order. Real mail is verified separately with a targeted `pipeline-test`; deployment never broadcasts a test to all users.
 
-New Azure RBAC assignments can take a few minutes to propagate. If the first execution gets an ACR, Blob, or Communication Services 403, wait briefly and start it again:
+The foundation creates RBAC and must be run by a local Azure principal allowed to create role assignments. The GitHub deployer deliberately lacks this permission and deploys only the application layer. New RBAC assignments can take a few minutes to propagate. If the first application execution gets an ACR, Storage, Service Bus, or ACS 403, wait and redeploy the application:
 
 ```bash
-az containerapp job start --name airco-tracker-job --resource-group airco-tracker-rg
+AZURE_RESOURCE_GROUP=airco-tracker-rg ./scripts/deploy-application.sh
 ```
 
 List executions and view logs:
@@ -209,27 +217,23 @@ If Docker is installed:
 
 ### Key Vault secret loading
 
-Production stock-alert recipients come from the web app's `users` Table. The `notification-email` secret is only a local-run, `send-test`, or emergency fallback recipient. To migrate or replace that fallback address without committing it or storing it in GitHub, run:
+Production fan-out recipients come from the `alertrecipients` Table synchronized by the web service. A Profile email change preserves the stable UUID, and the email worker point-reads the canonical UUID-keyed user before every send, so a lagging projection cannot send to the old address. Production does not read `notification-email` or `EMAIL_TO` as a fallback: if the canonical account cannot be checked, delivery fails closed.
 
-```bash
-./scripts/configure-notification-email.sh
-```
-
-The script reads the existing GitHub value during migration or prompts without echo, stores it as `notification-email` in Key Vault, and removes the old GitHub value. If a retailer later requires an API key, create another Key Vault secret and extend the mapping:
+Key Vault is reserved for future secret credentials required by third-party adapters. The container may read them through Managed Identity and a mapping such as:
 
 ```text
 AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
 KEY_VAULT_SECRET_MAP=PARTNER_API_KEY=partner-api-key
 ```
 
-The application reads the secret through Managed Identity. The secret never enters source code, the image, or Bicep parameters. To change a real subscriber's alert address, update the user's email from the web Profile page instead of changing `notification-email`.
+Secrets never enter source code, the image, Bicep parameters, or Service Bus messages. Change subscriber addresses through the web Profile, not Key Vault or deployment variables.
 
 ## GitHub Actions CI/CD
 
 The `ProgrammerAsahi/airco-tracking` repository has two workflows:
 
 - `.github/workflows/ci.yml`: validates Python, shell scripts, and Bicep on pull requests.
-- `.github/workflows/deploy.yml`: after a successful test run on a `main` push, builds an immutable image tagged with the commit SHA and updates the Azure Job.
+- `.github/workflows/deploy.yml`: after a successful test run on an eligible `main` push, builds an immutable image tagged with the commit SHA and updates the scanner/publisher/reconciler/retention jobs plus the fan-out and email worker apps.
 
 Azure authentication uses a short-lived GitHub OIDC token and no Client Secret. The federated identity trusts only the `main` branch of this repository and has only the custom `Airco GitHub Deployer Minimal` role needed for deployment. It does not have target resource-group Contributor access, cannot create role assignments, and cannot read application secrets from Key Vault.
 
@@ -243,22 +247,26 @@ az login
 gh auth login
 
 cd ~/airco-tracking
-EMAIL_TO=you@example.com ./scripts/deploy-azure.sh
+./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
 ```
 
-If `gh` is unavailable or not logged in, the bootstrap script prints the following six values. Add them manually under **Settings → Secrets and variables → Actions → Variables**:
+If `gh` is unavailable or not logged in, the bootstrap script prints the following ten values. Add them manually under **Settings → Secrets and variables → Actions → Variables**:
 
 ```text
 AZURE_CLIENT_ID
 AZURE_TENANT_ID
 AZURE_SUBSCRIPTION_ID
 AZURE_RESOURCE_GROUP
+AZURE_PREFIX
 EMAIL_LANG
-KEY_VAULT_SECRET_MAP
+EMAIL_MIN_SEND_INTERVAL_SECONDS
+EMAIL_MAX_REPLICAS
+ACS_EMAIL_DOMAIN_NAME
+DEPLOYMENT_PAUSED
 ```
 
-These values are identifiers or ordinary configuration, not passwords. Do not create or upload `AZURE_CREDENTIALS`, a Client Secret, or a subscription access token.
+These values are identifiers or ordinary configuration, not passwords. `DEPLOYMENT_PAUSED` is normally `false`; setting it temporarily to `true` for a maintenance window preserves the paused scanner/publisher schedules and skips their active verification executions. Do not create or upload `AZURE_CREDENTIALS`, a Client Secret, or a subscription access token.
 
 ### First push
 
@@ -273,7 +281,7 @@ git commit -m "Initial airco tracker with Azure CI/CD"
 git push -u origin main
 ```
 
-`.env`, `.venv`, state, and log files are ignored by Git. Every later merge or push to `main` deploys once. Images use the complete Git commit SHA and never overwrite `latest`.
+`.env`, `.venv`, state, and log files are ignored by Git. Every eligible non-documentation push to `main` deploys once; documentation-only and deployment-workflow-only changes are ignored and can be released with `workflow_dispatch` when needed. Images use the complete Git commit SHA and never overwrite `latest`.
 
 ## Filters
 

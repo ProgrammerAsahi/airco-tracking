@@ -21,7 +21,7 @@ concurrency:
 jobs:
   test-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -62,8 +62,12 @@ jobs:
       - name: Build and deploy immutable image
         env:
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_PREFIX: ${{ vars.AZURE_PREFIX }}
           EMAIL_LANG: ${{ vars.EMAIL_LANG }}
-          KEY_VAULT_SECRET_MAP: ${{ vars.KEY_VAULT_SECRET_MAP }}
+          EMAIL_MIN_SEND_INTERVAL_SECONDS: ${{ vars.EMAIL_MIN_SEND_INTERVAL_SECONDS }}
+          EMAIL_MAX_REPLICAS: ${{ vars.EMAIL_MAX_REPLICAS }}
+          ACS_EMAIL_DOMAIN_NAME: ${{ vars.ACS_EMAIL_DOMAIN_NAME }}
+          DEPLOYMENT_PAUSED: ${{ vars.DEPLOYMENT_PAUSED }}
           IMAGE_TAG: ${{ github.sha }}
         run: ./scripts/deploy-application.sh
 
@@ -75,5 +79,10 @@ jobs:
             echo "## Azure deployment"
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Resource group: \`${AZURE_RESOURCE_GROUP}\`"
-            echo "- Job: \`airco-tracker-job\`"
+            echo "- Scanner: \`airco-tracker-job\`"
+            echo "- Outbox publisher: \`airco-alert-publisher-job\`"
+            echo "- Recipient reconciler: \`airco-alert-reconciler-job\`"
+            echo "- Retention job: \`airco-alert-retention-job\`"
+            echo "- Fan-out apps: \`airco-alert-fanout-coordinator\`, \`airco-alert-fanout-worker\`"
+            echo "- Email app: \`airco-alert-email-worker\`"
           } >> "$GITHUB_STEP_SUMMARY"
