@@ -5,7 +5,7 @@
   <a href="./HANDOFF.md"><img alt="English" src="https://img.shields.io/badge/HANDOFF-English-0969da"></a>
 </p>
 
-Last updated: 2026-07-09 (Europe/Amsterdam)
+Last updated: 2026-07-10 (Europe/Amsterdam)
 
 Update this English file and `HANDOFF.zh.md` together. Do not record secrets, email addresses, access tokens, payment data, or unnecessary personal information.
 
@@ -13,7 +13,7 @@ Update this English file and `HANDOFF.zh.md` together. Do not record secrets, em
 
 Operate a reliable portable-air-conditioner tracker for delivery to Dutch and French addresses, with a country-oriented design ready for more European markets. The scanner runs every ten minutes, keeps the private inventory snapshot current, and produces a stock event only for a first-seen or newly restocked immediate product that passes alert filters.
 
-The current change replaces synchronous per-user sending with an Azure Service Bus Standard pipeline. Subscriber growth must not increase retailer-scan latency, and mail-provider failures must not prevent inventory/state progress.
+The released architecture replaces synchronous per-user sending with an Azure Service Bus Standard pipeline. Subscriber growth does not increase retailer-scan latency, and mail-provider failures do not prevent inventory/state progress.
 
 ## Repository and production
 
@@ -24,10 +24,14 @@ The current change replaces synchronous per-user sending with an Azure Service B
 - Public site: `https://airco-tracker.eu/`
 - Private inventory contract: Blob `airco-tracker/inventory.json`, schema version `1`
 - Scanner job: `airco-tracker-job`, `*/10 * * * *` UTC
+- Publisher job: `airco-alert-publisher-job`, `* * * * *` UTC
 - Production mail provider: Azure Communication Services Email
+- Deployed backend image/commit: `bfe6b407be84831cf961149cc617956945174ab0` (core pipeline commit `cd8acbb2aa9544b2d6c79d072c9a3373323da9f3`)
+- Compatible frontend commit: `715acf223377d6b450a2a594e32eee0515a85797`
+- Successful backend workflow runs: `29060991005` and `29063024406`; successful frontend run: `29061171454`
+- Foundation migration deployment: `airco-foundation-partition-migration-20260710`
+- GitHub production pause variable: `DEPLOYMENT_PAUSED=false`
 - Documentation-only pushes are ignored by the deployment workflow.
-
-At this handoff snapshot the Service Bus implementation is in the coordinated backend/frontend worktrees. Do not mark it released until the exact immutable image SHA, GitHub run, Azure verification executions, targeted delivery event ID/status, and queue/DLQ counts have been recorded here after rollout.
 
 ## Asynchronous alert pipeline
 
@@ -58,6 +62,7 @@ The backend reconciler supports deterministic UUID backfill for legacy rows, rec
 
 - Production uses Entra ID/OAuth and user-assigned Managed Identity. Service Bus and ACS local authentication are disabled; Storage defaults to OAuth and the Blob container is private.
 - Scanner/shared web runtime, publisher, fan-out, and email delivery use separate identities. New pipeline permissions are entity/table-scoped wherever Azure RBAC permits. GitHub deploys with OIDC and a custom least-privilege role; it cannot create role assignments or read application secrets.
+- The old storage-account-wide `Storage Table Data Contributor` assignment has been removed. The shared runtime retains only the required per-table contributor/reader assignments plus its Blob role; production OTP, profile/projection writes, logout, retention, and scanner execution all passed after removal.
 - Queue messages never contain an email address, nickname, Stripe/customer/payment identifiers, card data, or the private canonical source-row pointer. `alertdeliveries` also stores no address.
 - The email address exists only in canonical `users` and the minimal `alertrecipients` projection. The email worker resolves it immediately before sending and logs only a masked form.
 - Production has no `EMAIL_TO`/`notification-email` fallback. Failure to read current entitlement/address must fail closed.
@@ -85,29 +90,16 @@ The current Azure-managed ACS sender domain is the limiting component: approxima
 - Conrad storefront access is Cloudflare-blocked. Use only the official Price & Availability API after allowlist/approval; never restore anti-bot scraping.
 - AliExpress affiliate access was approved, but Open Platform application/key/official signing status must be reconfirmed before implementation. Read only catalog/affiliate scopes; do not collect buyer, order, payment, or other personal data.
 
-## Verification required for this release
+## Verification completed for this release
 
-Run from the backend root:
-
-```bash
-.venv/bin/python -m unittest discover -v
-PYTHONPYCACHEPREFIX=/tmp/airco-pycache .venv/bin/python -m compileall -q airco_tracker tests
-bash -n scripts/*.sh
-az bicep build --file infra/foundation.bicep --stdout >/dev/null
-az bicep build --file infra/job.bicep --stdout >/dev/null
-git diff --check
-.venv/bin/python -m airco_tracker check --dry-run
-```
-
-Run from `~/airco-tracking-web` because the recipient projection is a cross-repository change:
-
-```bash
-pnpm test
-pnpm typecheck
-pnpm build
-```
-
-For the real targeted test, follow the Managed-Identity one-time execution procedure in `ALERT_PIPELINE.md`: reconcile recipients, invoke `pipeline-test` on the deployed publisher job with authorized opaque `--recipient-id` values, and let the production workers consume it. Do not grant a personal principal temporary data-plane roles. Completion requires each targeted delivery to reach `sent`, inbox receipt to be confirmed, and active/dead-letter counts on the subscription and both queues to return to zero. Never record recipient addresses in this handoff.
+- Backend: 169/169 unit tests, compileall, shell syntax, both Bicep entry points, and `git diff --check` passed.
+- Frontend: 59/59 tests, typecheck, production build, Bicep/deployment verification, and production HTTP checks passed.
+- GitHub deployed immutable SHAs successfully. The Service Bus topic and both queues are `Active`, partitioned, and use seven-day duplicate detection; the subscription uses a five-minute lock and `maxDeliveryCount=8`.
+- Targeted production event `f13967a78d7da2d2c1590d419fffbe969cdd4864175b2a8132cef8afc8a133c6` ran as `airco-alert-publisher-job-8e1cnu7`. Deliveries `3595247c55c2…` and `21514ad2068d…` reached `sent`, ACS accepted both, and both authorized inboxes received them. No recipient address is recorded here.
+- A preceding fail-closed preflight exposed legacy rows without canonical UUID source pointers. It sent no mail; commit `bfe6b40` added strict legacy source-row resolution before the successful targeted run.
+- After removing the broad Storage Table role, a real OTP login, language write/restore, projection sync, and logout all returned 200. Retention execution `airco-alert-retention-job-6u70ukl` and scanner execution `airco-tracker-job-ncdtvul` succeeded; the scanner saved 75 available products across 45 sites and persisted four real outbox transitions.
+- Restoring normal schedules drove those transitions through the pipeline (fan-out backlog peaked at 128 and email backlog at 2). ACS accepted deliveries `3548668d33cb…` and `00eda20addd6…`; final active, scheduled, transfer-DLQ, and DLQ counts were zero on the subscription and both queues.
+- Final custom-domain checks: `/`, `/health`, and `www` health returned 200; anonymous `/api/inventory` returned 401 as required.
 
 ## Deployment order
 
@@ -124,11 +116,9 @@ For normal application releases, pushing `main` runs tests, builds an immutable 
 
 ## Next concrete steps
 
-1. Complete full backend and frontend verification and compile/validate both Bicep entry points.
-2. Deploy foundation/RBAC first, rerun OIDC bootstrap, then push/deploy both coordinated repositories.
-3. Run the Managed-Identity targeted real-mail test for both authorized accounts; record non-PII evidence and queue/DLQ health.
-4. Verify a customer-managed `airco-tracker.eu` ACS domain and request a production quota increase before onboarding users at scale.
-5. Add Azure Monitor alert rules for nonzero DLQ, sustained queue age/backlog, stale pending outbox rows, Service Bus errors/throttling, delivery failure spikes, and ACS quota responses.
+1. Verify a customer-managed `airco-tracker.eu` ACS domain and request a production quota increase before onboarding users at scale.
+2. Keep the four deployed Service Bus namespace alerts enabled; add application-level alerts for stale pending outbox rows, delivery-failure spikes, ACS `429` responses, and a scheduled end-to-end inbox canary.
+3. Monitor the latest scanner warning for GAMMA and KARWEI parser drift while their last successful inventory remains safely marked stale.
 
 ## Updating this handoff
 

@@ -82,7 +82,7 @@ Update the frontend server validator, browser types, fixture, tests, and handoff
 3. Run unit tests, compile checks, and `git diff --check`.
 4. For retailer changes, perform a live `--dry-run` and inspect retailer counts/errors.
 5. For inventory contract changes, verify both repositories and keep schema versioning explicit.
-6. Update all three READMEs when supported sites, configuration, or deployment behavior changes.
+6. Update both READMEs when supported sites, configuration, or deployment behavior changes.
 7. Update `docs/HANDOFF.md` whenever current status, deployed commit, external review state, frontend contract, next task, or blockers change.
 8. Commit, push, deploy, or start production jobs only when the user's request authorizes those actions.
 

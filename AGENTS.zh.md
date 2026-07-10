@@ -82,7 +82,7 @@ node scripts/verify-deployment.mjs http://127.0.0.1:4174
 3. 运行 unit tests、compile checks 和 `git diff --check`。
 4. 零售商变更需要执行 live `--dry-run` 并检查 retailer counts/errors。
 5. 库存 contract 变化需要验证两个仓库并保持 schema versioning 明确。
-6. 支持站点、配置或部署行为变化时，更新所有三个 README。
+6. 支持站点、配置或部署行为变化时，更新中英两个 README。
 7. 当前状态、已部署 commit、外部审核状态、前端 contract、下一项任务或 blocker 变化时，更新 `docs/HANDOFF.md` 及其语言版本。
 8. 只有用户请求授权时，才 commit、push、deploy 或启动生产 job。
 
