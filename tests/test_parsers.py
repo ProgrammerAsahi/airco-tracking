@@ -5,6 +5,7 @@ import html as html_module
 import json
 import unittest
 
+import requests
 from bs4 import BeautifulSoup
 
 from airco_tracker.adapters.nl.action import ActionAdapter, _parse_product_page as parse_action_page
@@ -136,6 +137,28 @@ class SitemapFetcher:
 
     def get(self, url):
         return self.pages[url]
+
+
+class RateLimitedDiyFetcher:
+    def __init__(self, sitemap, catalog_payload=None):
+        self.timeout = 25
+        self.sitemap = sitemap
+        self.session = CatalogSession(catalog_payload or {})
+
+    def get(self, url):
+        if url.startswith("https://sitemap."):
+            return self.sitemap
+        raise requests.exceptions.RetryError("too many 429 error responses")
+
+
+def diy_product_sitemap(host, *extra_slugs):
+    slugs = [f"ordinary-product-{index}" for index in range(100)]
+    slugs.extend(extra_slugs)
+    urls = "".join(
+        f"<url><loc>https://{host}/assortiment/{slug}/p/B{index:06d}</loc></url>"
+        for index, slug in enumerate(slugs)
+    )
+    return f"<urlset>{urls}</urlset>"
 
 
 class ParserTests(unittest.TestCase):
@@ -797,6 +820,117 @@ class ParserTests(unittest.TestCase):
         adapter = KarweiAdapter(CatalogFetcher("<main>Airco</main>", {}))
         with self.assertRaisesRegex(RuntimeError, "no supported product tiles"):
             adapter.fetch_products()
+
+    def test_gamma_uses_official_sitemap_for_rate_limited_empty_season(self) -> None:
+        sitemap = diy_product_sitemap(
+            "www.gamma.nl",
+            "eurom-afvoer-voor-mobiele-airco-window-way-out",
+            "raamafdichting-voor-mobiele-airco",
+        )
+        sitemap = sitemap.replace(
+            "</urlset>",
+            (
+                "<url><loc>https://www.gamma.nl/assortiment/boorhamer-huren/"
+                "r/BOR123</loc></url></urlset>"
+            ),
+        )
+        products = GammaAdapter(RateLimitedDiyFetcher(sitemap)).fetch_products()
+        self.assertEqual(products, [])
+
+    def test_karwei_uses_official_sitemap_for_rate_limited_empty_season(self) -> None:
+        sitemap = diy_product_sitemap(
+            "www.karwei.nl", "eurom-afvoer-voor-mobiele-airco-window-way-out"
+        )
+        products = KarweiAdapter(RateLimitedDiyFetcher(sitemap)).fetch_products()
+        self.assertEqual(products, [])
+
+    def test_rate_limited_category_with_sitemap_candidate_fails_closed(self) -> None:
+        sitemap = diy_product_sitemap(
+            "www.gamma.nl", "qlima-mobiele-airco-p-522"
+        )
+        adapter = GammaAdapter(RateLimitedDiyFetcher(sitemap))
+        with self.assertRaisesRegex(RuntimeError, "refusing to replace inventory"):
+            adapter.fetch_products()
+
+    def test_rate_limited_gamma_uses_public_catalogue_stock_contract(self) -> None:
+        sitemap = diy_product_sitemap("www.gamma.nl")
+        payload = {
+            "hits": [
+                {
+                    "name": "Qlima mobiele airco P 528",
+                    "url": "/assortiment/qlima-mobiele-airco-p-528/p/B123456",
+                    "purchasableOnline": True,
+                    "temporaryOutOfStock": False,
+                    "hasStock": True,
+                    "stockQuantity": 4,
+                    "availability": ["Online te koop"],
+                    "description": "12000 BTU",
+                },
+                {
+                    "name": "Eurom afvoer voor mobiele airco",
+                    "url": "/assortiment/eurom-afvoer/p/B654321",
+                },
+            ],
+            "nbHits": 2,
+            "processingTimeMS": 8,
+        }
+        fetcher = RateLimitedDiyFetcher(sitemap, payload)
+        products = GammaAdapter(fetcher).fetch_products()
+        self.assertEqual(len(products), 1)
+        self.assertTrue(products[0].available)
+        self.assertEqual(products[0].btu, 12000)
+        self.assertIn("prd_products_ms_gamma_nl", fetcher.session.post_calls[0][0])
+        request = fetcher.session.post_calls[0][1]
+        self.assertEqual(request["json"]["hitsPerPage"], 100)
+        self.assertEqual(
+            request["json"]["facetFilters"],
+            ["slugs:/verwarming-isolatie-ventilatie/airco-ventilatoren/airco"],
+        )
+
+    def test_public_catalogue_candidate_with_stock_schema_drift_fails_closed(self) -> None:
+        sitemap = diy_product_sitemap(
+            "www.karwei.nl", "qlima-mobiele-airco-p-528"
+        )
+        payload = {
+            "hits": [
+                {
+                    "name": "Qlima mobiele airco P 528",
+                    "url": "/assortiment/qlima-mobiele-airco-p-528/p/B123456",
+                }
+            ],
+            "nbHits": 1,
+            "processingTimeMS": 4,
+        }
+        adapter = KarweiAdapter(RateLimitedDiyFetcher(sitemap, payload))
+        with self.assertRaisesRegex(RuntimeError, "refusing to replace inventory"):
+            adapter.fetch_products()
+
+    def test_rate_limited_empty_or_wrong_sitemap_fails_closed(self) -> None:
+        invalid_sitemaps = (
+            "<urlset></urlset>",
+            "<sitemapindex><sitemap><loc>https://sitemap.gamma.nl/product.xml</loc></sitemap></sitemapindex>",
+            diy_product_sitemap("example.com"),
+        )
+        for sitemap in invalid_sitemaps:
+            with self.subTest(sitemap=sitemap[:30]):
+                with self.assertRaisesRegex(RuntimeError, "sitemap"):
+                    GammaAdapter(RateLimitedDiyFetcher(sitemap)).fetch_products()
+
+    def test_empty_public_catalogue_requires_valid_sitemap_confirmation(self) -> None:
+        payload = {"hits": [], "nbHits": 0, "processingTimeMS": 2}
+        products = GammaAdapter(
+            RateLimitedDiyFetcher(
+                diy_product_sitemap("www.gamma.nl"), catalog_payload=payload
+            )
+        ).fetch_products()
+        self.assertEqual(products, [])
+
+    def test_portable_split_names_are_included_but_accessories_are_not(self) -> None:
+        adapter = GammaAdapter(CatalogFetcher("", {}))
+        self.assertTrue(adapter.is_portable_airco("Midea PortaSplit airco"))
+        self.assertTrue(adapter.is_portable_airco("Qlima QsplitMini mini split airco"))
+        self.assertFalse(adapter.is_portable_airco("Afvoerslang voor Midea PortaSplit"))
+        self.assertFalse(adapter.is_portable_airco("Qlima split airco SC 6126"))
 
     def test_praxis_requires_current_home_delivery(self) -> None:
         state = {
