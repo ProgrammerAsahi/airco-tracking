@@ -28,6 +28,8 @@ _DELIVERY_AUTHORITY_FIELDS = [
     "subscriptionPlan",
     "subscriptionStatus",
     "subscriptionCurrentPeriodEnd",
+    "emailAlertsEnabled",
+    "emailAlertsTokenVersion",
     "updatedAt",
 ]
 _PROJECTION_AUTHORITY_FIELDS = ["PartitionKey", "RowKey", "sourceUserRowKey"]
@@ -43,6 +45,7 @@ class ProjectedRecipient:
     status: str
     entitlement_end: str
     enabled: bool
+    unsubscribe_token_version: int = 1
 
     def entitled(self, *, now: datetime | None = None) -> bool:
         if (
@@ -184,6 +187,7 @@ class RecipientProjection:
             select=[
                 "RowKey", "email", "language", "deliveryCountry", "subscriptionPlan",
                 "plan", "status", "currentPeriodEnd", "entitlementEnd", "enabled",
+                "unsubscribeTokenVersion",
             ],
         ).by_page()
         for page in pages:
@@ -361,6 +365,9 @@ def _projection_entity(
         "status": status,
         "currentPeriodEnd": entitlement_end,
         "enabled": enabled,
+        "unsubscribeTokenVersion": max(
+            1, _nonnegative_revision(user.get("emailAlertsTokenVersion"))
+        ),
         "sourceRevision": source_revision,
         # Preserve the canonical user's timestamp so the repair job can never
         # overwrite a newer synchronous web projection with an older snapshot.
@@ -386,6 +393,9 @@ def _projected_from_entity(entity: dict[str, Any]) -> ProjectedRecipient:
         status=str(entity.get("status") or "none"),
         entitlement_end=str(entity.get("currentPeriodEnd") or entity.get("entitlementEnd") or ""),
         enabled=bool(entity.get("enabled", False)),
+        unsubscribe_token_version=max(
+            1, _nonnegative_revision(entity.get("unsubscribeTokenVersion"))
+        ),
     )
 
 

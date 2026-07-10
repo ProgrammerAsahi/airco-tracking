@@ -92,6 +92,11 @@ def _recipient_from_entity(entity: dict[str, Any], *, fallback_lang: str) -> Ale
 
 
 def has_email_alert_entitlement(entity: dict[str, Any], *, now: datetime | None = None) -> bool:
+    # Missing means enabled for profiles created before the preference was
+    # introduced. An explicit false is an independent opt-out and never
+    # changes the user's paid subscription or realtime inventory access.
+    if entity.get("emailAlertsEnabled") is False:
+        return False
     plan = str(entity.get("subscriptionPlan") or "").strip()
     status = str(entity.get("subscriptionStatus") or "").strip()
     if plan not in _PAID_PLANS or status not in _ENTITLED_STATUSES:

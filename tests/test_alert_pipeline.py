@@ -14,7 +14,14 @@ from azure.servicebus.exceptions import MessageSizeExceededError
 
 from airco_tracker.adapters.registry import AdapterSpec
 from airco_tracker.alert_events import EmailJob, FanoutShardJob, StockAvailableEvent, recipient_shard
-from airco_tracker.alert_pipeline import EmailWorker, FanoutWorker, PermanentMessageError
+from airco_tracker.alert_pipeline import (
+    EmailWorker,
+    FanoutWorker,
+    PermanentMessageError,
+    _validate_email_worker_runtime,
+    purge_delivery_report_dead_letters,
+    run_delivery_report_worker,
+)
 from airco_tracker.cli import check
 from airco_tracker.deliveries import DeliveryClaim
 from airco_tracker.mailer import SendResult
@@ -315,8 +322,22 @@ class EmailWorkerTests(unittest.TestCase):
             email_from="sender@example.com",
             email_to="stale-address@example.com",
             email_lang="zh",
+            email_unsubscribe_signing_key="test-signing-secret-that-is-at-least-32-bytes",
         )
-        return EmailWorker(config, outbox=outbox, recipients=recipients, ledger=ledger), ledger
+        message_index = MagicMock()
+        suppressions = MagicMock()
+        suppressions.is_suppressed.return_value = False
+        return (
+            EmailWorker(
+                config,
+                outbox=outbox,
+                recipients=recipients,
+                ledger=ledger,
+                message_index=message_index,
+                suppressions=suppressions,
+            ),
+            ledger,
+        )
 
     def test_email_worker_uses_latest_projected_address_and_marks_sent(self) -> None:
         event = _event(coverage={"fr"})
@@ -340,13 +361,15 @@ class EmailWorkerTests(unittest.TestCase):
         self.assertEqual(message_config.email_to, "new-address@example.com")
         self.assertEqual(message_config.email_lang, "en")
         self.assertEqual(send.call_args.kwargs["operation_id"], "operation-1")
+        self.assertIsNotNone(build.call_args.kwargs["unsubscribe_token"])
         self.assertEqual(
             send.call_args.kwargs["repeatability_first_sent"],
             "2026-07-09T12:00:00+00:00",
         )
-        ledger.mark_sent.assert_called_once_with(
+        ledger.mark_accepted.assert_called_once_with(
             job,
             acs_status="accepted",
+            acs_message_id="operation-1",
             claim_owner="claim-1",
         )
 
@@ -472,7 +495,7 @@ class EmailWorkerTests(unittest.TestCase):
             attempt=1,
             delay_override=None,
         )
-        ledger.mark_sent.assert_not_called()
+        ledger.mark_accepted.assert_not_called()
 
     def test_email_worker_abandons_original_if_retry_scheduling_fails(self) -> None:
         event = _event(coverage={"fr"})
@@ -558,7 +581,7 @@ class EmailWorkerTests(unittest.TestCase):
         build.assert_not_called()
         send.assert_not_called()
         schedule.assert_not_called()
-        ledger.mark_sent.assert_not_called()
+        ledger.mark_accepted.assert_not_called()
 
     def test_production_email_suppresses_a_missing_delivery_country(self) -> None:
         event = _event(coverage={"fr"})
@@ -577,6 +600,58 @@ class EmailWorkerTests(unittest.TestCase):
         )
         ledger.claim.assert_called_once_with(job, count_attempt=False)
         send.assert_not_called()
+
+    def test_email_worker_runtime_fails_fast_without_unsubscribe_configuration(self) -> None:
+        with self.assertRaisesRegex(ValueError, "EMAIL_UNSUBSCRIBE_SIGNING_KEY"):
+            _validate_email_worker_runtime(
+                SimpleNamespace(
+                    email_unsubscribe_signing_key="short",
+                    app_base_url="https://airco-tracker.eu",
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "APP_BASE_URL"):
+            _validate_email_worker_runtime(
+                SimpleNamespace(
+                    email_unsubscribe_signing_key="x" * 32,
+                    app_base_url="http://airco-tracker.eu",
+                )
+            )
+
+
+class DeliveryReportQueueTests(unittest.TestCase):
+    def test_invalid_provider_event_is_completed_instead_of_entering_no_ttl_dlq(self) -> None:
+        captured = {}
+
+        def run_receiver(_config, *, handler, **_kwargs):
+            captured["result"] = handler(b"not-json", None)
+            return 1
+
+        with (
+            patch("airco_tracker.alert_pipeline.DeliveryReportWorker"),
+            patch("airco_tracker.alert_pipeline._run_receiver", side_effect=run_receiver),
+        ):
+            self.assertEqual(run_delivery_report_worker(SimpleNamespace(), once=True), 1)
+
+        self.assertIsNone(captured["result"])
+
+    def test_delivery_report_dlq_cleanup_uses_receive_and_delete(self) -> None:
+        receiver = MagicMock()
+        receiver.receive_messages.side_effect = [[MagicMock(), MagicMock()], []]
+        client = MagicMock()
+        client.get_queue_receiver.return_value.__enter__.return_value = receiver
+        client.get_queue_receiver.return_value.__exit__.return_value = False
+
+        @contextmanager
+        def fake_client(_config):
+            yield client
+
+        config = SimpleNamespace(delivery_events_queue="acs-email-delivery-events")
+        with patch("airco_tracker.alert_pipeline.service_bus_client", side_effect=fake_client):
+            self.assertEqual(purge_delivery_report_dead_letters(config, limit=10), 2)
+
+        kwargs = client.get_queue_receiver.call_args.kwargs
+        self.assertEqual(kwargs["queue_name"], "acs-email-delivery-events")
+        self.assertEqual(str(kwargs["receive_mode"]), "ServiceBusReceiveMode.RECEIVE_AND_DELETE")
 
 
 class _CapacityBatch:

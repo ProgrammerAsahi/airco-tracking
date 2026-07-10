@@ -5,11 +5,12 @@ import hashlib
 import json
 import smtplib
 import ssl
+from email.utils import format_datetime, getaddresses
+from urllib.parse import quote
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from email.message import EmailMessage
 from functools import lru_cache
-from email.utils import format_datetime
 
 from .azure_auth import default_azure_credential
 from .config import Config
@@ -17,11 +18,20 @@ from .i18n import translate
 from .models import Product
 
 
-def build_message(config: Config, products: list[Product], *, test: bool = False) -> EmailMessage:
+def build_message(
+    config: Config,
+    products: list[Product],
+    *,
+    test: bool = False,
+    unsubscribe_token: str | None = None,
+) -> EmailMessage:
     lang = config.email_lang
     message = EmailMessage()
     message["From"] = config.email_from
     message["To"] = config.email_to
+    reply_to = getattr(config, "email_reply_to", "").strip()
+    if reply_to:
+        message["Reply-To"] = reply_to
     if test:
         message["Subject"] = translate(lang, "subject_test")
         message.set_content(translate(lang, "test_body"))
@@ -48,14 +58,37 @@ def build_message(config: Config, products: list[Product], *, test: bool = False
         )
     footer = translate(lang, "body_footer")
     lines.append(footer)
+    unsubscribe_url = ""
+    app_base_url = getattr(config, "app_base_url", "").strip().rstrip("/")
+    if unsubscribe_token and app_base_url:
+        unsubscribe_url = f"{app_base_url}/unsubscribe?token={quote(unsubscribe_token, safe='')}"
+        lines.extend(
+            [
+                "",
+                translate(lang, "unsubscribe_text"),
+                unsubscribe_url,
+            ]
+        )
     message.set_content("\n".join(lines))
     message.add_alternative(
         f"<h2>{html.escape(translate(lang, 'html_title'))}</h2><ul>"
         + "".join(cards)
         + "</ul>"
-        + f"<p>{html.escape(footer)}</p>",
+        + f"<p>{html.escape(footer)}</p>"
+        + (
+            "<p style='color:#607789;font-size:13px'>"
+            f"{html.escape(translate(lang, 'unsubscribe_text'))} "
+            f"<a href='{html.escape(unsubscribe_url, quote=True)}'>"
+            f"{html.escape(translate(lang, 'unsubscribe_link'))}</a></p>"
+            if unsubscribe_url
+            else ""
+        ),
         subtype="html",
     )
+    if unsubscribe_url:
+        api_url = f"{app_base_url}/api/alerts/unsubscribe?token={quote(unsubscribe_token, safe='')}"
+        message["List-Unsubscribe"] = f"<{api_url}>"
+        message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     return message
 
 
@@ -187,8 +220,20 @@ def _acs_payload(config: Config, message: EmailMessage) -> dict:
     }
     if html_body:
         content["html"] = html_body.get_content()
-    return {
+    payload = {
         "senderAddress": config.email_from,
         "recipients": {"to": [{"address": config.email_to}]},
         "content": content,
+        "userEngagementTrackingDisabled": True,
     }
+    reply_to = [address for _name, address in getaddresses(message.get_all("Reply-To", [])) if address]
+    if reply_to:
+        payload["replyTo"] = [{"address": address} for address in reply_to]
+    custom_headers = {
+        name: str(message[name])
+        for name in ("List-Unsubscribe", "List-Unsubscribe-Post")
+        if message[name]
+    }
+    if custom_headers:
+        payload["headers"] = custom_headers
+    return payload

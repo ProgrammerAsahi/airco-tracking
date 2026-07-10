@@ -36,7 +36,15 @@ def load_translations(scope: str) -> dict[str, dict[str, str]]:
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "").strip()
     if account_url:
         try:
-            return _load_from_table(account_url, scope)
+            # Bundled strings are the schema/defaults; Table Storage is an
+            # optional runtime override. This makes newly deployed keys safe
+            # before the separate seed job has populated every language.
+            merged = _load_from_local(scope)
+            for key, translations in _load_from_table(account_url, scope).items():
+                merged.setdefault(key, {}).update(
+                    {lang: value for lang, value in translations.items() if value}
+                )
+            return merged
         except Exception as exc:
             LOG.warning("Cannot load i18n from Azure Table for scope %s: %s", scope, exc)
     return _load_from_local(scope)
@@ -62,7 +70,7 @@ def _load_from_table(account_url: str, scope: str) -> dict[str, dict[str, str]]:
         }
     if not translations:
         LOG.warning("Azure Table 'i18n' returned no entities for scope %s; using local", scope)
-        return _load_from_local(scope)
+        return {}
     return translations
 
 

@@ -10,21 +10,29 @@ param reconcilerJobName string = 'airco-alert-reconciler-job'
 @maxLength(32)
 param cleanupJobName string = 'airco-alert-retention-job'
 @maxLength(32)
+param deliveryDlqCleanupJobName string = 'airco-delivery-dlq-cleanup'
+@maxLength(32)
 param coordinatorAppName string = 'airco-alert-fanout-coordinator'
 @maxLength(32)
 param fanoutAppName string = 'airco-alert-fanout-worker'
 @maxLength(32)
 param emailAppName string = 'airco-alert-email-worker'
+@maxLength(32)
+param deliveryReportAppName string = 'airco-alert-delivery-worker'
 param containerEnvironmentName string
 param acrName string
 param identityName string
 param publisherIdentityName string
 param fanoutIdentityName string
 param emailIdentityName string
+param deliveryReportIdentityName string
 param storageAccountName string
 param serviceBusNamespaceName string
 param communicationServiceName string
+param keyVaultUrl string
 param emailFrom string
+param emailReplyTo string = 'support@airco-tracker.eu'
+param appBaseUrl string = 'https://airco-tracker.eu'
 @allowed([
   'zh'
   'nl'
@@ -36,6 +44,7 @@ param scannerCronExpression string = '*/10 * * * *'
 param publisherCronExpression string = '* * * * *'
 param reconcilerCronExpression string = '17 3 * * *'
 param cleanupCronExpression string = '17 2 * * *'
+param deliveryDlqCleanupCronExpression string = '43 2 * * *'
 param countries string = 'nl,fr'
 param minBtu string = '7000'
 param maxPriceEur string = '1500'
@@ -72,6 +81,10 @@ resource emailIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01
   name: emailIdentityName
 }
 
+resource deliveryReportIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: deliveryReportIdentityName
+}
+
 var storageUrl = 'https://${storageAccountName}.blob.${environment().suffixes.storage}'
 var serviceBusNamespace = '${serviceBusNamespaceName}.servicebus.windows.net'
 var pipelineNamesEnv = [
@@ -82,11 +95,14 @@ var pipelineNamesEnv = [
   { name: 'STOCK_EVENTS_SUBSCRIPTION', value: 'email-fanout' }
   { name: 'FANOUT_JOBS_QUEUE', value: 'email-fanout-jobs' }
   { name: 'EMAIL_JOBS_QUEUE', value: 'email-jobs' }
+  { name: 'ACS_DELIVERY_EVENTS_QUEUE', value: 'acs-email-delivery-events' }
   { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storageUrl }
   { name: 'AUTH_USERS_TABLE', value: 'users' }
   { name: 'ALERT_OUTBOX_TABLE', value: 'alertoutbox' }
   { name: 'ALERT_RECIPIENTS_TABLE', value: 'alertrecipients' }
   { name: 'ALERT_DELIVERIES_TABLE', value: 'alertdeliveries' }
+  { name: 'ALERT_DELIVERY_INDEX_TABLE', value: 'alertdeliveryindex' }
+  { name: 'ALERT_SUPPRESSIONS_TABLE', value: 'alertsuppression' }
   { name: 'ALERT_RECIPIENT_SHARDS', value: recipientShardCount }
   { name: 'ALERT_RECIPIENT_PAGE_SIZE', value: recipientPageSize }
   { name: 'ALERT_EVENT_MAX_AGE_SECONDS', value: '21600' }
@@ -271,6 +287,47 @@ resource cleanupJob 'Microsoft.App/jobs@2025-01-01' = {
   }
 }
 
+resource deliveryDlqCleanupJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: deliveryDlqCleanupJobName
+  location: resourceGroup().location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${deliveryReportIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: containerEnvironment.id
+    configuration: {
+      registries: [
+        { identity: deliveryReportIdentity.id, server: registry.properties.loginServer }
+      ]
+      replicaRetryLimit: 2
+      replicaTimeout: 300
+      scheduleTriggerConfig: {
+        cronExpression: deliveryDlqCleanupCronExpression
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      triggerType: 'Schedule'
+    }
+    template: {
+      containers: [
+        {
+          name: 'delivery-report-dlq-cleanup'
+          image: containerImage
+          command: [ 'airco-tracker' ]
+          args: [ 'purge-delivery-report-dlq', '--limit', '5000' ]
+          env: concat(pipelineNamesEnv, [
+            { name: 'AZURE_CLIENT_ID', value: deliveryReportIdentity.properties.clientId }
+          ])
+          resources: { cpu: json('0.25'), memory: '0.5Gi' }
+        }
+      ]
+    }
+  }
+}
+
 resource coordinatorApp 'Microsoft.App/containerApps@2025-01-01' = {
   name: coordinatorAppName
   location: resourceGroup().location
@@ -408,7 +465,11 @@ resource emailApp 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'AZURE_CLIENT_ID', value: emailIdentity.properties.clientId }
             { name: 'EMAIL_BACKEND', value: 'azure_communication' }
             { name: 'EMAIL_FROM', value: emailFrom }
+            { name: 'EMAIL_REPLY_TO', value: emailReplyTo }
             { name: 'EMAIL_LANG', value: emailLang }
+            { name: 'APP_BASE_URL', value: appBaseUrl }
+            { name: 'AZURE_KEY_VAULT_URL', value: keyVaultUrl }
+            { name: 'KEY_VAULT_SECRET_MAP', value: 'EMAIL_UNSUBSCRIBE_SIGNING_KEY=unsubscribe-signing-key' }
             { name: 'ACS_ENDPOINT', value: 'https://${communicationServiceName}.communication.azure.com' }
             { name: 'EMAIL_MIN_SEND_INTERVAL_SECONDS', value: emailMinSendIntervalSeconds }
           ])
@@ -441,10 +502,66 @@ resource emailApp 'Microsoft.App/containerApps@2025-01-01' = {
   }
 }
 
+resource deliveryReportApp 'Microsoft.App/containerApps@2025-01-01' = {
+  name: deliveryReportAppName
+  location: resourceGroup().location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${deliveryReportIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: containerEnvironment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      registries: [
+        { identity: deliveryReportIdentity.id, server: registry.properties.loginServer }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'delivery-report-worker'
+          image: containerImage
+          command: [ 'airco-tracker' ]
+          args: [ 'delivery-report-worker' ]
+          env: concat(pipelineNamesEnv, [
+            { name: 'AZURE_CLIENT_ID', value: deliveryReportIdentity.properties.clientId }
+          ])
+          resources: { cpu: json('0.25'), memory: '0.5Gi' }
+        }
+      ]
+      scale: {
+        minReplicas: 0
+        maxReplicas: 4
+        pollingInterval: 15
+        cooldownPeriod: 300
+        rules: [
+          {
+            name: 'delivery-events'
+            custom: {
+              type: 'azure-servicebus'
+              metadata: {
+                namespace: serviceBusNamespaceName
+                queueName: 'acs-email-delivery-events'
+                messageCount: '10'
+              }
+              identity: deliveryReportIdentity.id
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+
 output scannerJobName string = scannerJob.name
 output publisherJobName string = publisherJob.name
 output reconcilerJobName string = reconcilerJob.name
 output cleanupJobName string = cleanupJob.name
+output deliveryDlqCleanupJobName string = deliveryDlqCleanupJob.name
 output coordinatorAppName string = coordinatorApp.name
 output fanoutAppName string = fanoutApp.name
 output emailAppName string = emailApp.name
+output deliveryReportAppName string = deliveryReportApp.name

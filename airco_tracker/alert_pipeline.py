@@ -9,12 +9,20 @@ from datetime import datetime, timedelta, timezone
 
 from .alert_events import EmailJob, FanoutShardJob, StockAvailableEvent, recipient_shard
 from .config import Config
-from .deliveries import DeliveryLedger
+from .deliveries import DeliveryLedger, NO_RESEND_STATUSES
 from .delivery_coverage import coverage_reaches_country
+from .delivery_reports import (
+    DeliveryMessageIndex,
+    DeliveryReportWorker,
+    SystemSuppressionStore,
+    address_fingerprint,
+    parse_delivery_report,
+)
 from .mailer import PermanentEmailError, build_message, message_fingerprint, send_message
 from .outbox import AzureTableOutbox, build_outbox
 from .recipient_projection import ProjectedRecipient, RecipientProjection
 from .service_bus import PermanentMessageError, process_receiver, send_json_messages, service_bus_client
+from .unsubscribe import sign_unsubscribe_token
 
 
 LOG = logging.getLogger(__name__)
@@ -179,11 +187,15 @@ class EmailWorker:
         outbox: AzureTableOutbox | None = None,
         recipients: RecipientProjection | None = None,
         ledger: DeliveryLedger | None = None,
+        message_index: DeliveryMessageIndex | None = None,
+        suppressions: SystemSuppressionStore | None = None,
     ) -> None:
         self.config = config
         self.outbox = outbox or build_outbox(config)
         self.recipients = recipients or RecipientProjection(config)
         self.ledger = ledger or DeliveryLedger(config)
+        self.message_index = message_index or DeliveryMessageIndex(config)
+        self.suppressions = suppressions or SystemSuppressionStore(config)
 
     def handle(self, job: EmailJob) -> None:
         self.ledger.create_if_absent(job)
@@ -198,6 +210,9 @@ class EmailWorker:
         recipient = self.recipients.get_authoritative(job.recipient_id)
         if recipient is None:
             self._mark_terminal(job, "suppressed", "recipient_not_found")
+            return
+        if self.suppressions.is_suppressed(job.recipient_id, recipient.email):
+            self._mark_terminal(job, "suppressed", "hard_bounce_address_suppressed")
             return
         if _event_expired(event, getattr(self.config, "alert_event_max_age_seconds", 21600)):
             self._mark_terminal(job, "suppressed", "event_expired")
@@ -223,6 +238,13 @@ class EmailWorker:
         recipient = self.recipients.get_authoritative(job.recipient_id)
         if recipient is None:
             self._mark_terminal(job, "suppressed", "recipient_not_found_before_send")
+            return
+        if self.suppressions.is_suppressed(job.recipient_id, recipient.email):
+            self._mark_terminal(
+                job,
+                "suppressed",
+                "hard_bounce_address_suppressed_before_send",
+            )
             return
         if _event_expired(event, getattr(self.config, "alert_event_max_age_seconds", 21600)):
             self._mark_terminal(job, "suppressed", "event_expired_before_send")
@@ -253,10 +275,23 @@ class EmailWorker:
 
         recipient_config = _config_for_projected_recipient(self.config, recipient)
         try:
+            unsubscribe_token = None
+            if not event.test_only:
+                try:
+                    unsubscribe_token = sign_unsubscribe_token(
+                        recipient_config.email_unsubscribe_signing_key,
+                        recipient.recipient_id,
+                        recipient.unsubscribe_token_version,
+                    )
+                except ValueError as exc:
+                    raise PermanentEmailError(
+                        "Invalid unsubscribe-token configuration"
+                    ) from exc
             message = build_message(
                 recipient_config,
                 [] if event.test_only else [event.product],
                 test=event.test_only,
+                unsubscribe_token=unsubscribe_token,
             )
             fingerprint = message_fingerprint(
                 recipient_config,
@@ -278,6 +313,12 @@ class EmailWorker:
                     claim_owner=claim.lease_owner,
                 )
                 return
+            address_token = address_fingerprint(job.recipient_id, recipient.email)
+            # Event Grid can emit the recipient-level report immediately after
+            # ACS accepts the operation. Bind the deterministic operation ID
+            # before the provider call so the report consumer never races a
+            # missing correlation row.
+            self.message_index.bind(job, claim.operation_id, address_token)
             result = send_message(
                 recipient_config,
                 message,
@@ -316,9 +357,16 @@ class EmailWorker:
             )
             return
 
-        self.ledger.mark_sent(
+        acs_message_id = result.operation_id or claim.operation_id
+        # Current ACS returns the supplied operation ID. Binding an alias as a
+        # defensive compatibility measure keeps correlation correct if a
+        # future SDK returns a distinct message identifier.
+        if acs_message_id != claim.operation_id:
+            self.message_index.bind(job, acs_message_id, address_token)
+        self.ledger.mark_accepted(
             job,
             acs_status=result.status,
+            acs_message_id=acs_message_id,
             claim_owner=claim.lease_owner,
         )
         LOG.info(
@@ -329,7 +377,7 @@ class EmailWorker:
     def _claim_is_ready(self, job: EmailJob, claim) -> bool:
         if claim.claimed:
             return True
-        if claim.status in {"sent", "suppressed", "failed"}:
+        if claim.status in NO_RESEND_STATUSES:
             return False
         # Do not hot-abandon a duplicate while another worker owns the ledger
         # lease: repeated immediate abandons can exhaust maxDeliveryCount
@@ -423,6 +471,7 @@ def run_fanout_worker(config: Config, *, once: bool) -> int:
 
 
 def run_email_worker(config: Config, *, once: bool) -> int:
+    _validate_email_worker_runtime(config)
     worker = EmailWorker(config)
 
     def handler(payload: bytes, _message) -> None:
@@ -444,6 +493,70 @@ def run_email_worker(config: Config, *, once: bool) -> int:
         handler=handler,
         max_messages=4,
     )
+
+
+def run_delivery_report_worker(config: Config, *, once: bool) -> int:
+    worker = DeliveryReportWorker(config)
+
+    def handler(payload: bytes, _message) -> None:
+        try:
+            worker.handle(parse_delivery_report(payload))
+        except PermanentMessageError as exc:
+            # The dedicated queue body contains the provider's raw recipient
+            # address. Invalid/unbound reports cannot be repaired by retrying,
+            # so complete them without copying that PII into Service Bus's
+            # no-TTL dead-letter queue. The error intentionally excludes the
+            # payload and recipient.
+            LOG.warning("Discarding invalid ACS delivery report: %s", exc)
+
+    return _run_receiver(
+        config,
+        once=once,
+        receiver_factory=lambda client, renewer: client.get_queue_receiver(
+            queue_name=config.delivery_events_queue,
+            max_wait_time=20,
+            prefetch_count=8,
+            auto_lock_renewer=renewer,
+        ),
+        handler=handler,
+        max_messages=8,
+    )
+
+
+def purge_delivery_report_dead_letters(config: Config, *, limit: int = 5000) -> int:
+    """Privacy cleanup for the dedicated ACS-report Service Bus DLQ.
+
+    Service Bus does not apply entity TTL to dead-lettered messages. Event Grid
+    delivery failures and worker health are monitored separately, so retaining
+    raw recipient-level provider events indefinitely adds risk without helping
+    the business workflow.
+    """
+    if limit <= 0:
+        raise ValueError("DLQ purge limit must be positive")
+    try:
+        from azure.servicebus import ServiceBusReceiveMode, ServiceBusSubQueue
+    except ImportError as exc:
+        raise RuntimeError("Install the 'azure' extra to clean Service Bus") from exc
+    removed = 0
+    with service_bus_client(config) as client:
+        with client.get_queue_receiver(
+            queue_name=config.delivery_events_queue,
+            sub_queue=ServiceBusSubQueue.DEAD_LETTER,
+            receive_mode=ServiceBusReceiveMode.RECEIVE_AND_DELETE,
+            max_wait_time=5,
+            prefetch_count=min(100, limit),
+        ) as receiver:
+            while removed < limit:
+                messages = receiver.receive_messages(
+                    max_message_count=min(100, limit - removed),
+                    max_wait_time=5,
+                )
+                if not messages:
+                    break
+                removed += len(messages)
+    if removed:
+        LOG.warning("Purged %d ACS delivery-report dead-letter message(s)", removed)
+    return removed
 
 
 def _run_receiver(
@@ -590,3 +703,14 @@ def _wait_for_email_rate_limit(interval_seconds: float) -> None:
         if remaining > 0:
             time.sleep(remaining)
         _LAST_EMAIL_SEND_MONOTONIC = time.monotonic()
+
+
+def _validate_email_worker_runtime(config: Config) -> None:
+    secret = str(getattr(config, "email_unsubscribe_signing_key", ""))
+    if len(secret.encode("utf-8")) < 32:
+        raise ValueError(
+            "EMAIL_UNSUBSCRIBE_SIGNING_KEY must contain at least 32 bytes"
+        )
+    app_base_url = str(getattr(config, "app_base_url", "")).strip()
+    if not app_base_url.startswith("https://"):
+        raise ValueError("APP_BASE_URL must be an HTTPS origin for unsubscribe links")

@@ -11,6 +11,8 @@ from .adapters.registry import load_adapter_specs
 from .alert_events import EmailJob, StockAvailableEvent
 from .alert_pipeline import (
     OutboxPublisher,
+    purge_delivery_report_dead_letters,
+    run_delivery_report_worker,
     run_email_worker,
     run_fanout_coordinator,
     run_fanout_worker,
@@ -47,6 +49,7 @@ def _parser() -> argparse.ArgumentParser:
         ("fanout-coordinator", "Split one stock event into recipient shards"),
         ("fanout-worker", "Expand one recipient shard into email jobs"),
         ("email-worker", "Send queued email jobs"),
+        ("delivery-report-worker", "Consume ACS final delivery reports"),
     ):
         worker = subparsers.add_parser(command, help=help_text)
         worker.add_argument("--once", action="store_true", help="Drain one receive batch and exit")
@@ -58,6 +61,11 @@ def _parser() -> argparse.ArgumentParser:
         "cleanup-alert-data", help="Apply outbox and delivery retention policy"
     )
     cleanup.add_argument("--limit", type=int, default=5000)
+    delivery_dlq_cleanup = subparsers.add_parser(
+        "purge-delivery-report-dlq",
+        help="Delete raw ACS delivery reports retained by the Service Bus DLQ",
+    )
+    delivery_dlq_cleanup.add_argument("--limit", type=int, default=5000)
     pipeline_test = subparsers.add_parser(
         "pipeline-test", help="Send an explicitly targeted synthetic pipeline test"
     )
@@ -333,6 +341,10 @@ def main(argv: list[str] | None = None) -> int:
             config.validate_alert_pipeline()
             run_email_worker(config, once=args.once)
             return 0
+        if args.command == "delivery-report-worker":
+            config.validate_alert_pipeline()
+            run_delivery_report_worker(config, once=args.once)
+            return 0
         if args.command == "reconcile-alert-recipients":
             config.validate_alert_pipeline()
             updated, removed = RecipientProjection(config).reconcile()
@@ -340,17 +352,27 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "cleanup-alert-data":
             config.validate_alert_pipeline()
-            removed_outbox, removed_deliveries = cleanup_alert_data(
-                config, limit=args.limit
-            )
+            (
+                removed_outbox,
+                removed_deliveries,
+                removed_delivery_index,
+                removed_suppressions,
+            ) = cleanup_alert_data(config, limit=args.limit)
             print(
                 json.dumps(
                     {
                         "removed_outbox": removed_outbox,
                         "removed_deliveries": removed_deliveries,
+                        "removed_delivery_index": removed_delivery_index,
+                        "removed_suppressions": removed_suppressions,
                     }
                 )
             )
+            return 0
+        if args.command == "purge-delivery-report-dlq":
+            config.validate_alert_pipeline()
+            removed = purge_delivery_report_dead_letters(config, limit=args.limit)
+            print(json.dumps({"removed_delivery_report_dead_letters": removed}))
             return 0
         if args.command == "pipeline-test":
             config.validate_alert_pipeline()

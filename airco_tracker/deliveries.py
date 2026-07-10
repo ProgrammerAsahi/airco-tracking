@@ -13,7 +13,32 @@ from .config import Config
 
 
 _ACS_OPERATION_NAMESPACE = uuid.UUID("4bd7be21-28ef-42e9-85c6-2cd647af8421")
-_TERMINAL_STATUSES = {"sent", "suppressed", "failed"}
+# These states must never cause another provider send. ``accepted`` means the
+# ACS long-running send operation succeeded; Event Grid later replaces it with
+# a recipient-level delivery result. ``sent`` is retained as a no-resend
+# legacy state for rows written before final-delivery tracking was introduced.
+NO_RESEND_STATUSES = {
+    "accepted",
+    "sent",
+    "delivered",
+    "expanded",
+    "bounced",
+    "provider_suppressed",
+    "quarantined",
+    "filtered_spam",
+    "provider_failed",
+    "suppressed",
+    "failed",
+}
+FINAL_DELIVERY_STATUSES = {
+    "delivered",
+    "expanded",
+    "bounced",
+    "provider_suppressed",
+    "quarantined",
+    "filtered_spam",
+    "provider_failed",
+}
 
 
 @dataclass(frozen=True)
@@ -93,7 +118,7 @@ class DeliveryLedger:
         operation_id = str(entity.get("acsOperationId") or self.operation_id(job.delivery_id))
         attempts = int(entity.get("attempts") or 0)
         first_sent_at = str(entity.get("firstSentAt") or "")
-        if status in _TERMINAL_STATUSES:
+        if status in NO_RESEND_STATUSES:
             return DeliveryClaim(False, status, operation_id, attempts, "", first_sent_at)
 
         if status == "sending":
@@ -212,6 +237,25 @@ class DeliveryLedger:
                 continue
         raise RuntimeError("Delivery payload binding changed concurrently; retry the message")
 
+    def mark_accepted(
+        self,
+        job: EmailJob,
+        *,
+        acs_status: str = "accepted",
+        acs_message_id: str = "",
+        claim_owner: str = "",
+    ) -> None:
+        self._merge(
+            job,
+            expected_owner=claim_owner,
+            status="accepted",
+            acceptedAt=utc_now_iso(),
+            acsStatus=acs_status,
+            acsMessageId=acs_message_id,
+            leaseUntil="",
+            leaseOwner="",
+        )
+
     def mark_sent(
         self,
         job: EmailJob,
@@ -219,15 +263,93 @@ class DeliveryLedger:
         acs_status: str = "accepted",
         claim_owner: str = "",
     ) -> None:
-        self._merge(
+        """Compatibility alias for callers deployed before final reports."""
+        self.mark_accepted(
             job,
-            expected_owner=claim_owner,
-            status="sent",
-            sentAt=utc_now_iso(),
-            acsStatus=acs_status,
-            leaseUntil="",
-            leaseOwner="",
+            acs_status=acs_status,
+            acs_message_id=self.operation_id(job.delivery_id),
+            claim_owner=claim_owner,
         )
+
+    def record_delivery_report(
+        self,
+        job: EmailJob,
+        *,
+        report_status: str,
+        report_at: str,
+        event_grid_event_id: str,
+        acs_message_id: str,
+    ) -> bool:
+        """Apply one recipient-level ACS report with ETag/id/time guards.
+
+        A later asynchronous bounce is allowed to replace an earlier delivered
+        result. An older out-of-order event can never undo newer evidence.
+        Event Grid retries are idempotent by event ID.
+        """
+        try:
+            from azure.core import MatchConditions
+            from azure.core.exceptions import ResourceModifiedError
+            from azure.data.tables import UpdateMode
+        except ImportError as exc:
+            raise RuntimeError("Install the 'azure' extra to use delivery ledger") from exc
+        if report_status not in FINAL_DELIVERY_STATUSES:
+            raise ValueError("Unsupported final delivery status")
+        report_time = _parse_datetime(report_at)
+        if report_time is None:
+            raise ValueError("A valid delivery report timestamp is required")
+        try:
+            message_id = str(uuid.UUID(acs_message_id))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValueError("A valid ACS message id is required") from exc
+        if not event_grid_event_id or len(event_grid_event_id) > 160:
+            raise ValueError("A bounded Event Grid event id is required")
+
+        for _attempt in range(4):
+            current = self.get(job)
+            if str(current.get("deliveryReportEventId") or "") == event_grid_event_id:
+                return False
+            existing_time = _parse_datetime(current.get("deliveryReportAt"))
+            if existing_time is not None and existing_time > report_time:
+                return False
+            # A report is useful for legacy ``sent`` and current accepted rows,
+            # and can supersede a previous final report by timestamp. It must
+            # not overwrite a business-rule suppression or synchronous failure.
+            current_status = str(current.get("status") or "pending")
+            if current_status in {"suppressed", "failed"}:
+                return False
+            expected_message_id = str(
+                current.get("acsMessageId")
+                or current.get("acsOperationId")
+                or self.operation_id(job.delivery_id)
+            )
+            if expected_message_id != message_id:
+                raise RuntimeError("Delivery report message id does not match the ledger")
+            etag = _etag(current)
+            if not etag:
+                raise RuntimeError("Delivery ledger entity is missing its ETag")
+            try:
+                self._table.update_entity(
+                    {
+                        "PartitionKey": self.partition_key(job.recipient_id),
+                        "RowKey": job.event_id,
+                        "status": report_status,
+                        "deliveryStatus": report_status,
+                        "deliveryReportAt": report_time.isoformat(),
+                        "deliveryReportEventId": event_grid_event_id,
+                        "acsMessageId": message_id,
+                        "finalizedAt": utc_now_iso(),
+                        "leaseUntil": "",
+                        "leaseOwner": "",
+                        "updatedAt": utc_now_iso(),
+                    },
+                    mode=UpdateMode.MERGE,
+                    etag=etag,
+                    match_condition=MatchConditions.IfNotModified,
+                )
+                return True
+            except ResourceModifiedError:
+                continue
+        raise RuntimeError("Delivery report changed concurrently; retry the event")
 
     def mark_suppressed(
         self,
@@ -277,6 +399,7 @@ class DeliveryLedger:
         target_status = str(values.get("status") or "")
         if expected_owner:
             allowed_from = {
+                "accepted": {"sending"},
                 "sent": {"sending"},
                 "failed": {"pending", "sending"},
                 "pending": {"sending"},

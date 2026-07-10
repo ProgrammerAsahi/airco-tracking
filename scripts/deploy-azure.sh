@@ -13,6 +13,7 @@ az account show >/dev/null || { echo "Run 'az login' first." >&2; exit 1; }
 az provider register --namespace Microsoft.App --wait
 az provider register --namespace Microsoft.Communication --wait
 az provider register --namespace Microsoft.ContainerRegistry --wait
+az provider register --namespace Microsoft.EventGrid --wait
 az provider register --namespace Microsoft.KeyVault --wait
 az provider register --namespace Microsoft.ManagedIdentity --wait
 az provider register --namespace Microsoft.Insights --wait

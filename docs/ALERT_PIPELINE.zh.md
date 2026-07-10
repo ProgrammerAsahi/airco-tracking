@@ -28,7 +28,15 @@ airco-alert-fanout-worker（0–16 replicas）
 airco-alert-email-worker（当前 0–1 replica）
           ├─ 发信前按 UUID 点读 canonical user
           ├─ 在 alertdeliveries 中认领 event × recipient
-          └─ Azure Communication Services Email
+          └─ Azure Communication Services Email → accepted
+                                                       │
+ACS recipient delivery reports                        │
+  └─ Event Grid system topic → acs-email-delivery-events queue
+                                      │
+airco-alert-delivery-worker（0–4 replicas）
+          ├─ 关联确定性的 ACS message ID
+          ├─ 记录 recipient-level final status
+          └─ hard bounce 后 suppress 准确的 address fingerprint
 ```
 
 前端/auth 服务是 `alertrecipients` 的主要写入方。注册、邮箱/语言/国家修改、Stripe 订阅 webhook、取消订阅和注销账户都会同步投影。`airco-alert-reconciler-job` 每天 `03:17 UTC` 运行一次，只用于修复跨表部分失败和回填旧用户，不位于每条事件的热路径上。
@@ -40,9 +48,12 @@ airco-alert-email-worker（当前 0–1 replica）
 - `stock-events` topic / `email-fanout` subscription：一条商品库存变化事件。
 - `email-fanout-jobs` queue：每个 recipient 分片一个任务。
 - `email-jobs` queue：只含 `eventId` + `recipientId` 的投递任务。
+- `acs-email-delivery-events` queue：独立、短期保存的 ACS recipient reports；与普通 queues 不同，provider-defined body 必然包含 recipient address。
 - `alertoutbox`：持久事件内容和发布状态，按事件 hash 前缀分区。
 - `alertrecipients`：32 个分区（`r-00` 到 `r-1f`）的最小邮件 read model。
 - `alertdeliveries`：幂等、租约、尝试次数、终态和 ACS operation metadata。
+- `alertdeliveryindex`：ACS message ID 到匿名 delivery binding 以及 address fingerprint；不存明文地址。
+- `alertsuppression`：对准确 address fingerprint 生效的 recipient-scoped hard-bounce suppression；不存明文地址。
 - `users`：由 Web 服务拥有的 canonical 账户/订阅表；每条事件的处理链路不会扫描它。
 
 32 分片规则是跨仓库契约。Web 投影写入器和本后端都使用 `sha256(userId)` 的最低五位，且 `ALERT_RECIPIENT_SHARDS` 会被强制验证为 `32`。修改它必须同时在两个仓库做有版本的迁移。
@@ -55,6 +66,8 @@ airco-alert-email-worker（当前 0–1 replica）
 - Service Bus 启用七天 duplicate detection，每条消息都使用确定性 `MessageId`。
 - Delivery ID 由 `eventId + recipientId` 派生。`alertdeliveries` 通过 ETag 状态转换和短租约，防止并行 worker 主动重复发送。
 - ACS 接收确定性 operation ID 和 repeatability headers，缩小“邮件服务已接受、ledger 尚未落盘”之间的 crash window。
+- ACS operation 成功后，Email worker 先记录 `accepted`；之后 Event Grid 才把 ledger 推进到 recipient-level final state：`delivered`、`expanded`、`bounced`、`provider_suppressed`、`quarantined`、`filtered_spam` 或 `provider_failed`。ACS accepted 绝不能被表述为已经进入收件箱。
+- 调用 ACS 前，worker 会先创建 message-ID correlation row。Final reports 按 Event Grid event ID 幂等处理，并拒绝更旧的 out-of-order evidence。Hard bounce 或 provider suppression 会启用 recipient/address-fingerprint suppression，两个发信前检查都会执行；同一 fingerprint 上更新的 delivered report 可以清除 suppression。旧地址的 report 不能 suppress 用户后来验证的新地址。
 - 瞬时邮件错误按退避策略重新排队；永久错误进入 dead letter。应用最多尝试发送五次，Service Bus `maxDeliveryCount` 为八次。
 - 每次发送前 worker 都会按 UUID 点读 canonical `users/id:<uuid>` profile，并在 sender rate wait 之后再读一次。对于旧的 email-keyed profile，reconciler 会在 recipient projection 中保存私有 `sourceUserRowKey`，让 worker 点读 canonical row，并严格重新派生 UUID、确认与请求的 UUID 一致后才信任该 row。只有尚未回填该 pointer 的旧 projection 才使用有界 `userId` query fallback。因此即使 fan-out projection 尚在追赶，邮箱变更也会立即以 canonical 为准；订阅过期/取消、账户删除、配送国家改变，或生产事件超过六小时时，会标记 suppressed 而不是发送。
 
@@ -66,8 +79,9 @@ airco-alert-email-worker（当前 0–1 replica）
 - Scanner/shared web runtime、outbox publisher、fan-out 和 email delivery 使用相互分离的身份。新流水线权限在 Azure RBAC 支持的范围内限制到具体 Service Bus entity 或 Table；不要把 workers 合并成一个宽泛的 Contributor 身份。
 - `stock-events` 只含商品和配送范围，不含 subscriber 数据。
 - Service Bus fan-out/email 消息只含稳定的匿名 recipient UUID，不含邮箱、昵称、Stripe customer/subscription ID、支付方式或卡片信息。
+- 独立的 ACS delivery-report queue 是唯一受严格限制的 PII 例外：Microsoft event schema 必然包含 recipient address。一日 TTL、私有七日 Event Grid dead-letter container、每日 Service Bus DLQ purge、独立 least-privilege identity 和禁止记录 body 的日志约束共同限制了风险。绝不能把 raw provider report 复制进 ticket、普通日志或其它 queue。
 - `alertrecipients` 是提醒专用表中唯一保存邮箱的表，只保留决定和生成邮件所必需的字段：稳定 user ID、邮箱、语言、配送国家、方案/status/end time、enabled、同步时间，以及仅用于旧 profile 点读的私有 canonical source-row pointer。
-- `alertdeliveries` 只保存匿名 ID 和投递状态，不保存目标邮箱；应用日志会遮蔽邮箱 local part。
+- `alertdeliveries`、`alertdeliveryindex` 和 `alertsuppression` 只保存匿名 ID、投递状态和 pseudonymous address fingerprints，不保存目标邮箱；应用日志会遮蔽邮箱 local part，final-report logs 只使用匿名 delivery ID。
 - Email worker 会在发信前从 canonical profile 解析最新地址；其 identity 对 `users` 只有只读权限，代码只消费投递字段。私有 source-row pointer 不得进入 Service Bus message、日志、重试 metadata 或 API。
 - 库存 Blob container 必须保持私有。浏览器只能通过前端同源 API 和 Managed Identity 读取。
 - 本地 `ALERT_DISPATCH_BACKEND=direct` 只用于兼容开发环境。Azure 生产必须使用 `service_bus`，无法确认 recipient 状态时 fail closed。
@@ -76,8 +90,12 @@ airco-alert-email-worker（当前 0–1 replica）
 
 - Service Bus stock/fan-out 消息：TTL 一天；过期后进入 dead letter。
 - Email jobs：TTL 六小时；应用也会 suppress 超过六小时的生产事件。
+- ACS delivery reports：queue TTL 一天，过期时不进入 DLQ；达到 delivery attempts 上限的消息由每日 privacy job 从专用 Service Bus DLQ 删除。
+- Event Grid delivery-report dead letters：私有 Blob container，通过 lifecycle rule 在七天后自动删除。
 - 已发布 `alertoutbox` rows：30 天。
-- 终态 `alertdeliveries` rows（`sent`、`suppressed`、`failed`）：90 天。
+- No-resend/final `alertdeliveries` rows（`accepted`、provider final results、旧 `sent`、业务 `suppressed` 和 `failed`）：90 天。若任一 `accepted` row 等待 final report 超过两小时，每日任务会输出只含数量、不含用户信息的 warning。
+- `alertdeliveryindex` correlation rows：与 delivery metadata 一样保留 90 天。
+- `alertsuppression` 每个 recipient/address state 最多一条；canonical profile 不存在或不再 active 时，每日任务会删除该 row。旧 profile 的 canonical source pointer 尚未回填时会保守保留，待 reconciler 明确状态后再清理。
 - Pending outbox 或非终态 delivery 不会按年龄删除，必须保留用于恢复或调查。
 - Log Analytics workspace：30 天。
 - `alertrecipients` 随账户生命周期管理；用户注销时删除。每日 reconciler 只有在完整扫描 canonical users 后才会删除失效的 projection rows。
@@ -100,9 +118,9 @@ Subscriber 数量不再影响 scanner 延迟。扫描对每个满足条件的商
 - Service Bus 使用 Standard、partition-safe batching 和 duplicate detection。应持续监控 namespace throttling 与队列年龄；当 shared-tier 延迟或 Standard namespace 的 operation ceiling 成为实际瓶颈时，再迁移到 partitioned Premium namespace。
 - 生产现已使用已验证的 customer-managed ACS sender domain `airco-tracker.eu`。官方文档中的默认限制是每分钟 30 封、每小时 100 封。在更高 quota 获批且 final-delivery/bounce/suppression monitoring 投入运行前，email worker 仍故意限制为一个 replica，并在同一进程的两次发送之间等待 13 秒。当前端到端吞吐瓶颈仍是 provider quota，而不是 Service Bus 或 Table Storage。
 
-Domain/SPF/DKIM/DKIM2 验证、Communication Service 连接、`ACS_EMAIL_DOMAIN_NAME` 明确选择以及 Gmail/Outlook 真实收件箱 canary 均已完成。Foundation 会同时保留自定义域和 Azure-managed fallback，部署脚本按域名明确选择，不依赖 `linkedDomains` 数组顺序。正式增长前，应先加入 delivery-failure/bounce suppression、complaint 和 unsubscribe 治理，再如实提交 ACS higher-quota support request；获批后才能同时调整 `EMAIL_MIN_SEND_INTERVAL_SECONDS` 和 `EMAIL_MAX_REPLICAS`。不能先提高 replicas，否则只会产生 ACS `429` 和队列反复重试。完整 DNS、状态、canary、quota 和 rollback 步骤见 [ACS_CUSTOM_EMAIL_DOMAIN.zh.md](./ACS_CUSTOM_EMAIL_DOMAIN.zh.md)。
+Domain/SPF/DKIM/DKIM2 验证、Communication Service 连接、`ACS_EMAIL_DOMAIN_NAME` 明确选择以及 Gmail/Outlook 真实收件箱 canary 均已完成。Foundation 会同时保留自定义域和 Azure-managed fallback，部署脚本按域名明确选择，不依赖 `linkedDomains` 数组顺序。Reply-To、用户提醒开关、RFC 8058 unsubscribe、recipient-level final-delivery ingestion、hard-bounce suppression 及相关 privacy controls 已在当前本地 release candidate 实现；在 handoff 记录完成部署与端到端验证前，它们仍不属于生产能力。必须等这些检查通过且 Azure 批准 quota 后，才能调整 `EMAIL_MIN_SEND_INTERVAL_SECONDS` 与 `EMAIL_MAX_REPLICAS`；不能先提高 replicas，否则只会产生 ACS `429` 和队列反复重试。DNS、consent、final-delivery、suppression、monitoring、quota 和 warm-up 详见 [EMAIL_DELIVERY.zh.md](./EMAIL_DELIVERY.zh.md)；自定义域 rollback 仍见 [ACS_CUSTOM_EMAIL_DOMAIN.zh.md](./ACS_CUSTOM_EMAIL_DOMAIN.zh.md)。
 
-关键容量信号包括：topic/subscription 和两个 queues 的 active message count 与 oldest-message age、dead-letter count、Service Bus throttled requests/server errors、outbox pending age、delivery failure rate、ACS `429`/quota responses。Service Bus diagnostics 和 metrics 已写入 Log Analytics。Foundation 还会创建并启用四条 namespace metric alerts：`aircontrack-servicebus-deadletter`、`aircontrack-servicebus-backlog`、`aircontrack-servicebus-throttled` 和 `aircontrack-servicebus-server-errors`。已部署环境中的四条规则都绑定到启用的 `aircontrack-operations-alerts` Action Group。Outbox age、delivery failure spikes、ACS quota responses 和端到端 inbox delivery 仍需要单独的 instrumentation 或规则。
+关键容量信号包括：全部 queues/subscriptions 的 active message count 与 oldest-message age、dead-letter count、Service Bus throttled requests/server errors、Event Grid delivery failures/drops/dead letters、accepted → final latency、final-status rates、outbox pending age，以及 ACS `429`/quota responses。Service Bus diagnostics 和 metrics 已写入 Log Analytics。生产当前有四条 namespace alerts：`aircontrack-servicebus-deadletter`、`aircontrack-servicebus-backlog`、`aircontrack-servicebus-throttled` 和 `aircontrack-servicebus-server-errors`。本地 release candidate 新增三条 Event Grid alerts，分别覆盖 delivery failure、dropped event 和 dead-lettered report；它们在 foundation deployment 前尚未生效。Enabled rules 绑定到 `aircontrack-operations-alerts` Action Group。Outbox age、ACS quota spikes 与端到端 inbox delivery 仍需要单独 instrumentation 或 canaries。
 
 ## 配置
 
@@ -115,10 +133,13 @@ STOCK_EVENTS_TOPIC=stock-events
 STOCK_EVENTS_SUBSCRIPTION=email-fanout
 FANOUT_JOBS_QUEUE=email-fanout-jobs
 EMAIL_JOBS_QUEUE=email-jobs
+ACS_DELIVERY_EVENTS_QUEUE=acs-email-delivery-events
 AUTH_USERS_TABLE=users
 ALERT_OUTBOX_TABLE=alertoutbox
 ALERT_RECIPIENTS_TABLE=alertrecipients
 ALERT_DELIVERIES_TABLE=alertdeliveries
+ALERT_DELIVERY_INDEX_TABLE=alertdeliveryindex
+ALERT_SUPPRESSIONS_TABLE=alertsuppression
 ALERT_RECIPIENT_SHARDS=32
 ALERT_RECIPIENT_PAGE_SIZE=250
 ALERT_EVENT_MAX_AGE_SECONDS=21600
@@ -127,7 +148,10 @@ ALERT_DELIVERY_RETENTION_DAYS=90
 SCANNER_LEASE_SECONDS=480
 EMAIL_MIN_SEND_INTERVAL_SECONDS=13
 EMAIL_MAX_REPLICAS=1
-ACS_EMAIL_DOMAIN_NAME=AzureManagedDomain
+ACS_EMAIL_DOMAIN_NAME=airco-tracker.eu
+EMAIL_REPLY_TO=support@airco-tracker.eu
+APP_BASE_URL=https://airco-tracker.eu
+EMAIL_UNSUBSCRIBE_SIGNING_KEY=<Key Vault secret reference；绝不能填写 production 明文>
 ```
 
 Bicep 还会注入 `AZURE_STORAGE_ACCOUNT_URL`、`AZURE_CLIENT_ID`、`ACS_ENDPOINT`、`EMAIL_FROM` 和正常 scanner 配置。`EMAIL_TO` 只属于本地/direct mode，不是生产 subscriber 数据源。
@@ -219,7 +243,7 @@ az containerapp job logs show -g "$RESOURCE_GROUP" -n "$PUBLISHER_JOB" \
   --tail 50 --format text
 ```
 
-保持正常 scanner 和 publisher schedules 不变。只读检查 email-worker logs 和三处 broker backlog，不要 receive 或 purge messages；只记录 event/delivery IDs 和 counts，绝不能记录收件地址。成功标准是：定向 execution 成功、两个 delivery rows 都进入终态 `sent`/ACS accepted handling、两个 inbox 都实际收到邮件，并且 subscription 和两条 queues 的 active/dead-letter counts 回到零。只有 ACS accepted 不代表 inbox 已投递。
+保持正常 scanner 和 publisher schedules 不变。只读检查 worker logs 和 broker backlogs，不要 receive 或 purge messages；只记录 event/delivery IDs 和 counts，绝不能记录收件地址。成功标准是：定向 execution 成功、两个 delivery rows 都从 `accepted` 推进到 recipient-level final status、两个 inbox 都实际收到邮件，并且 subscription 与全部三条 queues 的 active/dead-letter counts 回到零；还要确认可见退订链接和 RFC 8058 one-click 路径都只暂停邮件、不改变付费权益。只有 ACS accepted 不代表 inbox 已投递。
 
 ## 运维
 
@@ -237,6 +261,7 @@ az containerapp job execution list -g airco-tracker-rg -n airco-tracker-job -o t
 az containerapp job logs show -g airco-tracker-rg -n airco-tracker-job --follow
 az containerapp logs show -g airco-tracker-rg -n airco-alert-fanout-worker --follow
 az containerapp logs show -g airco-tracker-rg -n airco-alert-email-worker --follow
+az containerapp logs show -g airco-tracker-rg -n airco-alert-delivery-worker --follow
 ```
 
 只查看 Service Bus backlog，不接收消息：
@@ -249,6 +274,14 @@ az servicebus queue show -g airco-tracker-rg \
   --namespace-name <namespace> -n email-fanout-jobs --query countDetails
 az servicebus queue show -g airco-tracker-rg \
   --namespace-name <namespace> -n email-jobs --query countDetails
+az servicebus queue show -g airco-tracker-rg \
+  --namespace-name <namespace> -n acs-email-delivery-events --query countDetails
+```
+
+每日 retention job 清理普通 metadata；独立 privacy job 则删除进入专用 Service Bus DLQ 的 raw final-report messages：
+
+```bash
+az containerapp job start -g airco-tracker-rg -n airco-delivery-dlq-cleanup
 ```
 
 不读取或修改 receiver 地址，只检查四条启用的 alert rules 和 Action Group：

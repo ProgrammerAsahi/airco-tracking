@@ -39,6 +39,22 @@ class SubscriberTests(unittest.TestCase):
                 fallback_lang="zh",
             )
         )
+
+    def test_explicit_email_alert_opt_out_is_not_recipient_but_legacy_is(self) -> None:
+        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        base = {
+            "email": "user@example.com",
+            "subscriptionPlan": "weekly_basic",
+            "subscriptionStatus": "active",
+            "subscriptionCurrentPeriodEnd": future,
+        }
+        self.assertIsNotNone(_recipient_from_entity(base, fallback_lang="en"))
+        self.assertIsNone(
+            _recipient_from_entity(
+                {**base, "emailAlertsEnabled": False},
+                fallback_lang="en",
+            )
+        )
         self.assertIsNone(
             _recipient_from_entity(
                 {

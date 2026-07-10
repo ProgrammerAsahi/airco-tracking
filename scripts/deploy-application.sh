@@ -7,6 +7,8 @@ PREFIX="${AZURE_PREFIX:-aircontrack}"
 EMAIL_LANG="${EMAIL_LANG:-zh}"
 EMAIL_MIN_SEND_INTERVAL_SECONDS="${EMAIL_MIN_SEND_INTERVAL_SECONDS:-13}"
 EMAIL_MAX_REPLICAS="${EMAIL_MAX_REPLICAS:-1}"
+EMAIL_REPLY_TO="${EMAIL_REPLY_TO:-support@airco-tracker.eu}"
+APP_BASE_URL="${APP_BASE_URL:-https://airco-tracker.eu}"
 ACS_EMAIL_DOMAIN_NAME="${ACS_EMAIL_DOMAIN_NAME:-AzureManagedDomain}"
 COUNTRIES="${COUNTRIES:-nl,fr}"
 DEPLOYMENT_PAUSED="${DEPLOYMENT_PAUSED:-false}"
@@ -80,7 +82,8 @@ require_value IDENTITY_NAME "$IDENTITY_NAME"
 PUBLISHER_IDENTITY_NAME="${PUBLISHER_IDENTITY_NAME:-${PREFIX}-alert-publisher}"
 FANOUT_IDENTITY_NAME="${FANOUT_IDENTITY_NAME:-${PREFIX}-alert-fanout}"
 EMAIL_IDENTITY_NAME="${EMAIL_IDENTITY_NAME:-${PREFIX}-alert-email}"
-for identity_name in "$IDENTITY_NAME" "$PUBLISHER_IDENTITY_NAME" "$FANOUT_IDENTITY_NAME" "$EMAIL_IDENTITY_NAME"; do
+DELIVERY_REPORT_IDENTITY_NAME="${DELIVERY_REPORT_IDENTITY_NAME:-${PREFIX}-alert-delivery-report}"
+for identity_name in "$IDENTITY_NAME" "$PUBLISHER_IDENTITY_NAME" "$FANOUT_IDENTITY_NAME" "$EMAIL_IDENTITY_NAME" "$DELIVERY_REPORT_IDENTITY_NAME"; do
   az identity show --name "$identity_name" --resource-group "$RESOURCE_GROUP" --output none
 done
 STORAGE_NAME="$(single_resource_name STORAGE_ACCOUNT_NAME Microsoft.Storage/storageAccounts)"
@@ -89,6 +92,10 @@ SERVICE_BUS_NAMESPACE_NAME="$(single_resource_name SERVICE_BUS_NAMESPACE_NAME Mi
 require_value SERVICE_BUS_NAMESPACE_NAME "$SERVICE_BUS_NAMESPACE_NAME"
 ACS_NAME="$(single_resource_name COMMUNICATION_SERVICE_NAME Microsoft.Communication/communicationServices)"
 require_value COMMUNICATION_SERVICE_NAME "$ACS_NAME"
+KEY_VAULT_NAME="$(single_resource_name KEY_VAULT_NAME Microsoft.KeyVault/vaults)"
+require_value KEY_VAULT_NAME "$KEY_VAULT_NAME"
+KEY_VAULT_URL="${KEY_VAULT_URL:-$(az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$RESOURCE_GROUP" --query properties.vaultUri --output tsv)}"
+require_value KEY_VAULT_URL "$KEY_VAULT_URL"
 DOMAIN_ID="${COMMUNICATION_DOMAIN_ID:-$(communication_domain_id)}"
 require_value COMMUNICATION_DOMAIN_ID "$DOMAIN_ID"
 FROM_SENDER_DOMAIN="$(
@@ -118,10 +125,14 @@ az deployment group create \
     publisherIdentityName="$PUBLISHER_IDENTITY_NAME" \
     fanoutIdentityName="$FANOUT_IDENTITY_NAME" \
     emailIdentityName="$EMAIL_IDENTITY_NAME" \
+    deliveryReportIdentityName="$DELIVERY_REPORT_IDENTITY_NAME" \
     storageAccountName="$STORAGE_NAME" \
     serviceBusNamespaceName="$SERVICE_BUS_NAMESPACE_NAME" \
     communicationServiceName="$ACS_NAME" \
+    keyVaultUrl="$KEY_VAULT_URL" \
     emailFrom="$EMAIL_FROM" \
+    emailReplyTo="$EMAIL_REPLY_TO" \
+    appBaseUrl="$APP_BASE_URL" \
     emailLang="$EMAIL_LANG" \
     emailMinSendIntervalSeconds="$EMAIL_MIN_SEND_INTERVAL_SECONDS" \
     emailMaxReplicas="$EMAIL_MAX_REPLICAS" \

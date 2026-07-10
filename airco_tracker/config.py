@@ -66,6 +66,7 @@ class Config:
     email_backend: str
     email_to: str
     email_from: str
+    email_reply_to: str
     email_lang: str
     smtp_host: str
     smtp_port: int
@@ -85,6 +86,8 @@ class Config:
     azure_storage_blob: str
     azure_inventory_blob: str
     acs_endpoint: str
+    app_base_url: str
+    email_unsubscribe_signing_key: str
     azure_key_vault_url: str
     auth_users_table: str
     alert_dispatch_backend: str
@@ -93,9 +96,12 @@ class Config:
     stock_events_subscription: str
     fanout_jobs_queue: str
     email_jobs_queue: str
+    delivery_events_queue: str
     alert_outbox_table: str
     alert_recipients_table: str
     alert_deliveries_table: str
+    alert_delivery_index_table: str
+    alert_suppressions_table: str
     recipient_shard_count: int
     recipient_page_size: int
     email_min_send_interval_seconds: float
@@ -113,6 +119,7 @@ class Config:
             email_backend=os.getenv("EMAIL_BACKEND", "smtp").strip().lower(),
             email_to=os.getenv("EMAIL_TO", "").strip(),
             email_from=os.getenv("EMAIL_FROM", "").strip(),
+            email_reply_to=os.getenv("EMAIL_REPLY_TO", "").strip(),
             email_lang=os.getenv("EMAIL_LANG", "zh").strip().lower(),
             smtp_host=os.getenv("SMTP_HOST", "").strip(),
             smtp_port=int(os.getenv("SMTP_PORT", "465")),
@@ -132,6 +139,10 @@ class Config:
             azure_storage_blob=os.getenv("AZURE_STORAGE_BLOB", "state.json").strip(),
             azure_inventory_blob=os.getenv("AZURE_INVENTORY_BLOB", "inventory.json").strip(),
             acs_endpoint=os.getenv("ACS_ENDPOINT", "").strip(),
+            app_base_url=os.getenv("APP_BASE_URL", "https://airco-tracker.eu").strip().rstrip("/"),
+            email_unsubscribe_signing_key=os.getenv(
+                "EMAIL_UNSUBSCRIBE_SIGNING_KEY", ""
+            ),
             azure_key_vault_url=os.getenv("AZURE_KEY_VAULT_URL", "").strip(),
             auth_users_table=os.getenv("AUTH_USERS_TABLE", "users").strip() or "users",
             alert_dispatch_backend=os.getenv("ALERT_DISPATCH_BACKEND", "direct").strip().lower(),
@@ -142,12 +153,21 @@ class Config:
             ).strip(),
             fanout_jobs_queue=os.getenv("FANOUT_JOBS_QUEUE", "email-fanout-jobs").strip(),
             email_jobs_queue=os.getenv("EMAIL_JOBS_QUEUE", "email-jobs").strip(),
+            delivery_events_queue=os.getenv(
+                "ACS_DELIVERY_EVENTS_QUEUE", "acs-email-delivery-events"
+            ).strip(),
             alert_outbox_table=os.getenv("ALERT_OUTBOX_TABLE", "alertoutbox").strip(),
             alert_recipients_table=os.getenv(
                 "ALERT_RECIPIENTS_TABLE", "alertrecipients"
             ).strip(),
             alert_deliveries_table=os.getenv(
                 "ALERT_DELIVERIES_TABLE", "alertdeliveries"
+            ).strip(),
+            alert_delivery_index_table=os.getenv(
+                "ALERT_DELIVERY_INDEX_TABLE", "alertdeliveryindex"
+            ).strip(),
+            alert_suppressions_table=os.getenv(
+                "ALERT_SUPPRESSIONS_TABLE", "alertsuppression"
             ).strip(),
             recipient_shard_count=int(os.getenv("ALERT_RECIPIENT_SHARDS", "32")),
             recipient_page_size=int(os.getenv("ALERT_RECIPIENT_PAGE_SIZE", "250")),
@@ -179,6 +199,8 @@ class Config:
             ]
             if missing:
                 raise ValueError("Missing Azure email configuration: " + ", ".join(missing))
+            if self.email_reply_to and "@" not in self.email_reply_to:
+                raise ValueError("EMAIL_REPLY_TO must be an email address")
             return
         if self.email_backend != "smtp":
             raise ValueError("EMAIL_BACKEND must be smtp or azure_communication")
@@ -220,6 +242,9 @@ class Config:
                 "STOCK_EVENTS_SUBSCRIPTION": self.stock_events_subscription,
                 "FANOUT_JOBS_QUEUE": self.fanout_jobs_queue,
                 "EMAIL_JOBS_QUEUE": self.email_jobs_queue,
+                "ACS_DELIVERY_EVENTS_QUEUE": self.delivery_events_queue,
+                "ALERT_DELIVERY_INDEX_TABLE": self.alert_delivery_index_table,
+                "ALERT_SUPPRESSIONS_TABLE": self.alert_suppressions_table,
             }.items()
             if not value
         ]

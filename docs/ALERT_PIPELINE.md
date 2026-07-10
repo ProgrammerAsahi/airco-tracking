@@ -28,7 +28,15 @@ airco-alert-fanout-worker (0–16 replicas)
 airco-alert-email-worker (currently 0–1 replica)
           ├─ point-reads the UUID-keyed canonical user immediately before sending
           ├─ claims event × recipient in alertdeliveries
-          └─ Azure Communication Services Email
+          └─ Azure Communication Services Email → accepted
+                                                       │
+ACS recipient delivery reports                        │
+  └─ Event Grid system topic → acs-email-delivery-events queue
+                                      │
+airco-alert-delivery-worker (0–4 replicas)
+          ├─ correlates the deterministic ACS message ID
+          ├─ records the recipient-level final status
+          └─ suppresses the exact address fingerprint after a hard bounce
 ```
 
 The frontend/auth service is the primary writer of `alertrecipients`. Registration, email/language/country changes, Stripe subscription webhooks, cancellation, and account deletion synchronize the projection. `airco-alert-reconciler-job` runs daily at `03:17 UTC` as a repair and legacy-backfill safety net; it is not on the per-event hot path.
@@ -40,9 +48,12 @@ The frontend/auth service is the primary writer of `alertrecipients`. Registrati
 - `stock-events` topic / `email-fanout` subscription: one product availability event.
 - `email-fanout-jobs` queue: one job per recipient shard.
 - `email-jobs` queue: one opaque `eventId` + `recipientId` delivery job.
+- `acs-email-delivery-events` queue: dedicated transient ACS recipient reports; unlike the normal queues, its provider-defined body necessarily contains the recipient address.
 - `alertoutbox`: durable event payload and publish state, partitioned by event hash prefix.
 - `alertrecipients`: minimal mail read model in 32 partitions, `r-00` through `r-1f`.
 - `alertdeliveries`: idempotency, lease, attempt, terminal status, and ACS operation metadata.
+- `alertdeliveryindex`: ACS message ID to opaque delivery binding plus an address fingerprint; no plaintext address.
+- `alertsuppression`: recipient-scoped hard-bounce suppression for the exact address fingerprint; no plaintext address.
 - `users`: canonical account/subscription table owned by the web service; the event path does not scan it.
 
 The 32-shard rule is a cross-repository contract. Both the web projection writer and this backend use the low five bits of `sha256(userId)` and `ALERT_RECIPIENT_SHARDS` is deliberately validated as exactly `32`. Changing it requires a versioned, coordinated migration in both repositories.
@@ -55,6 +66,8 @@ The pipeline is at-least-once and makes every stage idempotent:
 - Service Bus duplicate detection is enabled for seven days and every message has a deterministic `MessageId`.
 - A delivery ID is derived from `eventId + recipientId`. `alertdeliveries` uses ETag-guarded state transitions and a short claim lease, so concurrent workers cannot intentionally send the same delivery.
 - ACS receives a deterministic operation ID plus repeatability headers. This narrows the crash window between provider acceptance and the ledger update.
+- The email worker records `accepted` after the ACS operation succeeds. Event Grid later advances the ledger to a recipient-level final state: `delivered`, `expanded`, `bounced`, `provider_suppressed`, `quarantined`, `filtered_spam`, or `provider_failed`. ACS acceptance alone is never reported as inbox delivery.
+- Before calling ACS, the worker creates the message-ID correlation row. Final reports are idempotent by Event Grid event ID and reject out-of-order older evidence. A hard bounce or provider suppression activates a recipient/address-fingerprint suppression that both send checks enforce; a later delivery for that same fingerprint can clear it. A report for an old address cannot suppress a newly verified address.
 - Transient mail failures are rescheduled with backoff; permanent failures are dead-lettered. The application retry budget is five send attempts and Service Bus `maxDeliveryCount` is eight.
 - Before each send, the worker point-reads the UUID-keyed canonical `users/id:<uuid>` profile, then repeats that read after any sender-rate wait. For legacy email-keyed profiles, reconciliation stores a private `sourceUserRowKey` in the recipient projection so the worker can point-read the canonical row and strictly re-derive the requested UUID before trusting it. Only projections created before that pointer was backfilled use the bounded `userId` query fallback. A changed email address is therefore authoritative even while the fan-out projection is catching up; an expired/cancelled entitlement, deleted account, changed delivery country, or event older than six hours is suppressed rather than sent.
 
@@ -66,8 +79,9 @@ No distributed system can promise mathematical exactly-once delivery across an e
 - Scanner/shared web runtime, outbox publisher, fan-out, and email delivery use separate identities. New pipeline access is scoped to its specific Service Bus entity or Table wherever Azure RBAC permits; do not merge the workers into one broad Contributor identity.
 - `stock-events` contains product and delivery-coverage data, but no subscriber data.
 - Service Bus fan-out and email messages contain only stable opaque recipient UUIDs. They never contain an email address, nickname, Stripe customer/subscription ID, payment method, or card data.
+- The separate ACS delivery-report queue is the one narrow PII exception: the Microsoft event schema necessarily contains the recipient address. Its one-day TTL, private seven-day Event Grid dead-letter container, daily Service Bus DLQ purge, dedicated least-privilege identity, and no-body logging bound that exposure. Never copy a raw provider report into a ticket, normal log, or another queue.
 - `alertrecipients` is the only alert-specific table containing email addresses. It contains only the fields required to decide and render a delivery: stable user ID, email, language, delivery country, plan/status/end time, enabled flag, synchronization timestamps, and a private canonical source-row pointer used only for legacy point reads.
-- `alertdeliveries` contains opaque IDs and delivery status, not the destination address. Application logs mask email local parts.
+- `alertdeliveries`, `alertdeliveryindex`, and `alertsuppression` contain opaque IDs, delivery state, and pseudonymous address fingerprints, not the destination address. Application logs mask email local parts and final-report logs use only opaque delivery IDs.
 - The email worker resolves the current address from the canonical profile immediately before send. Its identity has read-only access to `users`; code consumes only delivery fields. The private source-row pointer is never copied into Service Bus messages, logs, retry metadata, or APIs.
 - The private Blob container remains private. Browser access to inventory stays behind the frontend same-origin API and Managed Identity.
 - Local `ALERT_DISPATCH_BACKEND=direct` exists for development compatibility. Azure production must use `service_bus` and fails closed when recipient state cannot be checked.
@@ -76,8 +90,12 @@ No distributed system can promise mathematical exactly-once delivery across an e
 
 - Service Bus stock and fan-out messages: one-day TTL; expired messages are dead-lettered.
 - Email jobs: six-hour TTL; production events older than six hours are also suppressed by the application.
+- ACS delivery reports: one-day queue TTL and no expiry-to-DLQ. Messages that exhaust delivery attempts are purged from the dedicated Service Bus DLQ by the daily privacy job.
+- Event Grid delivery-report dead letters: private Blob container, automatically deleted after seven days.
 - Published `alertoutbox` rows: 30 days.
-- Terminal `alertdeliveries` rows (`sent`, `suppressed`, `failed`): 90 days.
+- No-resend/final `alertdeliveries` rows (`accepted`, final provider results, legacy `sent`, business `suppressed`, and `failed`): 90 days. The daily job emits an anonymous warning when any `accepted` row has waited more than two hours for a final report.
+- `alertdeliveryindex` correlation rows: 90 days with delivery metadata.
+- `alertsuppression` is bounded to one row per recipient/address state. The daily job removes rows whose canonical profile is missing or non-active; it preserves an inconclusive legacy row until reconciliation supplies a canonical source pointer.
 - Pending outbox or non-terminal delivery rows are not age-deleted; they must remain available for recovery/investigation.
 - Log Analytics workspace: 30 days.
 - `alertrecipients` follows account lifecycle and is removed when the user deletes the account. The daily reconciler removes stale projection rows only after a complete canonical-user scan.
@@ -100,9 +118,9 @@ The subscriber count is no longer part of scanner latency. A scan writes at most
 - Service Bus is Standard with partition-safe batching and duplicate detection. Monitor namespace throttling and queue age; move to a partitioned Premium namespace when shared-tier latency or the Standard namespace operation ceiling becomes material.
 - Production uses the verified customer-managed ACS sender domain `airco-tracker.eu`. The documented default limit is 30 messages/minute and 100/hour. The email worker remains intentionally capped at one replica with a 13-second process-local interval until a higher quota is approved and final-delivery/bounce/suppression monitoring is operational. This provider quota, not Service Bus or Table Storage, is the current end-to-end throughput ceiling.
 
-Domain/SPF/DKIM/DKIM2 verification, Communication Service linking, explicit `ACS_EMAIL_DOMAIN_NAME` selection, and real Gmail/Outlook inbox canaries are complete. Foundation keeps the custom domain alongside the Azure-managed fallback, and deployment selects it by name rather than relying on `linkedDomains` array order. Before production growth, add delivery-failure/bounce suppression, complaint and unsubscribe controls, then submit a truthful ACS higher-quota support request and adjust both `EMAIL_MIN_SEND_INTERVAL_SECONDS` and `EMAIL_MAX_REPLICAS` only after approval. Raising replicas first would only produce ACS `429` responses and queue churn. The exact DNS, status, canary, quota, and rollback procedure is in [ACS_CUSTOM_EMAIL_DOMAIN.md](./ACS_CUSTOM_EMAIL_DOMAIN.md).
+Domain/SPF/DKIM/DKIM2 verification, Communication Service linking, explicit `ACS_EMAIL_DOMAIN_NAME` selection, and real Gmail/Outlook inbox canaries are complete. Foundation keeps the custom domain alongside the Azure-managed fallback, and deployment selects it by name rather than relying on `linkedDomains` array order. Reply-To, user alert preference, RFC 8058 unsubscribe, recipient-level final-delivery ingestion, hard-bounce suppression, and the related privacy controls are implemented in the current local release candidate but remain non-production until the handoff records deployment and end-to-end verification. Submit a truthful ACS higher-quota support request and adjust both `EMAIL_MIN_SEND_INTERVAL_SECONDS` and `EMAIL_MAX_REPLICAS` only after those checks pass and Azure approves the quota. Raising replicas first would only produce ACS `429` responses and queue churn. DNS, consent, final-delivery, suppression, monitoring, quota, and warm-up procedures are in [EMAIL_DELIVERY.md](./EMAIL_DELIVERY.md); custom-domain rollback remains in [ACS_CUSTOM_EMAIL_DOMAIN.md](./ACS_CUSTOM_EMAIL_DOMAIN.md).
 
-Useful capacity signals are active-message count and oldest-message age for both queues/subscription, dead-letter count, Service Bus throttled requests/server errors, outbox pending age, delivery failure rate, and ACS `429`/quota responses. Diagnostic Service Bus logs and metrics are sent to Log Analytics. Foundation also creates and enables four namespace metric alerts: `aircontrack-servicebus-deadletter`, `aircontrack-servicebus-backlog`, `aircontrack-servicebus-throttled`, and `aircontrack-servicebus-server-errors`. In the deployed environment they are bound to the enabled `aircontrack-operations-alerts` Action Group. Alerts for outbox age, delivery failure spikes, ACS quota responses, and end-to-end inbox delivery still require separate instrumentation or rules.
+Useful capacity signals are active-message count and oldest-message age for all queues/subscriptions, dead-letter count, Service Bus throttled requests/server errors, Event Grid delivery failures/drops/dead letters, accepted-to-final latency, final-status rates, outbox pending age, and ACS `429`/quota responses. Diagnostic Service Bus logs and metrics are sent to Log Analytics. Production currently has the four namespace alerts `aircontrack-servicebus-deadletter`, `aircontrack-servicebus-backlog`, `aircontrack-servicebus-throttled`, and `aircontrack-servicebus-server-errors`. The local release candidate adds three Event Grid alerts for delivery failure, dropped events, and dead-lettered reports; they are not operational until foundation deployment. Enabled rules bind to the `aircontrack-operations-alerts` Action Group. Alerts for outbox age, ACS quota spikes, and end-to-end inbox delivery still require separate instrumentation or canaries.
 
 ## Configuration
 
@@ -115,10 +133,13 @@ STOCK_EVENTS_TOPIC=stock-events
 STOCK_EVENTS_SUBSCRIPTION=email-fanout
 FANOUT_JOBS_QUEUE=email-fanout-jobs
 EMAIL_JOBS_QUEUE=email-jobs
+ACS_DELIVERY_EVENTS_QUEUE=acs-email-delivery-events
 AUTH_USERS_TABLE=users
 ALERT_OUTBOX_TABLE=alertoutbox
 ALERT_RECIPIENTS_TABLE=alertrecipients
 ALERT_DELIVERIES_TABLE=alertdeliveries
+ALERT_DELIVERY_INDEX_TABLE=alertdeliveryindex
+ALERT_SUPPRESSIONS_TABLE=alertsuppression
 ALERT_RECIPIENT_SHARDS=32
 ALERT_RECIPIENT_PAGE_SIZE=250
 ALERT_EVENT_MAX_AGE_SECONDS=21600
@@ -127,7 +148,10 @@ ALERT_DELIVERY_RETENTION_DAYS=90
 SCANNER_LEASE_SECONDS=480
 EMAIL_MIN_SEND_INTERVAL_SECONDS=13
 EMAIL_MAX_REPLICAS=1
-ACS_EMAIL_DOMAIN_NAME=AzureManagedDomain
+ACS_EMAIL_DOMAIN_NAME=airco-tracker.eu
+EMAIL_REPLY_TO=support@airco-tracker.eu
+APP_BASE_URL=https://airco-tracker.eu
+EMAIL_UNSUBSCRIBE_SIGNING_KEY=<Key Vault secret reference; never a literal production value>
 ```
 
 `AZURE_STORAGE_ACCOUNT_URL`, `AZURE_CLIENT_ID`, `ACS_ENDPOINT`, `EMAIL_FROM`, and the normal scanner settings are also supplied by Bicep. `EMAIL_TO` is a local/direct-mode setting and is not a production subscriber source.
@@ -219,7 +243,7 @@ az containerapp job logs show -g "$RESOURCE_GROUP" -n "$PUBLISHER_JOB" \
   --tail 50 --format text
 ```
 
-Keep the normal scanner and publisher schedules unchanged. Inspect the email-worker logs and the three broker backlogs without receiving or purging messages; record only event/delivery IDs and counts, never recipient addresses. A successful test requires the targeted execution to succeed, both delivery rows to reach terminal `sent`/ACS-accepted handling, both inboxes to receive the message, and active/dead-letter counts on the subscription and both queues to return to zero. ACS acceptance alone does not prove inbox delivery.
+Keep the normal scanner and publisher schedules unchanged. Inspect worker logs and broker backlogs without receiving or purging messages; record only event/delivery IDs and counts, never recipient addresses. A successful test requires the targeted execution to succeed, both delivery rows to progress from `accepted` to a recipient-level final status, both inboxes to receive the message, and active/dead-letter counts on the subscription and all three queues to return to zero. Also verify the visible and RFC 8058 unsubscribe paths without changing the paid entitlement. ACS acceptance alone does not prove inbox delivery.
 
 ## Operations
 
@@ -237,6 +261,7 @@ az containerapp job execution list -g airco-tracker-rg -n airco-tracker-job -o t
 az containerapp job logs show -g airco-tracker-rg -n airco-tracker-job --follow
 az containerapp logs show -g airco-tracker-rg -n airco-alert-fanout-worker --follow
 az containerapp logs show -g airco-tracker-rg -n airco-alert-email-worker --follow
+az containerapp logs show -g airco-tracker-rg -n airco-alert-delivery-worker --follow
 ```
 
 Inspect Service Bus backlog without receiving messages:
@@ -249,6 +274,14 @@ az servicebus queue show -g airco-tracker-rg \
   --namespace-name <namespace> -n email-fanout-jobs --query countDetails
 az servicebus queue show -g airco-tracker-rg \
   --namespace-name <namespace> -n email-jobs --query countDetails
+az servicebus queue show -g airco-tracker-rg \
+  --namespace-name <namespace> -n acs-email-delivery-events --query countDetails
+```
+
+The daily retention job removes normal metadata; the separate privacy job removes raw final-report messages that reached the dedicated Service Bus DLQ:
+
+```bash
+az containerapp job start -g airco-tracker-rg -n airco-delivery-dlq-cleanup
 ```
 
 Inspect the four enabled alert rules and their Action Group without reading or changing the receiver address:

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from azure.data.tables import UpdateMode
@@ -94,7 +94,7 @@ class DeliveryLedgerTests(unittest.TestCase):
         self.assertLess(abs((datetime.now(timezone.utc) - first_sent).total_seconds()), 5)
         self.assertEqual(table.entity["firstSentAt"], claim.first_sent_at)
 
-    def test_terminal_sent_state_cannot_be_moved_back_to_pending(self) -> None:
+    def test_terminal_accepted_state_cannot_be_moved_back_to_pending(self) -> None:
         job = _job()
         table = _LedgerTable(
             {
@@ -111,7 +111,7 @@ class DeliveryLedgerTests(unittest.TestCase):
         ledger.mark_sent(job, claim_owner="owner-1")
         ledger.mark_retryable(job, "late_timeout", claim_owner="owner-1")
 
-        self.assertEqual(table.entity["status"], "sent")
+        self.assertEqual(table.entity["status"], "accepted")
 
     def test_claim_fails_closed_when_table_entity_has_no_etag(self) -> None:
         job = _job()
@@ -302,6 +302,8 @@ class RecipientProjectionTests(unittest.TestCase):
                 "subscriptionPlan",
                 "subscriptionStatus",
                 "subscriptionCurrentPeriodEnd",
+                "emailAlertsEnabled",
+                "emailAlertsTokenVersion",
                 "updatedAt",
             ],
         )
@@ -569,30 +571,126 @@ class RetentionTests(unittest.TestCase):
     def test_cleanup_deletes_only_expired_terminal_metadata(self) -> None:
         outbox = MagicMock()
         deliveries = MagicMock()
+        delivery_index = MagicMock()
+        suppressions = MagicMock()
+        users = MagicMock()
+        recipients = MagicMock()
         outbox.query_entities.return_value = [
             {"PartitionKey": "o-aa", "RowKey": "a" * 64}
         ]
-        deliveries.query_entities.return_value = [
-            {"PartitionKey": "u-1", "RowKey": "e-1", "status": "sent"},
-            {"PartitionKey": "u-2", "RowKey": "e-2", "status": "sending"},
+        deliveries.query_entities.side_effect = [
+            [],
+            [
+                {"PartitionKey": "u-1", "RowKey": "e-1", "status": "delivered"},
+                {"PartitionKey": "u-2", "RowKey": "e-2", "status": "sending"},
+            ],
         ]
+        delivery_index.query_entities.return_value = [
+            {"PartitionKey": "m-aa", "RowKey": "message-1"},
+        ]
+        suppressions.query_entities.return_value = []
         config = SimpleNamespace(
             azure_storage_account_url="https://example.blob.core.windows.net",
             alert_outbox_table="alertoutbox",
             alert_deliveries_table="alertdeliveries",
+            alert_delivery_index_table="alertdeliveryindex",
+            alert_suppressions_table="alertsuppression",
+            auth_users_table="users",
+            alert_recipients_table="alertrecipients",
+            recipient_shard_count=32,
             alert_outbox_retention_days=30,
             alert_delivery_retention_days=90,
         )
 
         with (
-            patch("azure.data.tables.TableClient", side_effect=[outbox, deliveries]),
+            patch(
+                "azure.data.tables.TableClient",
+                side_effect=[
+                    outbox,
+                    deliveries,
+                    delivery_index,
+                    suppressions,
+                    users,
+                    recipients,
+                ],
+            ),
             patch("airco_tracker.retention.default_azure_credential", return_value="credential"),
         ):
             removed = cleanup_alert_data(config)
 
-        self.assertEqual(removed, (1, 1))
+        self.assertEqual(removed, (1, 1, 1, 0))
         outbox.delete_entity.assert_called_once_with("o-aa", "a" * 64)
         deliveries.delete_entity.assert_called_once_with("u-1", "e-1")
+        delivery_index.delete_entity.assert_called_once_with("m-aa", "message-1")
+
+    def test_cleanup_removes_suppressions_for_missing_or_inactive_accounts(self) -> None:
+        outbox = MagicMock()
+        deliveries = MagicMock()
+        delivery_index = MagicMock()
+        suppressions = MagicMock()
+        users = MagicMock()
+        recipients = MagicMock()
+        outbox.query_entities.return_value = []
+        deliveries.query_entities.side_effect = [[], []]
+        delivery_index.query_entities.return_value = []
+        inactive_id = str(uuid.uuid4())
+        active_id = str(uuid.uuid4())
+        missing_id = str(uuid.uuid4())
+        suppressions.query_entities.return_value = [
+            {"PartitionKey": "s-1", "RowKey": inactive_id},
+            {"PartitionKey": "s-2", "RowKey": active_id},
+            {"PartitionKey": "s-3", "RowKey": missing_id},
+        ]
+        users.get_entity.side_effect = [
+            {
+                "recordType": "profile",
+                "recordState": "deleted",
+                "userId": inactive_id,
+            },
+            {
+                "recordType": "profile",
+                "recordState": "active",
+                "userId": active_id,
+            },
+            ResourceNotFoundError("missing canonical profile"),
+        ]
+        recipients.get_entity.side_effect = ResourceNotFoundError(
+            "missing recipient projection"
+        )
+        config = SimpleNamespace(
+            azure_storage_account_url="https://example.blob.core.windows.net",
+            alert_outbox_table="alertoutbox",
+            alert_deliveries_table="alertdeliveries",
+            alert_delivery_index_table="alertdeliveryindex",
+            alert_suppressions_table="alertsuppression",
+            auth_users_table="users",
+            alert_recipients_table="alertrecipients",
+            recipient_shard_count=32,
+            alert_outbox_retention_days=30,
+            alert_delivery_retention_days=90,
+        )
+
+        with (
+            patch(
+                "azure.data.tables.TableClient",
+                side_effect=[
+                    outbox,
+                    deliveries,
+                    delivery_index,
+                    suppressions,
+                    users,
+                    recipients,
+                ],
+            ),
+            patch("airco_tracker.retention.default_azure_credential", return_value="credential"),
+        ):
+            removed = cleanup_alert_data(config)
+
+        self.assertEqual(removed, (0, 0, 0, 2))
+        self.assertEqual(
+            suppressions.delete_entity.call_args_list,
+            [call("s-1", inactive_id), call("s-3", missing_id)],
+        )
 
 
 class MailerIdempotencyTests(unittest.TestCase):

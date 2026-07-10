@@ -54,6 +54,16 @@
       "zh": "已售罄",
       "nl": "Uitverkocht",
       "en": "Sold out"
+    },
+    "unsubscribe_text": {
+      "zh": "不想再收到库存提醒邮件？",
+      "nl": "Wil je geen voorraadmeldingen meer ontvangen?",
+      "en": "Don't want to receive stock alert emails anymore?"
+    },
+    "unsubscribe_link": {
+      "zh": "暂停邮件提醒",
+      "nl": "E-mailmeldingen pauzeren",
+      "en": "Pause email alerts"
     }
   },
   "web": {
