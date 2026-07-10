@@ -56,7 +56,7 @@ airco-alert-email-worker（当前 0–1 replica）
 - Delivery ID 由 `eventId + recipientId` 派生。`alertdeliveries` 通过 ETag 状态转换和短租约，防止并行 worker 主动重复发送。
 - ACS 接收确定性 operation ID 和 repeatability headers，缩小“邮件服务已接受、ledger 尚未落盘”之间的 crash window。
 - 瞬时邮件错误按退避策略重新排队；永久错误进入 dead letter。应用最多尝试发送五次，Service Bus `maxDeliveryCount` 为八次。
-- 每次发送前 worker 都会按 UUID 点读 canonical `users/id:<uuid>` profile，并在 sender rate wait 之后再读一次。因此即使 fan-out projection 尚在追赶，邮箱变更也会立即以 canonical 为准；订阅过期/取消、账户删除、配送国家改变，或生产事件超过六小时时，会标记 suppressed 而不是发送。只有迁移前的 email-keyed rows 才使用有界 secondary-query fallback。
+- 每次发送前 worker 都会按 UUID 点读 canonical `users/id:<uuid>` profile，并在 sender rate wait 之后再读一次。对于旧的 email-keyed profile，reconciler 会在 recipient projection 中保存私有 `sourceUserRowKey`，让 worker 点读 canonical row，并严格重新派生 UUID、确认与请求的 UUID 一致后才信任该 row。只有尚未回填该 pointer 的旧 projection 才使用有界 `userId` query fallback。因此即使 fan-out projection 尚在追赶，邮箱变更也会立即以 canonical 为准；订阅过期/取消、账户删除、配送国家改变，或生产事件超过六小时时，会标记 suppressed 而不是发送。
 
 跨外部邮件服务的分布式系统无法承诺数学意义上的 exactly-once，但确定性的 provider request 和 delivery ledger 让重复邮件很难发生并且可追查。
 
@@ -66,9 +66,9 @@ airco-alert-email-worker（当前 0–1 replica）
 - Scanner/shared web runtime、outbox publisher、fan-out 和 email delivery 使用相互分离的身份。新流水线权限在 Azure RBAC 支持的范围内限制到具体 Service Bus entity 或 Table；不要把 workers 合并成一个宽泛的 Contributor 身份。
 - `stock-events` 只含商品和配送范围，不含 subscriber 数据。
 - Service Bus fan-out/email 消息只含稳定的匿名 recipient UUID，不含邮箱、昵称、Stripe customer/subscription ID、支付方式或卡片信息。
-- `alertrecipients` 是提醒专用表中唯一保存邮箱的表，只保留决定和生成邮件所必需的字段：稳定 user ID、邮箱、语言、配送国家、方案/status/end time、enabled 以及同步时间。
+- `alertrecipients` 是提醒专用表中唯一保存邮箱的表，只保留决定和生成邮件所必需的字段：稳定 user ID、邮箱、语言、配送国家、方案/status/end time、enabled、同步时间，以及仅用于旧 profile 点读的私有 canonical source-row pointer。
 - `alertdeliveries` 只保存匿名 ID 和投递状态，不保存目标邮箱；应用日志会遮蔽邮箱 local part。
-- Email worker 会在发信前从 canonical UUID profile 解析最新地址；其 identity 对 `users` 只有只读权限，代码只消费投递字段。禁止把邮箱复制进 queue payload 或重试 metadata。
+- Email worker 会在发信前从 canonical profile 解析最新地址；其 identity 对 `users` 只有只读权限，代码只消费投递字段。私有 source-row pointer 不得进入 Service Bus message、日志、重试 metadata 或 API。
 - 库存 Blob container 必须保持私有。浏览器只能通过前端同源 API 和 Managed Identity 读取。
 - 本地 `ALERT_DISPATCH_BACKEND=direct` 只用于兼容开发环境。Azure 生产必须使用 `service_bus`，无法确认 recipient 状态时 fail closed。
 
@@ -96,7 +96,7 @@ Subscriber 数量不再影响 scanner 延迟。扫描对每个满足条件的商
 - Coordinator 最多扩到 4 replicas，fan-out workers 最多 16。应先观察 Table 和 Service Bus throttling 再继续上调。
 - Standard tier 的 topic 和两个 queues 都按 16 partitions 创建。提醒消息不需要全局顺序，因此 partitioning 可以移除单一 broker/entity 的吞吐瓶颈并提高可用性。每个 batch 只使用一个确定性的 partition key（stock bucket、event 或 recipient shard），既保留 duplicate detection，也不会在同一个 Service Bus batch 里混用 partition keys。Azure 无法在实体创建后原地修改这个开关；部署这项 foundation 变更前，应迁移或重建已经确认为空的实体。
 - `enableServiceBusPartitioning` 是 foundation 创建/回滚参数；Azure 仍无法原地修改，因此切换时必须先删除或版本化已经确认为空的 entities。
-- Canonical `users` table 不会按每条库存事件扫描；每日 reconciler 只作为 repair job 流式读取，email worker 则对每次实际投递做常数时间 UUID point read。当前提醒热路径不需要手工分表。
+- Canonical `users` table 不会按每条库存事件扫描；每日 reconciler 只作为 repair job 流式读取，email worker 则对每次实际投递做常数时间 UUID 或 legacy-source-row point read。只有尚未回填 source pointer 的旧 projection 会暂时使用有界 `userId` query 兼容路径。当前提醒热路径不需要手工分表。
 - Service Bus 使用 Standard、partition-safe batching 和 duplicate detection。应持续监控 namespace throttling 与队列年龄；当 shared-tier 延迟或 Standard namespace 的 operation ceiling 成为实际瓶颈时，再迁移到 partitioned Premium namespace。
 - 使用 Azure-managed ACS sender domain 时，email worker 故意限制为一个 replica，并在同一进程的两次发送之间等待 13 秒。该域名约有 5 封/分钟、10 封/小时的限制。这才是当前端到端吞吐瓶颈，而不是 Service Bus 或 Table Storage。
 

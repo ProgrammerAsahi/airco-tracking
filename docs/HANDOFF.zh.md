@@ -52,20 +52,20 @@ Web/auth 改动为每个用户加入稳定 UUID `userId`；修改邮箱不会改
 
 Projection contract 固定为 32 partitions（`r-00`…`r-1f`），使用 `sha256(userId)` 的最低五位。它只保存提醒所需的最新邮箱、语言、配送国家、plan/status/period end、enabled 和同步 metadata。改变 shard count 必须在两个仓库进行协调、版本化迁移。
 
-Backend reconciler 支持旧 rows 的确定性 UUID 回填和安全/乐观并发删除规则。它是每日 repair path，不会让每个库存事件依赖完整 `users` 扫描。
+Backend reconciler 支持旧 rows 的确定性 UUID 回填、记录用于常数时间权威投递读取的私有 canonical source-row pointer，并使用安全/乐观并发删除规则。它是每日 repair path，不会让每个库存事件依赖完整 `users` 扫描。只有在旧 source row 重新派生出的 UUID 与请求的 recipient UUID 完全一致时才会信任该 row。
 
 ## 安全和隐私
 
 - 生产使用 Entra ID/OAuth 和 user-assigned Managed Identity。Service Bus 和 ACS 禁用 local authentication；Storage 默认 OAuth，Blob container 保持私有。
 - Scanner/shared web runtime、publisher、fan-out 和 email delivery 使用相互分离的身份；新流水线权限在 Azure RBAC 支持的范围内限制到具体 entity/table。GitHub 通过 OIDC 和 least-privilege custom role 部署，不能创建 role assignments 或读取应用 secrets。
-- Queue messages 不含邮箱、昵称、Stripe/customer/payment IDs 或卡片数据；`alertdeliveries` 也不保存地址。
+- Queue messages 不含邮箱、昵称、Stripe/customer/payment IDs、卡片数据或私有 canonical source-row pointer；`alertdeliveries` 也不保存地址。
 - 邮箱只存在 canonical `users` 和最小化的 `alertrecipients` projection。Email worker 发信前实时解析，日志只输出遮蔽形式。
 - 生产没有 `EMAIL_TO`/`notification-email` fallback。无法读取当前权益或地址时必须 fail closed。
 - Key Vault 只存真正需要的第三方 adapter credentials；secret 不得进入 Git、镜像、Bicep parameters、Service Bus payload 或浏览器代码。
 
 ## 扩展性和当前 quota 限制
 
-Scanner 工作量不随 subscriber 数量变化。Recipient expansion 独立扩缩容，并按 32 个 Table partitions 分页流式读取。Canonical `users` 只由每日 reconciler 读取，因此当前 hot path 不需要手工分表。
+Scanner 工作量不随 subscriber 数量变化。Recipient expansion 独立扩缩容，并按 32 个 Table partitions 分页流式读取。Canonical `users` 只由每日 reconciler 流式扫描；email worker 每次实际投递只做一次权威 point read（UUID row，或 reconciler 记录的旧 source row）。只有尚未回填的旧 projection 才使用有界兼容 query。因此当前 hot path 不需要手工分表。
 
 Coordinator 最多 4 replicas，fan-out 最多 16。Service Bus Standard entities 使用 batching 和确定性 duplicate detection。调整拓扑前要先监控 backlog age、active/dead-letter counts、throttling、pending outbox age、delivery failures 和 ACS `429`。
 

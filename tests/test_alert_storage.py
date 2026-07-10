@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+from azure.data.tables import UpdateMode
 
 from airco_tracker.alert_events import EmailJob, StockAvailableEvent
 from airco_tracker.deliveries import DeliveryLedger
@@ -19,6 +20,7 @@ from airco_tracker.recipient_projection import (
     RecipientProjection,
     _projected_from_entity,
     _projection_entity,
+    legacy_user_id,
 )
 from airco_tracker.retention import cleanup_alert_data
 
@@ -309,6 +311,11 @@ class RecipientProjectionTests(unittest.TestCase):
         projection = RecipientProjection.__new__(RecipientProjection)
         projection.shard_count = 32
         projection._users = MagicMock()
+        projection._projection = MagicMock()
+        projection._projection.get_entity.return_value = {
+            "PartitionKey": projection.partition_key(recipient_id),
+            "RowKey": recipient_id,
+        }
         projection._users.get_entity.side_effect = ResourceNotFoundError("not found")
         projection._users.query_entities.return_value = iter(
             [
@@ -337,6 +344,72 @@ class RecipientProjectionTests(unittest.TestCase):
 
         self.assertIsNotNone(recipient)
         self.assertEqual(recipient.email, "latest@example.com")
+
+    def test_delivery_resolves_legacy_profile_without_user_id_by_source_row(self) -> None:
+        email = "legacy@example.com"
+        recipient_id = legacy_user_id(email)
+        source_row = "bGVnYWN5QGV4YW1wbGUuY29t"
+        projection = RecipientProjection.__new__(RecipientProjection)
+        projection.shard_count = 32
+        projection._projection = MagicMock()
+        projection._projection.get_entity.return_value = {
+            "PartitionKey": projection.partition_key(recipient_id),
+            "RowKey": recipient_id,
+            "sourceUserRowKey": source_row,
+        }
+        projection._users = MagicMock()
+        projection._users.get_entity.side_effect = [
+            ResourceNotFoundError("canonical profile not found"),
+            {
+                "PartitionKey": "user",
+                "RowKey": source_row,
+                "email": email,
+                "languagePreference": "en",
+                "deliveryCountry": "fr",
+                "subscriptionPlan": "monthly_priority",
+                "subscriptionStatus": "active",
+                "subscriptionCurrentPeriodEnd": (
+                    datetime.now(timezone.utc) + timedelta(days=1)
+                ).isoformat(),
+                "updatedAt": "2026-07-09T12:34:56Z",
+            },
+        ]
+
+        recipient = projection.get_authoritative(recipient_id)
+
+        self.assertIsNotNone(recipient)
+        self.assertEqual(recipient.recipient_id, recipient_id)
+        self.assertEqual(recipient.email, email)
+        projection._users.query_entities.assert_not_called()
+
+    def test_delivery_rejects_source_row_whose_derived_uuid_does_not_match(self) -> None:
+        requested_id = str(uuid.uuid4())
+        source_row = "b3RoZXJAZXhhbXBsZS5jb20"
+        projection = RecipientProjection.__new__(RecipientProjection)
+        projection.shard_count = 32
+        projection._projection = MagicMock()
+        projection._projection.get_entity.return_value = {
+            "PartitionKey": projection.partition_key(requested_id),
+            "RowKey": requested_id,
+            "sourceUserRowKey": source_row,
+        }
+        projection._users = MagicMock()
+        projection._users.get_entity.side_effect = [
+            ResourceNotFoundError("canonical profile not found"),
+            {
+                "PartitionKey": "user",
+                "RowKey": source_row,
+                "email": "other@example.com",
+                "subscriptionPlan": "monthly_priority",
+                "subscriptionStatus": "active",
+                "subscriptionCurrentPeriodEnd": (
+                    datetime.now(timezone.utc) + timedelta(days=1)
+                ).isoformat(),
+            },
+        ]
+
+        self.assertIsNone(projection.get_authoritative(requested_id))
+        projection._users.query_entities.assert_not_called()
 
     def test_reconciler_never_projects_an_email_migration_tombstone(self) -> None:
         entity = _projection_entity(
@@ -405,6 +478,7 @@ class RecipientProjectionTests(unittest.TestCase):
         timestamp = "2026-07-09T12:34:56.789Z"
         entity = _projection_entity(
             {
+                "RowKey": "legacy-source-row",
                 "userId": str(uuid.uuid4()),
                 "email": "user@example.com",
                 "languagePreference": "en",
@@ -422,6 +496,41 @@ class RecipientProjectionTests(unittest.TestCase):
         self.assertIsNotNone(entity)
         self.assertEqual(entity["updatedAt"], timestamp)
         self.assertEqual(entity["sourceRevision"], 7)
+        self.assertEqual(entity["sourceUserRowKey"], "legacy-source-row")
+
+    def test_reconciler_backfills_source_row_without_replacing_newer_payload(self) -> None:
+        projection = RecipientProjection.__new__(RecipientProjection)
+        projection._projection = MagicMock()
+        row = str(uuid.uuid4())
+        projection._projection.get_entity.return_value = _Entity(
+            {
+                "PartitionKey": "r-00",
+                "RowKey": row,
+                "email": "newer@example.com",
+                "updatedAt": "2026-07-09T12:00:01Z",
+                "sourceRevision": 4,
+            }
+        )
+        source = {
+            "PartitionKey": "r-00",
+            "RowKey": row,
+            "email": "older@example.com",
+            "updatedAt": "2026-07-09T12:00:00Z",
+            "sourceRevision": 3,
+            "sourceUserRowKey": "legacy-source-row",
+        }
+
+        self.assertTrue(projection._upsert_if_not_newer(source))
+        update = projection._projection.update_entity.call_args.args[0]
+        self.assertEqual(
+            update,
+            {
+                "PartitionKey": "r-00",
+                "RowKey": row,
+                "sourceUserRowKey": "legacy-source-row",
+            },
+        )
+        self.assertEqual(projection._projection.update_entity.call_args.kwargs["mode"], UpdateMode.MERGE)
 
     def test_reconciler_does_not_overwrite_a_newer_web_projection(self) -> None:
         projection = RecipientProjection.__new__(RecipientProjection)

@@ -52,20 +52,20 @@ The web/auth change adds a stable UUID `userId`. Changing an email address prese
 
 The projection contract is fixed at 32 partitions (`r-00`…`r-1f`) using the low five bits of `sha256(userId)`. It contains only the current email, language, delivery country, plan/status/period end, enabled flag, and synchronization metadata needed for alerts. A shard-count change requires a coordinated versioned migration in both repositories.
 
-The backend reconciler supports deterministic UUID backfill for legacy rows and uses optimistic/safe deletion rules. It is a daily repair path, not an event-time dependency on a full `users` scan.
+The backend reconciler supports deterministic UUID backfill for legacy rows, records a private canonical source-row pointer for constant-time authoritative delivery reads, and uses optimistic/safe deletion rules. It is a daily repair path, not an event-time dependency on a full `users` scan. A legacy source row is trusted only when re-deriving its UUID matches the requested recipient UUID.
 
 ## Security and privacy
 
 - Production uses Entra ID/OAuth and user-assigned Managed Identity. Service Bus and ACS local authentication are disabled; Storage defaults to OAuth and the Blob container is private.
 - Scanner/shared web runtime, publisher, fan-out, and email delivery use separate identities. New pipeline permissions are entity/table-scoped wherever Azure RBAC permits. GitHub deploys with OIDC and a custom least-privilege role; it cannot create role assignments or read application secrets.
-- Queue messages never contain an email address, nickname, Stripe/customer/payment identifiers, or card data. `alertdeliveries` also stores no address.
+- Queue messages never contain an email address, nickname, Stripe/customer/payment identifiers, card data, or the private canonical source-row pointer. `alertdeliveries` also stores no address.
 - The email address exists only in canonical `users` and the minimal `alertrecipients` projection. The email worker resolves it immediately before sending and logs only a masked form.
 - Production has no `EMAIL_TO`/`notification-email` fallback. Failure to read current entitlement/address must fail closed.
 - Key Vault is reserved for actual third-party adapter credentials; secrets never enter Git, images, Bicep parameters, Service Bus payloads, or browser code.
 
 ## Scaling and current quota constraint
 
-The scanner performs constant work with respect to subscriber count. Recipient expansion is independently scalable and page-streamed over 32 Table partitions. The canonical `users` table is read only by the daily reconciler, so manual user-table splitting is not needed for the hot path today.
+The scanner performs constant work with respect to subscriber count. Recipient expansion is independently scalable and page-streamed over 32 Table partitions. The canonical `users` table is streamed only by the daily reconciler; the email worker uses one authoritative point read per delivery (UUID row, or the reconciled legacy source row). Only not-yet-backfilled legacy projections use a bounded compatibility query. Manual user-table splitting is therefore not needed for the hot path today.
 
 Coordinator replicas scale to 4 and fan-out replicas to 16. Service Bus Standard entities use batching and deterministic duplicate detection. Monitor backlog age, active/dead-letter counts, throttling, pending-outbox age, delivery failures, and ACS `429` responses before changing topology.
 

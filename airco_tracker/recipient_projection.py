@@ -30,6 +30,7 @@ _DELIVERY_AUTHORITY_FIELDS = [
     "subscriptionCurrentPeriodEnd",
     "updatedAt",
 ]
+_PROJECTION_AUTHORITY_FIELDS = ["PartitionKey", "RowKey", "sourceUserRowKey"]
 
 
 @dataclass(frozen=True)
@@ -101,8 +102,9 @@ class RecipientProjection:
         ``alertrecipients`` is an efficient sharded fan-out read model, but its
         cross-table update can briefly lag a committed email/subscription
         change. The UUID-keyed canonical profile is therefore the final send
-        authority. The bounded query fallback exists only for pre-migration
-        email-keyed rows and disappears naturally as users sign in.
+        authority. Legacy email-keyed profiles are point-read through the
+        source row recorded by reconciliation; the bounded ``userId`` query is
+        retained only for projections created before that source pointer.
         """
         try:
             from azure.core.exceptions import ResourceNotFoundError
@@ -116,23 +118,61 @@ class RecipientProjection:
                 select=_DELIVERY_AUTHORITY_FIELDS,
             )
         except ResourceNotFoundError:
+            source_row = self._legacy_source_row(recipient_id)
+            if source_row is None:
+                return None
+            if source_row:
+                try:
+                    legacy = self._users.get_entity(
+                        "user",
+                        source_row,
+                        select=_DELIVERY_AUTHORITY_FIELDS,
+                    )
+                except (ResourceNotFoundError, ValueError):
+                    return None
+                return self._authoritative_from_entity(legacy, recipient_id)
+
             safe_id = recipient_id.replace("'", "''")
             for legacy in self._users.query_entities(
                 f"PartitionKey eq 'user' and userId eq '{safe_id}'",
                 results_per_page=8,
                 select=_DELIVERY_AUTHORITY_FIELDS,
             ):
-                projected = _projection_entity(
-                    legacy,
-                    self.shard_count,
-                    sync_cycle="delivery",
-                )
+                projected = self._authoritative_from_entity(legacy, recipient_id)
                 if projected is not None:
-                    return _projected_from_entity(projected)
+                    return projected
             return None
 
+        return self._authoritative_from_entity(entity, recipient_id)
+
+    def _legacy_source_row(self, recipient_id: str) -> str | None:
+        """Return the private canonical-row pointer from the fan-out projection."""
+        try:
+            from azure.core.exceptions import ResourceNotFoundError
+        except ImportError as exc:
+            raise RuntimeError("Install the 'azure' extra to resolve recipients") from exc
+        try:
+            entity = self._projection.get_entity(
+                self.partition_key(recipient_id),
+                recipient_id,
+                select=_PROJECTION_AUTHORITY_FIELDS,
+            )
+        except ResourceNotFoundError:
+            return ""
+        source_row = str(entity.get("sourceUserRowKey") or "").strip()
+        if not source_row:
+            return ""
+        return source_row if _valid_table_row_key(source_row) else None
+
+    def _authoritative_from_entity(
+        self,
+        entity: dict[str, Any],
+        recipient_id: str,
+    ) -> ProjectedRecipient | None:
         projected = _projection_entity(entity, self.shard_count, sync_cycle="delivery")
-        return _projected_from_entity(projected) if projected is not None else None
+        if projected is None or str(projected.get("recipientId") or "") != recipient_id:
+            return None
+        return _projected_from_entity(projected)
 
     def iter_shard(self, shard: int) -> Iterator[ProjectedRecipient]:
         if shard < 0 or shard >= self.shard_count:
@@ -243,18 +283,35 @@ class RecipientProjection:
             # Revision is the concurrency authority. Timestamp is only a
             # legacy/tie-breaker within one revision; clock skew must never let
             # an older canonical snapshot overwrite a newer synchronous write.
-            if current_revision > source_revision or (
+            missing_source_pointer = bool(entity.get("sourceUserRowKey")) and not bool(
+                current.get("sourceUserRowKey")
+            )
+            current_is_newer = current_revision > source_revision or (
                 current_revision == source_revision
                 and _is_after(current_updated_at, source_updated_at)
-            ):
+            )
+            # The canonical row pointer is identity metadata, not delivery
+            # state. Backfill it with MERGE even when a newer synchronous web
+            # projection must otherwise win over this repair snapshot.
+            pointer_only = current_is_newer and missing_source_pointer
+            if current_is_newer and not missing_source_pointer:
                 return False
             etag = _etag(current)
             if not etag:
                 raise RuntimeError("Recipient projection entity is missing its ETag")
             try:
+                update = entity
+                mode = UpdateMode.REPLACE
+                if pointer_only:
+                    update = {
+                        "PartitionKey": partition,
+                        "RowKey": row,
+                        "sourceUserRowKey": entity["sourceUserRowKey"],
+                    }
+                    mode = UpdateMode.MERGE
                 self._projection.update_entity(
-                    entity,
-                    mode=UpdateMode.REPLACE,
+                    update,
+                    mode=mode,
                     etag=etag,
                     match_condition=MatchConditions.IfNotModified,
                 )
@@ -293,7 +350,7 @@ def _projection_entity(
     shard = recipient_shard(recipient_id, shard_count)
     source_updated_at = str(user.get("updatedAt") or "").strip() or utc_now_iso()
     source_revision = _nonnegative_revision(user.get("profileRevision"))
-    return {
+    projected = {
         "PartitionKey": f"r-{shard:02x}",
         "RowKey": recipient_id,
         "recipientId": recipient_id,
@@ -310,6 +367,10 @@ def _projection_entity(
         "updatedAt": source_updated_at,
         "syncCycle": sync_cycle,
     }
+    source_user_row_key = str(user.get("RowKey") or "").strip()
+    if _valid_table_row_key(source_user_row_key):
+        projected["sourceUserRowKey"] = source_user_row_key
+    return projected
 
 
 def _projected_from_entity(entity: dict[str, Any]) -> ProjectedRecipient:
@@ -382,6 +443,15 @@ def _valid_email(value: str) -> bool:
         3 <= len(value) <= 254
         and "@" in value
         and not any(character.isspace() for character in value)
+    )
+
+
+def _valid_table_row_key(value: str) -> bool:
+    return (
+        bool(value)
+        and len(value.encode("utf-8")) <= 1024
+        and not any(character in value for character in ("/", "\\", "#", "?"))
+        and not any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in value)
     )
 
 
