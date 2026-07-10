@@ -98,7 +98,7 @@ The current Azure-managed ACS sender domain is the limiting component: approxima
 - Targeted production event `f13967a78d7da2d2c1590d419fffbe969cdd4864175b2a8132cef8afc8a133c6` ran as `airco-alert-publisher-job-8e1cnu7`. Deliveries `3595247c55c2…` and `21514ad2068d…` reached `sent`, ACS accepted both, and both authorized inboxes received them. No recipient address is recorded here.
 - A preceding fail-closed preflight exposed legacy rows without canonical UUID source pointers. It sent no mail; commit `bfe6b40` added strict legacy source-row resolution before the successful targeted run.
 - After removing the broad Storage Table role, a real OTP login, language write/restore, projection sync, and logout all returned 200. Retention execution `airco-alert-retention-job-6u70ukl` and scanner execution `airco-tracker-job-ncdtvul` succeeded; the scanner saved 75 available products across 45 sites and persisted four real outbox transitions.
-- Restoring normal schedules drove those transitions through the pipeline (fan-out backlog peaked at 128 and email backlog at 2). ACS accepted deliveries `3548668d33cb…` and `00eda20addd6…`; final active, scheduled, transfer-DLQ, and DLQ counts were zero on the subscription and both queues.
+- Restoring normal schedules drove those transitions through the pipeline (fan-out backlog peaked at 128 and email backlog at 2). ACS accepted deliveries `3548668d33cb…` and `00eda20addd6…`; both messages arrived, although Gmail classified the Azure-managed-domain message as spam while Outlook placed it in the inbox. Final active, scheduled, transfer-DLQ, and DLQ counts were zero on the subscription and both queues.
 - Final custom-domain checks: `/`, `/health`, and `www` health returned 200; anonymous `/api/inventory` returned 401 as required.
 
 ## Deployment order
@@ -116,7 +116,7 @@ For normal application releases, pushing `main` runs tests, builds an immutable 
 
 ## Next concrete steps
 
-1. Verify a customer-managed `airco-tracker.eu` ACS domain and request a production quota increase before onboarding users at scale.
+1. Verify a customer-managed `airco-tracker.eu` ACS domain with SPF/DKIM and request a production quota increase before onboarding users at scale. The production scanner can deliver now, but the latest Gmail canary landed in spam from the Azure-managed sender.
 2. Keep the four deployed Service Bus namespace alerts enabled; add application-level alerts for stale pending outbox rows, delivery-failure spikes, ACS `429` responses, and a scheduled end-to-end inbox canary.
 3. Monitor the latest scanner warning for GAMMA and KARWEI parser drift while their last successful inventory remains safely marked stale.
 

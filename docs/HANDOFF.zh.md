@@ -98,7 +98,7 @@ Coordinator 最多 4 replicas，fan-out 最多 16。Service Bus Standard entitie
 - 生产定向事件 `f13967a78d7da2d2c1590d419fffbe969cdd4864175b2a8132cef8afc8a133c6` 由 `airco-alert-publisher-job-8e1cnu7` 执行。Deliveries `3595247c55c2…`、`21514ad2068d…` 均达到 `sent`，ACS 接受两封邮件，两个已授权 inbox 均实收；此处不记录地址。
 - 之前一次 fail-closed preflight 暴露了缺少 canonical UUID source pointer 的旧 rows；它没有发出邮件。Commit `bfe6b40` 加入严格的 legacy source-row 解析，随后定向测试成功。
 - 移除宽泛 Storage Table 权限后，真实 OTP 登录、语言写入/恢复、投影同步和登出均返回 200。Retention execution `airco-alert-retention-job-6u70ukl` 与 scanner execution `airco-tracker-job-ncdtvul` 成功；scanner 保存了 45 个站点的 75 个现货商品并持久化 4 个真实 outbox transitions。
-- 恢复正常 schedules 后，这些 transitions 完整流经流水线（fan-out backlog 峰值 128、email backlog 峰值 2）。ACS 接受 deliveries `3548668d33cb…`、`00eda20addd6…`；subscription 和两条 queues 最终 active、scheduled、transfer-DLQ、DLQ 全为零。
+- 恢复正常 schedules 后，这些 transitions 完整流经流水线（fan-out backlog 峰值 128、email backlog 峰值 2）。ACS 接受 deliveries `3548668d33cb…`、`00eda20addd6…`；两封邮件均实际到达，但 Gmail 把 Azure-managed-domain 邮件归入 Spam，Outlook 则进入收件箱。Subscription 和两条 queues 最终 active、scheduled、transfer-DLQ、DLQ 全为零。
 - 自定义域名最终检查：`/`、`/health` 和 `www` health 返回 200；匿名 `/api/inventory` 按要求返回 401。
 
 ## 部署顺序
@@ -116,7 +116,7 @@ az login
 
 ## 下一步
 
-1. 验证 customer-managed `airco-tracker.eu` ACS domain，并在大规模 onboarding 前申请生产 quota increase。
+1. 验证带 SPF/DKIM 的 customer-managed `airco-tracker.eu` ACS domain，并在大规模 onboarding 前申请生产 quota increase。生产 scanner 已能投递，但最新 Gmail canary 因 Azure-managed sender 进入了 Spam。
 2. 保持已部署的四条 Service Bus namespace alerts 启用；补充 stale pending outbox、delivery-failure spikes、ACS `429` 和定时端到端 inbox canary 等应用级告警。
 3. 继续观察最新 scanner 中 GAMMA 与 KARWEI 的 parser drift；在修复前，它们上次成功库存会安全保留并标记 stale。
 
