@@ -26,9 +26,9 @@ The released architecture replaces synchronous per-user sending with an Azure Se
 - Scanner job: `airco-tracker-job`, `*/10 * * * *` UTC
 - Publisher job: `airco-alert-publisher-job`, `* * * * *` UTC
 - Production mail provider: Azure Communication Services Email
-- Deployed backend image/commit: `bfe6b407be84831cf961149cc617956945174ab0` (core pipeline commit `cd8acbb2aa9544b2d6c79d072c9a3373323da9f3`)
-- Compatible frontend commit: `715acf223377d6b450a2a594e32eee0515a85797`
-- Successful backend workflow runs: `29060991005` and `29063024406`; successful frontend run: `29061171454`
+- Deployed backend image/commit: `22fa8661dbc699884de0218c3f4c08e4a4adb55c` (core pipeline commit `cd8acbb2aa9544b2d6c79d072c9a3373323da9f3`)
+- Compatible frontend commit: `4bc303cf31565ee806de6d98b0817f297a95678e`
+- Latest successful backend workflow: `29097894837`; latest successful frontend workflow: `29093407182`
 - Foundation migration deployment: `airco-foundation-partition-migration-20260710`
 - GitHub production pause variable: `DEPLOYMENT_PAUSED=false`
 - Documentation-only pushes are ignored by the deployment workflow.
@@ -74,13 +74,14 @@ The scanner performs constant work with respect to subscriber count. Recipient e
 
 Coordinator replicas scale to 4 and fan-out replicas to 16. Service Bus Standard entities use batching and deterministic duplicate detection. Monitor backlog age, active/dead-letter counts, throttling, pending-outbox age, delivery failures, and ACS `429` responses before changing topology.
 
-The current Azure-managed ACS sender domain is the limiting component: approximately 5 messages/minute and 10/hour. The email app is therefore capped at one replica and spaces sends by 13 seconds. Before real user growth, verify `airco-tracker.eu` as a customer-managed ACS sender (SPF/DKIM), link it with foundation's `customEmailDomainId`, explicitly select it with `ACS_EMAIL_DOMAIN_NAME`, request a quota increase, then raise the email replica/rate settings. Raising worker count before quota is unsafe.
+Production now uses the verified customer-managed ACS sender domain `airco-tracker.eu`; Domain, SPF, DKIM, and DKIM2 are verified, the domain is linked while `AzureManagedDomain` remains available for rollback, and both applications explicitly select it with `ACS_EMAIL_DOMAIN_NAME`. The documented default custom-domain limit is 30 messages/minute and 100/hour. The email app remains capped at one replica with a 13-second send interval until a higher quota is approved and delivery-failure/bounce/complaint controls are operational. Raising worker count before confirming the applicable quota is unsafe.
 
 ## Inventory and retailer semantics
 
 - There are 45 active credential-free adapters: 28 Dutch and 17 French. README contains the authoritative active list and per-retailer notes.
 - Track genuine compressor air conditioners. Exclude air coolers, fans, accessories, quote-only items, fixed split systems outside the supported portable scope, store-only/pickup-only products, expired deals, and multi-week lead times.
 - Presale can appear in the dashboard but never triggers an immediate-stock email. Presale-to-immediate is a valid restock transition.
+- GAMMA and KARWEI normally parse their category tiles. Azure receives a Vercel 429 from that host, so the production fallback uses the storefront-published read-only catalogue with a strict multi-field online-stock contract. A robots-declared sitemap can only confirm a safely empty product catalogue; sitemap membership never proves stock. Schema/key/index or sitemap drift fails closed and retains stale inventory.
 - One retailer failure cannot stop others. A failed site retains the last successful inventory with `status: error` / `stale: true`, and alert state is updated only for successful sites.
 - Live inventory and alert state remain separate. Inventory schema version `1` is a production cross-repository contract; breaking changes require an explicit version bump and coordinated frontend/backend release.
 - Direct 403/anti-bot candidates are documented in [RETAILER_403_BACKLOG.md](./RETAILER_403_BACKLOG.md). Do not bypass CAPTCHA, robots restrictions, login walls, or anti-bot controls.
@@ -92,14 +93,14 @@ The current Azure-managed ACS sender domain is the limiting component: approxima
 
 ## Verification completed for this release
 
-- Backend: 169/169 unit tests, compileall, shell syntax, both Bicep entry points, and `git diff --check` passed.
+- Backend: 182/182 unit tests, compileall, shell syntax, both Bicep entry points, `git diff --check`, and live GAMMA/KARWEI catalogue plus complete-sitemap parsing passed.
 - Frontend: 59/59 tests, typecheck, production build, Bicep/deployment verification, and production HTTP checks passed.
-- GitHub deployed immutable SHAs successfully. The Service Bus topic and both queues are `Active`, partitioned, and use seven-day duplicate detection; the subscription uses a five-minute lock and `maxDeliveryCount=8`.
-- Targeted production event `f13967a78d7da2d2c1590d419fffbe969cdd4864175b2a8132cef8afc8a133c6` ran as `airco-alert-publisher-job-8e1cnu7`. Deliveries `3595247c55c2…` and `21514ad2068d…` reached `sent`, ACS accepted both, and both authorized inboxes received them. No recipient address is recorded here.
-- A preceding fail-closed preflight exposed legacy rows without canonical UUID source pointers. It sent no mail; commit `bfe6b40` added strict legacy source-row resolution before the successful targeted run.
-- After removing the broad Storage Table role, a real OTP login, language write/restore, projection sync, and logout all returned 200. Retention execution `airco-alert-retention-job-6u70ukl` and scanner execution `airco-tracker-job-ncdtvul` succeeded; the scanner saved 75 available products across 45 sites and persisted four real outbox transitions.
-- Restoring normal schedules drove those transitions through the pipeline (fan-out backlog peaked at 128 and email backlog at 2). ACS accepted deliveries `3548668d33cb…` and `00eda20addd6…`; both messages arrived, although Gmail classified the Azure-managed-domain message as spam while Outlook placed it in the inbox. Final active, scheduled, transfer-DLQ, and DLQ counts were zero on the subscription and both queues.
-- Final custom-domain checks: `/`, `/health`, and `www` health returned 200; anonymous `/api/inventory` returned 401 as required.
+- GitHub deployed immutable backend SHA `22fa866…` successfully. The Service Bus topic and both queues are `Active`, partitioned, and use seven-day duplicate detection; the subscription uses a five-minute lock and `maxDeliveryCount=8`.
+- The customer-managed ACS domain reports `Succeeded`; Domain/SPF/DKIM/DKIM2 are `Verified`, it is linked to the Communication Service, and `AzureManagedDomain` remains linked as fallback. Production sender identity is `Airco Tracker <DoNotReply@airco-tracker.eu>`.
+- Targeted production event `4da8605040798e52cc59a64cb16e9e03365d4bf4f8b68561e75b2b4befdafd82` traversed reconciler, publisher, fan-out, and email delivery. ACS accepted both authorized deliveries; Gmail and Outlook both placed the new branded message in the inbox. Gmail original headers showed aligned SPF and DKIM passes and a custom-domain Return-Path. No recipient address is recorded here.
+- DMARC is intentionally still `NotStarted`: do not publish enforcement before a monitored aggregate-report mailbox, inbound/support routing, bounce/final-delivery handling, suppression, and complaint monitoring are ready.
+- Production scanner execution `airco-tracker-job-kn72hom` succeeded on the new image. GAMMA and KARWEI each returned one recognized portable-split product and zero available; the QsplitMini was correctly retained as unavailable. The snapshot saved 70 available products across 45 sites with zero stale sites.
+- After the scanner, the `stock-events/email-fanout` subscription and both queues had zero active, scheduled, transfer-DLQ, and DLQ messages. `/`, `/health`, and `www` health returned 200; anonymous `/api/inventory` returned 401 as required.
 
 ## Deployment order
 
@@ -116,9 +117,9 @@ For normal application releases, pushing `main` runs tests, builds an immutable 
 
 ## Next concrete steps
 
-1. Verify a customer-managed `airco-tracker.eu` ACS domain with SPF/DKIM and request a production quota increase before onboarding users at scale. The production scanner can deliver now, but the latest Gmail canary landed in spam from the Azure-managed sender.
-2. Keep the four deployed Service Bus namespace alerts enabled; add application-level alerts for stale pending outbox rows, delivery-failure spikes, ACS `429` responses, and a scheduled end-to-end inbox canary.
-3. Monitor the latest scanner warning for GAMMA and KARWEI parser drift while their last successful inventory remains safely marked stale.
+1. Prepare and submit an ACS higher-quota support request before onboarding users at scale. It requires truthful business/contact data, expected minute/hour/day peaks, recipient-source details, and completed bounce/complaint/unsubscribe controls; it is not a Bicep or CLI property that should be guessed.
+2. Add monitored inbound routing (for example `support@airco-tracker.eu`), an application `Reply-To`, a DMARC aggregate mailbox and initial `p=none` policy, ACS final-delivery/bounce ingestion with suppression, email-only opt-out/one-click unsubscribe, and application alerts for stale outbox rows, delivery failures, and ACS `429` responses.
+3. Monitor GAMMA/KARWEI public catalogue key/index/schema health and seek a sanctioned feed or written permission for long-term use; any contract failure remains fail-closed rather than generating false stock.
 
 ## Updating this handoff
 

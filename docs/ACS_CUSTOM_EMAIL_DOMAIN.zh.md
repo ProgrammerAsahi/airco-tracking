@@ -11,6 +11,8 @@
 
 本手册用于在保留 Azure-managed fallback 的前提下，把生产邮件从低吞吐的 Azure-managed sender 切换到 customer-managed `airco-tracker.eu`。Azure resource 的创建、验证和连接可以通过 Azure CLI 完成；DNS 仍需在权威 DNS 提供商（目前是 Dynadot）中发布，或通过另行授权的 Dynadot API 修改。
 
+当前生产状态（2026-07-10）：Domain/SPF/DKIM/DKIM2 均为 `Verified`，自定义域与 `AzureManagedDomain` 同时保持连接，backend/frontend 均明确选择自定义域；Gmail/Outlook 真实 canary 都进入收件箱，SPF/DKIM 对齐并通过。DMARC、可监控的入站/aggregate-report 路由、final-delivery/bounce suppression 和 higher-quota support request 尚待完成。
+
 ## 安全规则
 
 - 在 Domain、SPF、DKIM 和 DKIM2 全部显示 `Verified` 且域名已经连接到 Communication Service 之前，绝不能让应用选择自定义域。

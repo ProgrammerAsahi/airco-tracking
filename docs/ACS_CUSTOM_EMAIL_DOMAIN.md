@@ -11,6 +11,8 @@ Update this file and `ACS_CUSTOM_EMAIL_DOMAIN.zh.md` together. Do not put contac
 
 This runbook moves production mail from the low-volume Azure-managed sender to the customer-managed `airco-tracker.eu` domain without removing the Azure-managed fallback. Azure resource creation, verification, and linking can be performed with Azure CLI. DNS records still have to be published at the authoritative DNS provider, currently Dynadot, or through a separately authorized Dynadot API.
 
+Current production status (2026-07-10): Domain/SPF/DKIM/DKIM2 are `Verified`, the custom domain is linked alongside `AzureManagedDomain`, backend and frontend explicitly select it, and real Gmail/Outlook canaries reached both inboxes with aligned SPF/DKIM. DMARC, monitored inbound/aggregate-report routing, final-delivery/bounce suppression, and the higher-quota support request remain outstanding.
+
 ## Safety rules
 
 - Never select the custom domain in the application until Domain, SPF, DKIM, and DKIM2 all report `Verified` and the domain is linked to the Communication Service.
