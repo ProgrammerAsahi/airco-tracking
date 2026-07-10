@@ -94,7 +94,7 @@ Production uses separate Managed Identities for the scanner/shared web runtime, 
 
 Azure Monitor has four enabled Service Bus metric alerts for dead-lettered messages, sustained backlog, throttled requests, and server errors. In production they notify the `aircontrack-operations-alerts` Action Group. The receiver address is supplied only as the secure foundation parameter `operationsAlertEmail`, normally through local `AZURE_OPERATIONS_ALERT_EMAIL`; it is never committed or stored as a GitHub Actions variable. Repeat foundation deployments preserve the Action Group's existing receiver when the environment variable is omitted.
 
-See [asynchronous alert pipeline](./docs/ALERT_PIPELINE.md) for the full topology, idempotency model, configuration, retention, scaling limits, deployment order, and runbook.
+See [asynchronous alert pipeline](./docs/ALERT_PIPELINE.md) for the full topology, idempotency model, configuration, retention, scaling limits, deployment order, and runbook. DNS, verification, rollout, real-delivery checks, and rollback for the custom ACS sender are documented in the [ACS custom email domain runbook](./docs/ACS_CUSTOM_EMAIL_DOMAIN.md).
 
 ## Run locally
 

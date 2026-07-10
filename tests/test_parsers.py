@@ -744,6 +744,60 @@ class ParserTests(unittest.TestCase):
             products = adapter.parse(soup, "https://shop.test/")
             self.assertEqual(products[0].btu, 6824)
 
+    def test_gamma_accepts_valid_catalog_with_no_portable_aircos(self) -> None:
+        html = """
+        <article class="js-product-tile" data-state="ONLINE_AVAILABLE">
+          <a class="click-mask" href="/assortiment/split/p/B1"
+             title="Qlima split airco SC 6126"></a>
+          <meta itemprop="price" content="1449.00">
+        </article>"""
+        products = GammaAdapter(CatalogFetcher(html, {})).fetch_products()
+        self.assertEqual(products, [])
+
+    def test_gamma_recognizes_draagbare_airco_product_name(self) -> None:
+        html = """
+        <article class="js-product-tile" data-state="HAS_STORE_STOCK">
+          <a class="click-mask" href="/assortiment/portable/p/B2"
+             title="Handson Draagbare Airco 7000 BTU"></a>
+          <meta itemprop="price" content="199.00">
+        </article>
+        <article class="js-product-tile" data-state="ONLINE_AVAILABLE">
+          <a class="click-mask" href="/assortiment/split/p/B3"
+             title="Qlima Draagbare split airco 9000 BTU"></a>
+          <meta itemprop="price" content="899.00">
+        </article>"""
+        products = GammaAdapter(CatalogFetcher(html, {})).fetch_products()
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0].name, "Handson Draagbare Airco 7000 BTU")
+        self.assertFalse(products[0].available)
+        self.assertEqual(products[0].delivery, "Alleen in de bouwmarkt")
+        self.assertEqual(products[0].btu, 7000)
+
+    def test_gamma_still_rejects_missing_product_tile_structure(self) -> None:
+        adapter = GammaAdapter(CatalogFetcher("<main>Airco</main>", {}))
+        with self.assertRaisesRegex(RuntimeError, "no supported product tiles"):
+            adapter.fetch_products()
+
+    def test_karwei_accepts_valid_catalog_with_no_portable_aircos(self) -> None:
+        html = """
+        <article class="js-product-tile" data-state="ONLINE_AVAILABLE">
+          <a class="click-mask" href="/assortiment/split/p/B1"
+             title="Qlima split airco SC 6126"></a>
+          <meta itemprop="price" content="1449.00">
+        </article>
+        <article class="js-product-tile" data-state="CLICK_AND_COLLECT">
+          <a class="click-mask" href="/assortiment/accessory/p/B2"
+             title="Eurom afvoer voor mobiele airco"></a>
+          <meta itemprop="price" content="49.99">
+        </article>"""
+        products = KarweiAdapter(CatalogFetcher(html, {})).fetch_products()
+        self.assertEqual(products, [])
+
+    def test_karwei_still_rejects_missing_product_tile_structure(self) -> None:
+        adapter = KarweiAdapter(CatalogFetcher("<main>Airco</main>", {}))
+        with self.assertRaisesRegex(RuntimeError, "no supported product tiles"):
+            adapter.fetch_products()
+
     def test_praxis_requires_current_home_delivery(self) -> None:
         state = {
             "translations": {"html": "<b>test</b>"},
