@@ -5,7 +5,7 @@
   <a href="./HANDOFF.md"><img alt="English" src="https://img.shields.io/badge/HANDOFF-English-0969da"></a>
 </p>
 
-Last updated: 2026-07-10 (Europe/Amsterdam)
+Last updated: 2026-07-11 (Europe/Amsterdam)
 
 Update this English file and `HANDOFF.zh.md` together. Do not record secrets, email addresses, access tokens, payment data, or unnecessary personal information.
 
@@ -26,29 +26,44 @@ The released architecture replaces synchronous per-user sending with an Azure Se
 - Scanner job: `airco-tracker-job`, `*/10 * * * *` UTC
 - Publisher job: `airco-alert-publisher-job`, `* * * * *` UTC
 - Production mail provider: Azure Communication Services Email
-- Deployed backend image/commit: `22fa8661dbc699884de0218c3f4c08e4a4adb55c` (core pipeline commit `cd8acbb2aa9544b2d6c79d072c9a3373323da9f3`)
-- Compatible frontend commit: `4bc303cf31565ee806de6d98b0817f297a95678e`
-- Latest successful backend workflow: `29097894837`; latest successful frontend workflow: `29093407182`
-- Foundation migration deployment: `airco-foundation-partition-migration-20260710`
+- Deployed backend image/commit: `d11004dd428905555dd1c3375ef10848d9459a21`
+- Compatible frontend commit: `c73b4bb3b78c8d8cbd56177bf016f7549423f4ee`
+- Latest successful backend workflow: `29146949432`; latest successful frontend workflow: `29143329174`
+- Latest foundation deployment: `airco-foundation` (succeeded 2026-07-11)
 - GitHub production pause variable: `DEPLOYMENT_PAUSED=false`
 - Documentation-only pushes are ignored by the deployment workflow.
 
+## Production email delivery and reputation controls
+
+The email-delivery hardening release is deployed and production-tested:
+
+- The authoritative MX and both monitored forwarding aliases were read back and verified with external canaries. DMARC has exactly one observation-only `p=none` record; aggregate reporting is provider-managed. Forwarding destinations remain outside Git and support-ticket documentation.
+- Authentication and stock-alert messages use a structured support `Reply-To` on the custom domain.
+- Paid users can enable or pause alert email independently of billing and realtime-inventory access. Visible unsubscribe and RFC 8058 one-click unsubscribe use a versioned HMAC capability whose signing key is read from Key Vault.
+- ACS recipient-level final delivery flows through Event Grid → dedicated Service Bus queue → separate delivery-report worker. The ledger records normalized final states, hard bounces suppress only the affected address, and no-resend checks remain authoritative.
+- Raw recipient data is confined to the provider-report path: one-day queue TTL, no expiry-to-DLQ, private Event Grid dead letters with seven-day lifecycle deletion, and a daily Service Bus delivery-report DLQ privacy-cleanup job.
+- Event Grid dead-letter/dropped/repeated-failure alerts, privacy-safe final-outcome queries, and ACS operation diagnostics are active. The first manual cleanup execution and a real Action Group notification both succeeded.
+
+ACS higher-quota case `06bfd9d3-65c22af0-6d841855-b8dc-4aea-8d93-d2364a875032` is **Open**. The requested portal tier is `250` (1,000 messages/minute and 3,000/hour), while the application will initially self-limit to at most 100/minute and 10,000/day for up to 1,000 initial users. Keep the deployed one-worker/13-second sender limit until Azure approves the request, then warm the domain gradually for two to four weeks.
+
 ## Asynchronous alert pipeline
 
-The complete design and runbook are in [ALERT_PIPELINE.md](./ALERT_PIPELINE.md). The production flow is:
+The complete design is in [ALERT_PIPELINE.md](./ALERT_PIPELINE.md); consent, domain reputation, final-delivery, suppression, retention, and quota procedures are in [EMAIL_DELIVERY.md](./EMAIL_DELIVERY.md). The deployed production flow is:
 
 1. The scanner holds a distributed lease, updates the Blob snapshot/state, and durably writes deterministic `stock.available.v1` events to `alertoutbox` before advancing alert state.
 2. `airco-alert-publisher-job` runs every minute and publishes pending rows to topic `stock-events`.
 3. `airco-alert-fanout-coordinator` consumes subscription `email-fanout` and creates 32 shard jobs on `email-fanout-jobs`.
 4. Up to 16 fan-out workers stream the matching `alertrecipients` partition and enqueue opaque recipient-ID jobs on `email-jobs`.
 5. The email worker reloads the latest recipient record, rechecks entitlement/country/event age, claims an ETag-guarded `alertdeliveries` row, and sends through ACS with a deterministic operation ID.
+6. ACS final-delivery events flow through Event Grid system topic `aircontrack-acs-email-events` and `acs-email-delivery-events`; the delivery worker normalizes the result, updates `alertdeliveries`/`alertdeliveryindex`, and applies address-specific hard-bounce suppression.
 
 Supporting schedules:
 
 - `airco-alert-reconciler-job`: daily `03:17 UTC`, repairs the web-maintained projection from canonical `users`.
 - `airco-alert-retention-job`: daily `02:17 UTC`, removes published outbox rows after 30 days and terminal delivery rows after 90 days.
+- `airco-delivery-dlq-cleanup`: daily `02:43 UTC`, removes raw provider reports from the dedicated delivery-report DLQ.
 
-Service Bus stock/fan-out messages have a one-day TTL; email jobs and application event freshness are six hours. Duplicate detection is seven days. Invalid/permanent messages are dead-lettered rather than silently completed.
+Service Bus stock/fan-out messages have a one-day TTL; email jobs and application event freshness are six hours. Delivery-report messages have a one-day TTL, `maxDeliveryCount=16`, and do not copy expired payloads to the DLQ. Duplicate detection is seven days. Invalid/permanent application messages are dead-lettered rather than silently completed.
 
 ## Cross-repository recipient contract
 
@@ -61,12 +76,12 @@ The backend reconciler supports deterministic UUID backfill for legacy rows, rec
 ## Security and privacy
 
 - Production uses Entra ID/OAuth and user-assigned Managed Identity. Service Bus and ACS local authentication are disabled; Storage defaults to OAuth and the Blob container is private.
-- Scanner/shared web runtime, publisher, fan-out, and email delivery use separate identities. New pipeline permissions are entity/table-scoped wherever Azure RBAC permits. GitHub deploys with OIDC and a custom least-privilege role; it cannot create role assignments or read application secrets.
+- Scanner/shared web runtime, publisher, fan-out, email delivery, and delivery-report processing use separate identities. Pipeline permissions are entity/table-scoped wherever Azure RBAC permits. Event Grid alone has the storage-account-scoped Blob role required by Azure's managed-identity dead-letter validation; the delivery publisher has only table-level read access to `alertdeliveries`. GitHub deploys with OIDC and a custom least-privilege role; it cannot create role assignments or read application secrets.
 - The old storage-account-wide `Storage Table Data Contributor` assignment has been removed. The shared runtime retains only the required per-table contributor/reader assignments plus its Blob role; production OTP, profile/projection writes, logout, retention, and scanner execution all passed after removal.
-- Queue messages never contain an email address, nickname, Stripe/customer/payment identifiers, card data, or the private canonical source-row pointer. `alertdeliveries` also stores no address.
-- The email address exists only in canonical `users` and the minimal `alertrecipients` projection. The email worker resolves it immediately before sending and logs only a masked form.
+- Normal application queue messages never contain an email address, nickname, Stripe/customer/payment identifiers, card data, or the private canonical source-row pointer. The dedicated provider-report queue is the narrowly retained exception because ACS delivery events necessarily contain the recipient; its one-day TTL, private dead letter, and cleanup policy bound that exposure. `alertdeliveries`, `alertdeliveryindex`, and suppression rows retain only opaque IDs/fingerprints and normalized status.
+- Outside that bounded provider-report path, the email address exists only in canonical `users` and the minimal `alertrecipients` projection. The email worker resolves it immediately before sending and logs only a masked form.
 - Production has no `EMAIL_TO`/`notification-email` fallback. Failure to read current entitlement/address must fail closed.
-- Key Vault is reserved for actual third-party adapter credentials; secrets never enter Git, images, Bicep parameters, Service Bus payloads, or browser code.
+- Key Vault stores the small set of required application and adapter secrets, including the unsubscribe signing key. Secret values never enter Git, images, Bicep parameters, Service Bus payloads, logs, or browser code.
 
 ## Scaling and current quota constraint
 
@@ -74,7 +89,7 @@ The scanner performs constant work with respect to subscriber count. Recipient e
 
 Coordinator replicas scale to 4 and fan-out replicas to 16. Service Bus Standard entities use batching and deterministic duplicate detection. Monitor backlog age, active/dead-letter counts, throttling, pending-outbox age, delivery failures, and ACS `429` responses before changing topology.
 
-Production now uses the verified customer-managed ACS sender domain `airco-tracker.eu`; Domain, SPF, DKIM, and DKIM2 are verified, the domain is linked while `AzureManagedDomain` remains available for rollback, and both applications explicitly select it with `ACS_EMAIL_DOMAIN_NAME`. The documented default custom-domain limit is 30 messages/minute and 100/hour. The email app remains capped at one replica with a 13-second send interval until a higher quota is approved and delivery-failure/bounce/complaint controls are operational. Raising worker count before confirming the applicable quota is unsafe.
+Production uses the verified customer-managed ACS sender domain `airco-tracker.eu`; Domain, SPF, DKIM, and DKIM2 are verified, the domain is linked while `AzureManagedDomain` remains available for rollback, and both applications explicitly select it with `ACS_EMAIL_DOMAIN_NAME`. The documented default custom-domain limit is 30 messages/minute and 100/hour. Delivery-failure, bounce, suppression, unsubscribe, and complaint-observation controls are operational, and the tier-250 quota request is open. The email app remains capped at one replica with a 13-second send interval until Azure approves the request. Raising worker count before approval is unsafe.
 
 ## Inventory and retailer semantics
 
@@ -93,14 +108,16 @@ Production now uses the verified customer-managed ACS sender domain `airco-track
 
 ## Verification completed for this release
 
-- Backend: 182/182 unit tests, compileall, shell syntax, both Bicep entry points, `git diff --check`, and live GAMMA/KARWEI catalogue plus complete-sitemap parsing passed.
-- Frontend: 59/59 tests, typecheck, production build, Bicep/deployment verification, and production HTTP checks passed.
-- GitHub deployed immutable backend SHA `22fa866…` successfully. The Service Bus topic and both queues are `Active`, partitioned, and use seven-day duplicate detection; the subscription uses a five-minute lock and `maxDeliveryCount=8`.
+- Backend: 202/202 unit tests, compileall, shell syntax, both Bicep entry points, `git diff --check`, and live GAMMA/KARWEI catalogue plus complete-sitemap parsing passed.
+- Frontend: 66/66 tests, typecheck, production build, Bicep/deployment verification, and production HTTP checks passed.
+- GitHub deployed immutable backend SHA `d11004d…` in workflow `29146949432` and frontend SHA `c73b4bb…` in workflow `29143329174`; all required steps succeeded.
+- Event Grid system topic/subscription, the `email-fanout` subscription, all three queues, both delivery tables, the seven-day dead-letter lifecycle, seven metric alerts, and two scheduled-query alerts are enabled. The four inspected broker entities ended with zero active, scheduled, transfer-DLQ, and DLQ messages.
 - The customer-managed ACS domain reports `Succeeded`; Domain/SPF/DKIM/DKIM2 are `Verified`, it is linked to the Communication Service, and `AzureManagedDomain` remains linked as fallback. Production sender identity is `Airco Tracker <DoNotReply@airco-tracker.eu>`.
-- Targeted production event `4da8605040798e52cc59a64cb16e9e03365d4bf4f8b68561e75b2b4befdafd82` traversed reconciler, publisher, fan-out, and email delivery. ACS accepted both authorized deliveries; Gmail and Outlook both placed the new branded message in the inbox. Gmail original headers showed aligned SPF and DKIM passes and a custom-domain Return-Path. No recipient address is recorded here.
-- DMARC is intentionally still `NotStarted`: do not publish enforcement before a monitored aggregate-report mailbox, inbound/support routing, bounce/final-delivery handling, suppression, and complaint monitoring are ready.
-- Production scanner execution `airco-tracker-job-kn72hom` succeeded on the new image. GAMMA and KARWEI each returned one recognized portable-split product and zero available; the QsplitMini was correctly retained as unavailable. The snapshot saved 70 available products across 45 sites with zero stale sites.
-- After the scanner, the `stock-events/email-fanout` subscription and both queues had zero active, scheduled, transfer-DLQ, and DLQ messages. `/`, `/health`, and `www` health returned 200; anonymous `/api/inventory` returned 401 as required.
+- Targeted production event `a4ec09309cd8fa12ba09881f27ea635d5a05baa7420654495ffce4fc024b5ead` reached final `delivered` state for both authorized recipients, and both monitored providers placed it in the inbox. Gmail original headers showed aligned SPF, DKIM, and DMARC passes, the expected Reply-To, an HTTPS `List-Unsubscribe`, and exact RFC 8058 `List-Unsubscribe-Post` semantics. No recipient address is recorded here.
+- A real one-click POST paused alert email without login while leaving the paid subscription and inventory entitlement unchanged. Re-enabling alerts rotated the capability; the old link remained idempotent but could not change the new state.
+- External inbound-forwarding canaries reached both monitored mailboxes. One initial support-forwarding canary landed in spam, so gradual warm-up and reputation monitoring remain required. DMARC stays at observation-only `p=none` while aggregate reports and legitimate senders are reviewed.
+- The latest scheduled scanner execution `airco-tracker-job-29729490` succeeded. GAMMA/KARWEI use the strict public-catalogue fallback when their category host rate-limits Azure; schema/key/index drift still fails closed rather than inventing stock.
+- `/`, `/health`, and `www` health returned 200; anonymous `/api/inventory` returned 401 as required. The monitoring Action Group sent a real inbox notification, and the first delivery-DLQ cleanup execution succeeded.
 
 ## Deployment order
 
@@ -117,9 +134,10 @@ For normal application releases, pushing `main` runs tests, builds an immutable 
 
 ## Next concrete steps
 
-1. Prepare and submit an ACS higher-quota support request before onboarding users at scale. It requires truthful business/contact data, expected minute/hour/day peaks, recipient-source details, and completed bounce/complaint/unsubscribe controls; it is not a Bicep or CLI property that should be guessed.
-2. Add monitored inbound routing (for example `support@airco-tracker.eu`), an application `Reply-To`, a DMARC aggregate mailbox and initial `p=none` policy, ACS final-delivery/bounce ingestion with suppression, email-only opt-out/one-click unsubscribe, and application alerts for stale outbox rows, delivery failures, and ACS `429` responses.
-3. Monitor GAMMA/KARWEI public catalogue key/index/schema health and seek a sanctioned feed or written permission for long-term use; any contract failure remains fail-closed rather than generating false stock.
+1. Monitor quota case `06bfd9d3-65c22af0-6d841855-b8dc-4aea-8d93-d2364a875032` and answer Azure with the existing consent, authentication, unsubscribe, final-delivery, suppression, monitoring, and warm-up evidence. Do not describe the request as approved until Azure confirms it.
+2. Keep one worker and the 13-second interval until approval. After approval, raise concurrency conservatively, retain the application-level 100/minute and 10,000/day launch caps, and validate backlog, ACS `429`, final outcomes, and suppression under load.
+3. Warm the custom domain over two to four weeks while reviewing DMARC aggregates, provider complaints, bounce/suppression rates, adverse final outcomes, and inbox placement; keep failures below 1%.
+4. Continue monitoring GAMMA/KARWEI public catalogue key/index/schema health and seek a sanctioned feed or written permission for long-term use; any contract failure remains fail-closed rather than generating false stock.
 
 ## Updating this handoff
 
