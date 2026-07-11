@@ -66,6 +66,25 @@ class SubscriberTests(unittest.TestCase):
             )
         )
 
+    def test_french_preference_is_preserved_for_alert_delivery(self) -> None:
+        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        recipient = _recipient_from_entity(
+            {
+                "email": "user@example.com",
+                "subscriptionPlan": "monthly_basic",
+                "subscriptionStatus": "active",
+                "subscriptionCurrentPeriodEnd": future,
+                "languagePreference": "fr",
+                "deliveryCountry": "fr",
+            },
+            fallback_lang="zh",
+        )
+
+        self.assertIsNotNone(recipient)
+        assert recipient is not None
+        self.assertEqual(recipient.language, "fr")
+        self.assertEqual(recipient.delivery_country, "fr")
+
 
 if __name__ == "__main__":
     unittest.main()

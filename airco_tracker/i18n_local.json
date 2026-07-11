@@ -3,222 +3,320 @@
     "subject_alert": {
       "zh": "🔥 {count} 台便携空调恢复库存",
       "nl": "🔥 {count} mobiele airco's weer op voorraad",
-      "en": "🔥 {count} portable air conditioners back in stock"
+      "en": "🔥 {count} portable air conditioners back in stock",
+      "fr": "🔥 {count} climatiseurs mobiles de nouveau en stock"
+    },
+    "subject_alert_one": {
+      "zh": "🔥 {count} 台便携空调恢复库存",
+      "nl": "🔥 {count} mobiele airco weer op voorraad",
+      "en": "🔥 {count} portable air conditioner back in stock",
+      "fr": "🔥 {count} climatiseur mobile de nouveau en stock"
     },
     "subject_test": {
       "zh": "[Airco tracker] 邮件测试成功",
       "nl": "[Airco tracker] testmail verzonden",
-      "en": "[Airco tracker] test email sent"
+      "en": "[Airco tracker] test email sent",
+      "fr": "[Airco Tracker] e-mail de test envoyé"
     },
     "body_intro": {
-      "zh": "检测到以下可配送到荷兰的便携空调：",
-      "nl": "De volgende mobiele airco's kunnen weer naar een Nederlands adres worden bezorgd:",
-      "en": "The following portable air conditioners can again be delivered to a Dutch address:"
+      "zh": "检测到以下可配送到{country}的便携空调：",
+      "nl": "De volgende mobiele airco's kunnen weer naar een adres in {country} worden bezorgd:",
+      "en": "The following portable air conditioners can again be delivered to an address in {country}:",
+      "fr": "Les climatiseurs mobiles suivants peuvent de nouveau être livrés à une adresse située {country} :"
+    },
+    "body_intro_one": {
+      "zh": "检测到以下可配送到{country}的便携空调：",
+      "nl": "De volgende mobiele airco kan weer naar een adres in {country} worden bezorgd:",
+      "en": "The following portable air conditioner can again be delivered to an address in {country}:",
+      "fr": "Le climatiseur mobile suivant peut de nouveau être livré à une adresse située {country} :"
     },
     "price_unknown": {
       "zh": "价格未知",
       "nl": "prijs onbekend",
-      "en": "price unknown"
+      "en": "price unknown",
+      "fr": "prix inconnu"
     },
     "view_link": {
       "zh": "立即查看并下单",
       "nl": "Nu bekijken en bestellen",
-      "en": "View and order now"
+      "en": "View and order now",
+      "fr": "Voir et commander"
     },
     "body_footer": {
       "zh": "库存变化很快，请在购买前再次确认价格和配送日期。",
       "nl": "De voorraad verandert snel; controleer prijs en leverdatum voordat je bestelt.",
-      "en": "Stock changes quickly; please confirm the price and delivery date before buying."
+      "en": "Stock changes quickly; please confirm the price and delivery date before buying.",
+      "fr": "Les stocks évoluent rapidement ; veuillez vérifier le prix et la date de livraison avant l'achat."
     },
     "html_title": {
       "zh": "便携空调恢复库存",
       "nl": "Mobiele airco's weer op voorraad",
-      "en": "Portable air conditioners back in stock"
+      "en": "Portable air conditioners back in stock",
+      "fr": "Climatiseurs mobiles de nouveau en stock"
+    },
+    "html_title_one": {
+      "zh": "便携空调恢复库存",
+      "nl": "Mobiele airco weer op voorraad",
+      "en": "Portable air conditioner back in stock",
+      "fr": "Climatiseur mobile de nouveau en stock"
     },
     "test_body": {
       "zh": "Airco Tracker 邮件配置正常。",
       "nl": "De e-mailconfiguratie van Airco Tracker werkt naar behoren.",
-      "en": "Airco Tracker email configuration is working."
+      "en": "Airco Tracker email configuration is working.",
+      "fr": "La configuration e-mail d'Airco Tracker fonctionne correctement."
     },
     "test_body_html": {
       "zh": "<p><strong>Airco Tracker</strong> 邮件配置正常。</p>",
       "nl": "<p><strong>Airco Tracker</strong>-e-mailconfiguratie werkt naar behoren.</p>",
-      "en": "<p><strong>Airco Tracker</strong> email configuration is working.</p>"
+      "en": "<p><strong>Airco Tracker</strong> email configuration is working.</p>",
+      "fr": "<p>La configuration e-mail d'<strong>Airco Tracker</strong> fonctionne correctement.</p>"
     },
     "delivery_in_stock": {
       "zh": "页面显示可购买",
       "nl": "Bestelbaar volgens de pagina",
-      "en": "Orderable according to the page"
+      "en": "Orderable according to the page",
+      "fr": "Disponible à la commande selon la page"
     },
     "delivery_out_of_stock": {
       "zh": "已售罄",
       "nl": "Uitverkocht",
-      "en": "Sold out"
+      "en": "Sold out",
+      "fr": "Épuisé"
     },
     "unsubscribe_text": {
       "zh": "不想再收到库存提醒邮件？",
       "nl": "Wil je geen voorraadmeldingen meer ontvangen?",
-      "en": "Don't want to receive stock alert emails anymore?"
+      "en": "Don't want to receive stock alert emails anymore?",
+      "fr": "Vous ne souhaitez plus recevoir d'alertes de stock ?"
     },
     "unsubscribe_link": {
       "zh": "暂停邮件提醒",
       "nl": "E-mailmeldingen pauzeren",
-      "en": "Pause email alerts"
+      "en": "Pause email alerts",
+      "fr": "Suspendre les alertes par e-mail"
+    },
+    "country_nl": {
+      "zh": "荷兰",
+      "nl": "Nederland",
+      "en": "the Netherlands",
+      "fr": "aux Pays-Bas"
+    },
+    "country_fr": {
+      "zh": "法国",
+      "nl": "Frankrijk",
+      "en": "France",
+      "fr": "en France"
     }
   },
   "web": {
     "hero_eyebrow": {
       "zh": "荷兰 · 实时库存",
       "nl": "Nederland · realtime voorraad",
-      "en": "Netherlands · live stock"
+      "en": "Netherlands · live stock",
+      "fr": "Pays-Bas · stock en temps réel"
     },
     "hero_title": {
       "zh": "哪里还有空调，<br />一眼就知道。",
       "nl": "Waar is er nog een airco,<br/>in één oogopslag.",
-      "en": "Where to find an AC,<br/>at a glance."
+      "en": "Where to find an AC,<br/>at a glance.",
+      "fr": "Où trouver un climatiseur,<br/>en un coup d’œil."
     },
     "hero_description": {
       "zh": "每 10 分钟查看 {site_count} 家商店，聚合当前可以在线购买的便携空调。点击有货的商店查看具体型号。",
       "nl": "Controleert elke 10 minuten {site_count} winkels en bundelt mobiele airco's die online bestelbaar zijn. Klik op een winkel met voorraad om modellen te zien.",
-      "en": "Checks {site_count} stores every 10 minutes and aggregates portable ACs available to order online. Click a stocked store to see models."
+      "en": "Checks {site_count} stores every 10 minutes and aggregates portable ACs available to order online. Click a stocked store to see models.",
+      "fr": "Vérifie {site_count} magasins toutes les 10 minutes et rassemble les climatiseurs mobiles disponibles à la commande en ligne. Cliquez sur un magasin approvisionné pour voir les modèles."
     },
     "metric_in_stock": {
       "zh": "台空调有货",
       "nl": "airco's op voorraad",
-      "en": "ACs in stock"
+      "en": "ACs in stock",
+      "fr": "climatiseurs en stock"
+    },
+    "metric_in_stock_one": {
+      "zh": "台空调有货",
+      "nl": "airco op voorraad",
+      "en": "AC in stock",
+      "fr": "climatiseur en stock"
     },
     "metric_stores_stocked": {
-      "zh": "{count} 家商店有货",
-      "nl": "{count} winkels met voorraad",
-      "en": "{count} stores stocked"
+      "zh": "家商店有货",
+      "nl": "winkels met voorraad",
+      "en": "stores stocked",
+      "fr": "magasins approvisionnés"
+    },
+    "metric_stores_stocked_one": {
+      "zh": "家商店有货",
+      "nl": "winkel met voorraad",
+      "en": "store stocked",
+      "fr": "magasin approvisionné"
     },
     "metric_stores_tracked": {
-      "zh": "{count} 家正在追踪",
-      "nl": "{count} winkels gemonitord",
-      "en": "{count} stores tracked"
+      "zh": "家正在追踪",
+      "nl": "winkels gemonitord",
+      "en": "stores tracked",
+      "fr": "magasins suivis"
+    },
+    "metric_stores_tracked_one": {
+      "zh": "家正在追踪",
+      "nl": "winkel gemonitord",
+      "en": "store tracked",
+      "fr": "magasin suivi"
     },
     "section_kicker": {
-      "zh": "Live overview",
+      "zh": "实时概览",
       "nl": "Live overzicht",
-      "en": "Live overview"
+      "en": "Live overview",
+      "fr": "Vue en temps réel"
     },
     "section_title": {
       "zh": "各网站库存",
       "nl": "Voorraad per winkel",
-      "en": "Stock by store"
+      "en": "Stock by store",
+      "fr": "Stock par magasin"
     },
     "updated_at": {
       "zh": "更新于 {time}",
       "nl": "Bijgewerkt om {time}",
-      "en": "Updated {time}"
+      "en": "Updated {time}",
+      "fr": "Mis à jour à {time}"
     },
     "waiting_first_update": {
       "zh": "等待第一次更新",
       "nl": "Wachten op eerste update",
-      "en": "Waiting for first update"
+      "en": "Waiting for first update",
+      "fr": "En attente de la première mise à jour"
     },
     "tab_immediate": {
       "zh": "现货",
       "nl": "Op voorraad",
-      "en": "In stock"
+      "en": "In stock",
+      "fr": "En stock"
     },
     "tab_presale": {
       "zh": "预售",
       "nl": "Voorbestelling",
-      "en": "Pre-order"
+      "en": "Pre-order",
+      "fr": "Précommande"
     },
     "units_in_stock": {
       "zh": "台有货",
       "nl": "op voorraad",
-      "en": "in stock"
+      "en": "in stock",
+      "fr": "en stock"
     },
     "units_presale": {
       "zh": "台预售",
       "nl": "voorbesteld",
-      "en": "on pre-order"
+      "en": "on pre-order",
+      "fr": "en précommande"
     },
     "card_stale": {
       "zh": "数据暂时过期",
       "nl": "Data tijdelijk verouderd",
-      "en": "Data temporarily stale"
+      "en": "Data temporarily stale",
+      "fr": "Données temporairement obsolètes"
     },
     "card_click_to_view": {
       "zh": "点击查看型号",
       "nl": "Klik om modellen te zien",
-      "en": "Click to view models"
+      "en": "Click to view models",
+      "fr": "Cliquez pour voir les modèles"
     },
     "card_out_of_stock": {
       "zh": "暂时无货",
       "nl": "Tijdelijk uitverkocht",
-      "en": "Temporarily out of stock"
+      "en": "Temporarily out of stock",
+      "fr": "Temporairement épuisé"
     },
     "empty_immediate": {
       "zh": "目前没有现货，请切到预售 Tab 查看预约选项",
       "nl": "Momenteel geen voorraad. Schakel naar het tabblad 'Voorbestelling' om opties te zien.",
-      "en": "No immediate stock right now. Switch to the Pre-order tab to see options."
+      "en": "No immediate stock right now. Switch to the Pre-order tab to see options.",
+      "fr": "Aucun stock immédiat pour le moment. Passez à l’onglet Précommande pour voir les options."
     },
     "empty_presale": {
       "zh": "目前没有预售产品",
       "nl": "Momenteel geen voorbestellingen",
-      "en": "No pre-order products right now"
+      "en": "No pre-order products right now",
+      "fr": "Aucun produit en précommande pour le moment"
     },
     "loading": {
       "zh": "正在读取最新库存…",
       "nl": "Nieuwste voorraad wordt geladen…",
-      "en": "Loading latest stock…"
+      "en": "Loading latest stock…",
+      "fr": "Chargement du stock le plus récent…"
     },
     "error_fetch": {
       "zh": "库存数据请求失败（{status}）",
       "nl": "Voorraadgegevens konden niet worden opgehaald ({status})",
-      "en": "Failed to fetch inventory data ({status})"
+      "en": "Failed to fetch inventory data ({status})",
+      "fr": "Impossible de récupérer les données de stock ({status})"
     },
     "error_generic": {
       "zh": "无法读取库存数据",
       "nl": "Kan voorraadgegevens niet lezen",
-      "en": "Cannot read inventory data"
+      "en": "Cannot read inventory data",
+      "fr": "Impossible de lire les données de stock"
     },
     "price_unknown": {
       "zh": "价格未知",
       "nl": "prijs onbekend",
-      "en": "price unknown"
+      "en": "price unknown",
+      "fr": "prix inconnu"
     },
     "product_order_cta": {
       "zh": "去商品页下单",
       "nl": "Naar productpagina bestellen",
-      "en": "Go to product page to order"
+      "en": "Go to product page to order",
+      "fr": "Commander sur la page du produit"
     },
     "detail_back": {
       "zh": "返回",
       "nl": "Terug",
-      "en": "Back"
+      "en": "Back",
+      "fr": "Retour"
     },
     "detail_units_in_stock": {
       "zh": "台有货",
       "nl": "op voorraad",
-      "en": "in stock"
+      "en": "in stock",
+      "fr": "en stock"
     },
     "detail_stale_notice": {
       "zh": "该网站数据暂时过期，以下为最近一次成功检查的结果",
       "nl": "De data van deze winkel is tijdelijk verouderd. Hieronder staan de resultaten van de laatste succesvolle controle.",
-      "en": "This store's data is temporarily stale. Below are the results from the last successful check."
+      "en": "This store's data is temporarily stale. Below are the results from the last successful check.",
+      "fr": "Les données de ce magasin sont temporairement obsolètes. Les résultats ci-dessous proviennent de la dernière vérification réussie."
     },
     "detail_footer_disclaimer": {
       "zh": "库存变化很快，请在购买前确认配送日期和最终价格。",
       "nl": "De voorraad verandert snel; controleer de leverdatum en eindprijs voordat je bestelt.",
-      "en": "Stock changes quickly; please confirm the delivery date and final price before buying."
+      "en": "Stock changes quickly; please confirm the delivery date and final price before buying.",
+      "fr": "Le stock évolue rapidement ; vérifiez la date de livraison et le prix final avant l’achat."
     },
     "detail_visit_store": {
       "zh": "访问 {name} 官网",
       "nl": "Bezoek {name} website",
-      "en": "Visit {name} website"
+      "en": "Visit {name} website",
+      "fr": "Visiter le site de {name}"
     },
     "page_footer_disclaimer": {
       "zh": "库存变化很快，请在购买前确认配送日期和最终价格。",
       "nl": "De voorraad verandert snel; controleer de leverdatum en eindprijs voordat je bestelt.",
-      "en": "Stock changes quickly; please confirm the delivery date and final price before buying."
+      "en": "Stock changes quickly; please confirm the delivery date and final price before buying.",
+      "fr": "Le stock évolue rapidement ; vérifiez la date de livraison et le prix final avant l’achat."
     },
-    "lang_name_zh": { "zh": "中文", "nl": "Chinees", "en": "Chinese" },
-    "lang_name_nl": { "zh": "荷兰语", "nl": "Nederlands", "en": "Dutch" },
-    "lang_name_en": { "zh": "英语", "nl": "Engels", "en": "English" }
+    "lang_name_zh": { "zh": "中文", "nl": "Chinees", "en": "Chinese", "fr": "Chinois" },
+    "lang_name_nl": { "zh": "荷兰语", "nl": "Nederlands", "en": "Dutch", "fr": "Néerlandais" },
+    "lang_name_en": { "zh": "英语", "nl": "Engels", "en": "English", "fr": "Anglais" },
+    "lang_name_fr": { "zh": "法语", "nl": "Frans", "en": "French", "fr": "Français" },
+    "checking_subscription": {
+      "zh": "正在检查订阅状态…",
+      "nl": "Abonnement controleren…",
+      "en": "Checking subscription…",
+      "fr": "Vérification de l’abonnement…"
+    }
   }
 }

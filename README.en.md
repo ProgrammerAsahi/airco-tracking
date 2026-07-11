@@ -109,7 +109,7 @@ cp .env.example .env
 
 Edit `.env` and enter the recipient email address and SMTP settings. Gmail users must enable two-step verification and create an app password; do not use the normal account password.
 
-Optionally set `EMAIL_LANG` (default `zh`): `zh` for Chinese, `nl` for Dutch, `en` for English.
+Optionally set `EMAIL_LANG` (default `zh`): `zh` for Chinese, `nl` for Dutch, `en` for English, or `fr` for French. Production alerts use the language saved in the recipient's Profile and localise the destination country and price format for that recipient.
 
 Run commands from the project directory. If you must run them elsewhere, set `AIRCO_TRACKER_HOME=~/airco-tracking`.
 

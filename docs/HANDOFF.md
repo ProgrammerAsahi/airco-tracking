@@ -73,6 +73,13 @@ The projection contract is fixed at 32 partitions (`r-00`…`r-1f`) using the lo
 
 The backend reconciler supports deterministic UUID backfill for legacy rows, records a private canonical source-row pointer for constant-time authoritative delivery reads, and uses optimistic/safe deletion rules. It is a daily repair path, not an event-time dependency on a full `users` scan. A legacy source row is trusted only when re-deriving its UUID matches the requested recipient UUID.
 
+## Four-language delivery contract
+
+- User language supports `zh`, `nl`, `en`, and `fr` from canonical Profile through `alertrecipients` and the email worker's authoritative pre-send reload.
+- Stock-alert subject, introduction, HTML title, price, destination country, footer, and visible unsubscribe link are localized. English, Dutch, and French use correct singular/plural forms; French prices use French separators. The visible unsubscribe URL preserves the recipient language, while the RFC 8058 one-click API URL remains language-neutral.
+- `airco_tracker/i18n_local.json` is the complete seed source for both `email` and `web` Table partitions. Every key has exactly four non-empty values. The `web` map is synchronized value-for-value with the frontend fixture; production seeding must upsert it before or during release, then new processes must load it because the backend loader is process-cached.
+- Retailer and product names plus retailer-supplied delivery wording remain verbatim source evidence; they are not machine-translated.
+
 ## Security and privacy
 
 - Production uses Entra ID/OAuth and user-assigned Managed Identity. Service Bus and ACS local authentication are disabled; Storage defaults to OAuth and the Blob container is private.
@@ -107,6 +114,8 @@ Production uses the verified customer-managed ACS sender domain `airco-tracker.e
 - AliExpress affiliate access was approved, but Open Platform application/key/official signing status must be reconfirmed before implementation. Read only catalog/affiliate scopes; do not collect buyer, order, payment, or other personal data.
 
 ## Verification completed for this release
+
+The four-language release candidate passes 212/212 backend tests, translation completeness and frontend-map equality checks, JSON parsing, `compileall`, and `git diff --check`. Unit coverage verifies French Profile projection, worker reload, France/Netherlands destination wording, French/Dutch price formats, singular/plural email HTML and text, and French unsubscribe navigation. Production i18n seeding and real French OTP/stock-alert delivery remain release checks.
 
 - Backend: 202/202 unit tests, compileall, shell syntax, both Bicep entry points, `git diff --check`, and live GAMMA/KARWEI catalogue plus complete-sitemap parsing passed.
 - Frontend: 66/66 tests, typecheck, production build, Bicep/deployment verification, and production HTTP checks passed.

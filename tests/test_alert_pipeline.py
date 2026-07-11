@@ -361,6 +361,7 @@ class EmailWorkerTests(unittest.TestCase):
         message_config = build.call_args.args[0]
         self.assertEqual(message_config.email_to, "new-address@example.com")
         self.assertEqual(message_config.email_lang, "en")
+        self.assertEqual(build.call_args.kwargs["delivery_country"], "fr")
         self.assertEqual(send.call_args.kwargs["operation_id"], "operation-1")
         self.assertIsNotNone(build.call_args.kwargs["unsubscribe_token"])
         self.assertEqual(
@@ -396,6 +397,29 @@ class EmailWorkerTests(unittest.TestCase):
 
         self.assertTrue(build.call_args.kwargs["test"])
         self.assertIsNotNone(build.call_args.kwargs["unsubscribe_token"])
+
+    def test_email_worker_renders_french_from_current_profile_preference(self) -> None:
+        event = _event(coverage={"fr"})
+        recipient = replace(
+            _recipient("recipient-fr", email="french@example.com"),
+            language="fr",
+            delivery_country="fr",
+        )
+        worker, _ledger = self._worker(event, recipient)
+        job = EmailJob.create(event.event_id, recipient.recipient_id)
+
+        with patch(
+            "airco_tracker.alert_pipeline.send_message",
+            return_value=SendResult("operation-1", "accepted"),
+        ) as send:
+            worker.handle(job)
+
+        message_config, message = send.call_args.args
+        plain = message.get_body(preferencelist=("plain",)).get_content()
+        self.assertEqual(message_config.email_lang, "fr")
+        self.assertIn("1 climatiseur mobile", message["Subject"])
+        self.assertIn("adresse située en France", plain)
+        self.assertIn("&lang=fr", plain)
 
     def test_email_worker_reloads_address_after_rate_limit_wait(self) -> None:
         event = _event(coverage={"fr"})

@@ -73,6 +73,13 @@ Projection contract 固定为 32 partitions（`r-00`…`r-1f`），使用 `sha25
 
 Backend reconciler 支持旧 rows 的确定性 UUID 回填、记录用于常数时间权威投递读取的私有 canonical source-row pointer，并使用安全/乐观并发删除规则。它是每日 repair path，不会让每个库存事件依赖完整 `users` 扫描。只有在旧 source row 重新派生出的 UUID 与请求的 recipient UUID 完全一致时才会信任该 row。
 
+## 四语投递契约
+
+- 用户语言支持 `zh`、`nl`、`en`、`fr`，从 canonical Profile 经 `alertrecipients` 一直传到 email worker 发信前的权威重读。
+- 库存提醒的 subject、导语、HTML 标题、价格、配送国家、footer 和可见退订链接均本地化。英/荷/法正确区分单复数，法语价格使用法式分隔符。可见退订 URL 保留收件人语言；RFC 8058 one-click API URL 继续保持语言无关。
+- `airco_tracker/i18n_local.json` 是 `email` 和 `web` 两个 Table partition 的完整播种源，每个 key 都恰好有四个非空值。`web` map 与前端 fixture 按值完全同步；生产发布必须在发布前或发布过程中 upsert，且后端 loader 按进程缓存，因此新进程需要在更新后加载。
+- 商家名、商品名和商家原始配送说明作为来源证据保留原文，不做机器翻译。
+
 ## 安全和隐私
 
 - 生产使用 Entra ID/OAuth 和 user-assigned Managed Identity。Service Bus 和 ACS 禁用 local authentication；Storage 默认 OAuth，Blob container 保持私有。
@@ -107,6 +114,8 @@ Coordinator 最多 4 replicas，fan-out 最多 16。Service Bus Standard entitie
 - AliExpress affiliate access 已批准，但实现前仍需重新确认 Open Platform application/key/官方 signing 状态。只读取 catalog/affiliate scopes，不收集 buyer、order、payment 或其它个人数据。
 
 ## 本次 release 已完成验证
+
+四语 release candidate 已通过 212/212 后端 tests、翻译完整性和前端 map 一致性检查、JSON parsing、`compileall` 与 `git diff --check`。Unit coverage 包含法语 Profile 投影、worker 重读、法国/荷兰配送文案、法/荷金额格式、邮件 HTML/纯文本单复数及法语退订导航。生产 i18n 播种和真实法语 OTP/库存提醒投递仍是 release checks。
 
 - Backend：202/202 unit tests、compileall、shell syntax、两个 Bicep entry points、`git diff --check`、GAMMA/KARWEI 真实目录及完整 sitemap 解析全部通过。
 - Frontend：66/66 tests、typecheck、production build、Bicep/deployment verification 和生产 HTTP checks 全部通过。

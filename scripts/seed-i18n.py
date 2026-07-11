@@ -46,6 +46,7 @@ def main() -> int:
                 "zh": str(translations.get("zh", "")),
                 "nl": str(translations.get("nl", "")),
                 "en": str(translations.get("en", "")),
+                "fr": str(translations.get("fr", "")),
             }
             table.upsert_entity(entity)
             count += 1

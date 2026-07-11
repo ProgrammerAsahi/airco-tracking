@@ -24,6 +24,7 @@ def build_message(
     *,
     test: bool = False,
     unsubscribe_token: str | None = None,
+    delivery_country: str | None = None,
 ) -> EmailMessage:
     lang = config.email_lang
     message = EmailMessage()
@@ -37,7 +38,9 @@ def build_message(
     unsubscribe_api_url = ""
     if unsubscribe_token and app_base_url:
         encoded_token = quote(unsubscribe_token, safe="")
-        unsubscribe_url = f"{app_base_url}/unsubscribe?token={encoded_token}"
+        unsubscribe_url = (
+            f"{app_base_url}/unsubscribe?token={encoded_token}&lang={quote(lang, safe='')}"
+        )
         unsubscribe_api_url = f"{app_base_url}/api/alerts/unsubscribe?token={encoded_token}"
     if test:
         message["Subject"] = translate(lang, "subject_test")
@@ -54,21 +57,36 @@ def build_message(
                 f"{html.escape(translate(lang, 'unsubscribe_link'))}</a></p>"
             )
         message.set_content(plain_body)
-        message.add_alternative(html_body, subtype="html")
+        message.add_alternative(
+            f"<!doctype html><html lang='{html.escape(lang, quote=True)}'><body>"
+            f"{html_body}</body></html>",
+            subtype="html",
+        )
         if unsubscribe_api_url:
             message["List-Unsubscribe"] = f"<{unsubscribe_api_url}>"
             message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         return message
 
-    message["Subject"] = translate(lang, "subject_alert", count=len(products))
+    subject_key = "subject_alert_one" if len(products) == 1 else "subject_alert"
+    message["Subject"] = translate(lang, subject_key, count=len(products))
     price_unknown = translate(lang, "price_unknown")
     view_link = translate(lang, "view_link")
     delivery_fallback = translate(lang, "delivery_in_stock")
+    destination = _delivery_country(
+        delivery_country,
+        products[0].country if products else None,
+    )
+    country_name = translate(lang, f"country_{destination}")
 
-    lines = [translate(lang, "body_intro"), ""]
+    intro_key = "body_intro_one" if len(products) == 1 else "body_intro"
+    lines = [translate(lang, intro_key, country=country_name), ""]
     cards: list[str] = []
     for product in products:
-        price = f"€{product.price_eur:,.2f}" if product.price_eur is not None else price_unknown
+        price = (
+            _format_eur(product.price_eur, lang)
+            if product.price_eur is not None
+            else price_unknown
+        )
         power = f" · {product.btu} BTU" if product.btu else ""
         delivery = product.delivery or delivery_fallback
         lines.extend([f"{product.site} — {product.name}", f"{price}{power} · {delivery}", product.url, ""])
@@ -79,6 +97,7 @@ def build_message(
             f"<a href='{html.escape(product.url, quote=True)}'>{html.escape(view_link)}</a></li>"
         )
     footer = translate(lang, "body_footer")
+    html_title_key = "html_title_one" if len(products) == 1 else "html_title"
     lines.append(footer)
     if unsubscribe_url:
         lines.extend(
@@ -90,7 +109,8 @@ def build_message(
         )
     message.set_content("\n".join(lines))
     message.add_alternative(
-        f"<h2>{html.escape(translate(lang, 'html_title'))}</h2><ul>"
+        f"<!doctype html><html lang='{html.escape(lang, quote=True)}'><body>"
+        f"<h2>{html.escape(translate(lang, html_title_key))}</h2><ul>"
         + "".join(cards)
         + "</ul>"
         + f"<p>{html.escape(footer)}</p>"
@@ -101,13 +121,31 @@ def build_message(
             f"{html.escape(translate(lang, 'unsubscribe_link'))}</a></p>"
             if unsubscribe_url
             else ""
-        ),
+        )
+        + "</body></html>",
         subtype="html",
     )
     if unsubscribe_api_url:
         message["List-Unsubscribe"] = f"<{unsubscribe_api_url}>"
         message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     return message
+
+
+def _delivery_country(explicit: str | None, product_country: str | None) -> str:
+    country = (explicit or product_country or "nl").strip().lower()
+    return country if country in {"nl", "fr"} else "nl"
+
+
+def _format_eur(value: float, lang: str) -> str:
+    """Format euro prices without depending on process-installed locales."""
+    whole, cents = f"{value:,.2f}".split(".")
+    if lang == "fr":
+        localized = f"{whole.replace(',', chr(0x202F))},{cents}"
+        return f"{localized}\u00a0€"
+    if lang == "nl":
+        localized = f"{whole.replace(',', '.')},{cents}"
+        return f"€\u00a0{localized}"
+    return f"€{whole}.{cents}"
 
 
 @dataclass(frozen=True)

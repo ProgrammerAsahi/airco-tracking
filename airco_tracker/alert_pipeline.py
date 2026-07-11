@@ -290,6 +290,7 @@ class EmailWorker:
                 [] if event.test_only else [event.product],
                 test=event.test_only,
                 unsubscribe_token=unsubscribe_token,
+                delivery_country=recipient.delivery_country,
             )
             fingerprint = message_fingerprint(
                 recipient_config,

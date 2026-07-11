@@ -476,6 +476,45 @@ class RecipientProjectionTests(unittest.TestCase):
 
         self.assertEqual(recipient.language, "zh")
 
+    def test_projection_reader_preserves_french_language(self) -> None:
+        recipient = _projected_from_entity(
+            {
+                "RowKey": str(uuid.uuid4()),
+                "email": "user@example.com",
+                "language": "fr",
+                "deliveryCountry": "fr",
+                "subscriptionPlan": "monthly_basic",
+                "status": "active",
+                "currentPeriodEnd": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+                "enabled": True,
+            }
+        )
+
+        self.assertEqual(recipient.language, "fr")
+
+    def test_reconciler_projects_french_profile_preference(self) -> None:
+        entity = _projection_entity(
+            {
+                "RowKey": "legacy-source-row",
+                "userId": str(uuid.uuid4()),
+                "email": "user@example.com",
+                "languagePreference": "fr",
+                "deliveryCountry": "fr",
+                "subscriptionPlan": "monthly_basic",
+                "subscriptionStatus": "active",
+                "subscriptionCurrentPeriodEnd": (
+                    datetime.now(timezone.utc) + timedelta(days=30)
+                ).isoformat(),
+                "updatedAt": "2026-07-11T12:00:00Z",
+            },
+            32,
+            sync_cycle="cycle",
+        )
+
+        self.assertIsNotNone(entity)
+        self.assertEqual(entity["language"], "fr")
+        self.assertEqual(entity["deliveryCountry"], "fr")
+
     def test_reconciler_preserves_canonical_updated_timestamp(self) -> None:
         timestamp = "2026-07-09T12:34:56.789Z"
         entity = _projection_entity(

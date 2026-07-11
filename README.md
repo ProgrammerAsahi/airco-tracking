@@ -109,7 +109,7 @@ cp .env.example .env
 
 编辑 `.env`，填入收件邮箱和 SMTP。Gmail 用户需要开启两步验证，并创建一个“应用专用密码”；不要填写日常登录密码。
 
-可选设置 `EMAIL_LANG`（默认 `zh`）：`zh` 发中文、`nl` 发荷兰语、`en` 发英语。
+可选设置 `EMAIL_LANG`（默认 `zh`）：`zh` 发中文、`nl` 发荷兰语、`en` 发英语、`fr` 发法语。生产提醒会以用户 Profile 保存的语言为准，并按收件人的配送国家生成正文和金额格式。
 
 请从项目目录运行命令。若必须从其他目录调用，可设置
 `AIRCO_TRACKER_HOME=~/airco-tracking`。

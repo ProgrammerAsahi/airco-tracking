@@ -244,7 +244,14 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
                 )
                 continue
             recipient_config = _config_for_recipient(config, recipient)
-            send_message(recipient_config, build_message(recipient_config, recipient_alerts))
+            send_message(
+                recipient_config,
+                build_message(
+                    recipient_config,
+                    recipient_alerts,
+                    delivery_country=recipient.delivery_country,
+                ),
+            )
             sent_count += 1
             LOG.info(
                 "Sent stock alert for %d product(s) to %s (delivery_country=%s)",

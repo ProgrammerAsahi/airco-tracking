@@ -3,7 +3,7 @@
 Translations are stored in Azure Table Storage as entities:
   PartitionKey = scope ("email" or "web")
   RowKey = message key
-  Columns: zh, nl, en
+  Columns: zh, nl, en, fr
 
 If Azure is not configured or the table is unreachable, the loader
 falls back to the bundled ``i18n_local.json`` file so local development
@@ -67,6 +67,7 @@ def _load_from_table(account_url: str, scope: str) -> dict[str, dict[str, str]]:
             "zh": str(entity.get("zh", "")),
             "nl": str(entity.get("nl", "")),
             "en": str(entity.get("en", "")),
+            "fr": str(entity.get("fr", "")),
         }
     if not translations:
         LOG.warning("Azure Table 'i18n' returned no entities for scope %s; using local", scope)

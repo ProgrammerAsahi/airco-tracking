@@ -1,8 +1,8 @@
 """Internationalisation for alert emails.
 
-Three languages are supported: Chinese (``zh``), Dutch (``nl``) and English
-(``en``). ``EMAIL_LANG`` selects which one is used at runtime; the default is
-Chinese to match the project author's preference.
+Four languages are supported: Chinese (``zh``), Dutch (``nl``), English
+(``en``) and French (``fr``). ``EMAIL_LANG`` selects which one is used at
+runtime; the default is Chinese to match the project author's preference.
 
 Translations are loaded from Azure Table Storage (scope="email") when
 configured, with a bundled JSON file as fallback. See ``i18n_table.py``.
@@ -14,7 +14,7 @@ from typing import Any
 
 from .i18n_table import load_translations
 
-SUPPORTED_LANGS = ("zh", "nl", "en")
+SUPPORTED_LANGS = ("zh", "nl", "en", "fr")
 DEFAULT_LANG = "zh"
 
 
