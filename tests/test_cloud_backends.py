@@ -83,7 +83,7 @@ class CloudBackendTests(unittest.TestCase):
             message = build_message(config, [product])
             self.assertIn(subject_fragment, message["Subject"])
 
-    def test_test_message_has_reply_to_but_no_unsubscribe_headers(self) -> None:
+    def test_test_message_without_token_has_reply_to_but_no_unsubscribe_headers(self) -> None:
         config = SimpleNamespace(
             email_from="DoNotReply@example.azurecomm.net",
             email_to="recipient@example.com",
@@ -94,6 +94,30 @@ class CloudBackendTests(unittest.TestCase):
         payload = _acs_payload(config, build_message(config, [], test=True))
         self.assertEqual(payload["replyTo"], [{"address": "support@example.com"}])
         self.assertNotIn("headers", payload)
+
+    def test_targeted_pipeline_test_carries_visible_and_one_click_unsubscribe(self) -> None:
+        config = SimpleNamespace(
+            email_from="DoNotReply@example.azurecomm.net",
+            email_to="recipient@example.com",
+            email_reply_to="support@example.com",
+            app_base_url="https://airco-tracker.eu",
+            email_lang="en",
+        )
+        payload = _acs_payload(
+            config,
+            build_message(config, [], test=True, unsubscribe_token="signed-token"),
+        )
+
+        self.assertIn("/unsubscribe?token=signed-token", payload["content"]["plainText"])
+        self.assertIn("/unsubscribe?token=signed-token", payload["content"]["html"])
+        self.assertIn(
+            "/api/alerts/unsubscribe?token=signed-token",
+            payload["headers"]["List-Unsubscribe"],
+        )
+        self.assertEqual(
+            payload["headers"]["List-Unsubscribe-Post"],
+            "List-Unsubscribe=One-Click",
+        )
 
     def test_unsubscribe_token_matches_cross_language_vector(self) -> None:
         self.assertEqual(

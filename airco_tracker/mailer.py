@@ -32,10 +32,32 @@ def build_message(
     reply_to = getattr(config, "email_reply_to", "").strip()
     if reply_to:
         message["Reply-To"] = reply_to
+    app_base_url = getattr(config, "app_base_url", "").strip().rstrip("/")
+    unsubscribe_url = ""
+    unsubscribe_api_url = ""
+    if unsubscribe_token and app_base_url:
+        encoded_token = quote(unsubscribe_token, safe="")
+        unsubscribe_url = f"{app_base_url}/unsubscribe?token={encoded_token}"
+        unsubscribe_api_url = f"{app_base_url}/api/alerts/unsubscribe?token={encoded_token}"
     if test:
         message["Subject"] = translate(lang, "subject_test")
-        message.set_content(translate(lang, "test_body"))
-        message.add_alternative(translate(lang, "test_body_html"), subtype="html")
+        plain_body = translate(lang, "test_body")
+        html_body = translate(lang, "test_body_html")
+        if unsubscribe_url:
+            plain_body += (
+                f"\n\n{translate(lang, 'unsubscribe_text')}\n{unsubscribe_url}"
+            )
+            html_body += (
+                "<p style='color:#607789;font-size:13px'>"
+                f"{html.escape(translate(lang, 'unsubscribe_text'))} "
+                f"<a href='{html.escape(unsubscribe_url, quote=True)}'>"
+                f"{html.escape(translate(lang, 'unsubscribe_link'))}</a></p>"
+            )
+        message.set_content(plain_body)
+        message.add_alternative(html_body, subtype="html")
+        if unsubscribe_api_url:
+            message["List-Unsubscribe"] = f"<{unsubscribe_api_url}>"
+            message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         return message
 
     message["Subject"] = translate(lang, "subject_alert", count=len(products))
@@ -58,10 +80,7 @@ def build_message(
         )
     footer = translate(lang, "body_footer")
     lines.append(footer)
-    unsubscribe_url = ""
-    app_base_url = getattr(config, "app_base_url", "").strip().rstrip("/")
-    if unsubscribe_token and app_base_url:
-        unsubscribe_url = f"{app_base_url}/unsubscribe?token={quote(unsubscribe_token, safe='')}"
+    if unsubscribe_url:
         lines.extend(
             [
                 "",
@@ -85,9 +104,8 @@ def build_message(
         ),
         subtype="html",
     )
-    if unsubscribe_url:
-        api_url = f"{app_base_url}/api/alerts/unsubscribe?token={quote(unsubscribe_token, safe='')}"
-        message["List-Unsubscribe"] = f"<{api_url}>"
+    if unsubscribe_api_url:
+        message["List-Unsubscribe"] = f"<{unsubscribe_api_url}>"
         message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     return message
 

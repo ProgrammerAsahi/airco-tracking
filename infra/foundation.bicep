@@ -976,6 +976,18 @@ resource publisherTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 }
 
+// The operator-only pipeline-status command runs through this same managed
+// identity and reads anonymized delivery states; it never reads recipients.
+resource publisherDeliveryStatusReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertDeliveriesTable.id, publisherIdentity.id, tableDataReaderRole)
+  scope: alertDeliveriesTable
+  properties: {
+    principalId: publisherIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataReaderRole
+  }
+}
+
 resource fanoutTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(alertRecipientsTable.id, fanoutIdentity.id, tableDataContributorRole)
   scope: alertRecipientsTable
