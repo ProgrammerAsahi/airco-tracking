@@ -79,7 +79,7 @@ airco-alert-delivery-worker（0–4 replicas）
 - Scanner/shared web runtime、outbox publisher、fan-out 和 email delivery 使用相互分离的身份。新流水线权限在 Azure RBAC 支持的范围内限制到具体 Service Bus entity 或 Table；不要把 workers 合并成一个宽泛的 Contributor 身份。
 - `stock-events` 只含商品和配送范围，不含 subscriber 数据。
 - Service Bus fan-out/email 消息只含稳定的匿名 recipient UUID，不含邮箱、昵称、Stripe customer/subscription ID、支付方式或卡片信息。
-- 独立的 ACS delivery-report queue 是唯一受严格限制的 PII 例外：Microsoft event schema 必然包含 recipient address。一日 TTL、私有七日 Event Grid dead-letter container、每日 Service Bus DLQ purge、独立 least-privilege identity 和禁止记录 body 的日志约束共同限制了风险。绝不能把 raw provider report 复制进 ticket、普通日志或其它 queue。
+- 独立的 ACS delivery-report queue 是唯一受严格限制的 PII 例外：Microsoft event schema 必然包含 recipient address。一日 TTL、私有七日 Event Grid dead-letter container、每日 Service Bus DLQ purge、独立 least-privilege identity 和禁止记录 body 的日志约束共同限制了风险。Azure Event Grid 会在 storage-account scope 校验 dead-letter 权限，因此其 managed identity 在 state account 上具有 `Storage Blob Data Contributor`，但实际 endpoint 仍是专用私有 container；该 identity 没有 application tables reader，应用也不会使用它。绝不能把 raw provider report 复制进 ticket、普通日志或其它 queue。
 - `alertrecipients` 是提醒专用表中唯一保存邮箱的表，只保留决定和生成邮件所必需的字段：稳定 user ID、邮箱、语言、配送国家、方案/status/end time、enabled、同步时间，以及仅用于旧 profile 点读的私有 canonical source-row pointer。
 - `alertdeliveries`、`alertdeliveryindex` 和 `alertsuppression` 只保存匿名 ID、投递状态和 pseudonymous address fingerprints，不保存目标邮箱；应用日志会遮蔽邮箱 local part，final-report logs 只使用匿名 delivery ID。
 - Email worker 会在发信前从 canonical profile 解析最新地址；其 identity 对 `users` 只有只读权限，代码只消费投递字段。私有 source-row pointer 不得进入 Service Bus message、日志、重试 metadata 或 API。

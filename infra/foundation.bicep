@@ -1217,8 +1217,12 @@ resource eventGridDeliveryQueueSender 'Microsoft.Authorization/roleAssignments@2
 }
 
 resource eventGridDeadLetterWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(emailEventDeadLetterContainer.id, deliveryEventsSystemTopic.id, blobContributorRole)
-  scope: emailEventDeadLetterContainer
+  // Event Grid validates this role at storage-account scope when an event
+  // subscription with managed-identity dead-lettering is created. A
+  // container-scoped assignment is sufficient for Blob data access itself,
+  // but fails that control-plane validation.
+  name: guid(storage.id, deliveryEventsSystemTopic.id, blobContributorRole)
+  scope: storage
   properties: {
     principalId: deliveryEventsSystemTopic.identity.principalId
     principalType: 'ServicePrincipal'
