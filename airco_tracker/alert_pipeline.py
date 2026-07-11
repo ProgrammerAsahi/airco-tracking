@@ -275,18 +275,16 @@ class EmailWorker:
 
         recipient_config = _config_for_projected_recipient(self.config, recipient)
         try:
-            unsubscribe_token = None
-            if not event.test_only:
-                try:
-                    unsubscribe_token = sign_unsubscribe_token(
-                        recipient_config.email_unsubscribe_signing_key,
-                        recipient.recipient_id,
-                        recipient.unsubscribe_token_version,
-                    )
-                except ValueError as exc:
-                    raise PermanentEmailError(
-                        "Invalid unsubscribe-token configuration"
-                    ) from exc
+            try:
+                unsubscribe_token = sign_unsubscribe_token(
+                    recipient_config.email_unsubscribe_signing_key,
+                    recipient.recipient_id,
+                    recipient.unsubscribe_token_version,
+                )
+            except ValueError as exc:
+                raise PermanentEmailError(
+                    "Invalid unsubscribe-token configuration"
+                ) from exc
             message = build_message(
                 recipient_config,
                 [] if event.test_only else [event.product],

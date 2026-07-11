@@ -322,6 +322,7 @@ class EmailWorkerTests(unittest.TestCase):
             email_from="sender@example.com",
             email_to="stale-address@example.com",
             email_lang="zh",
+            app_base_url="https://airco-tracker.eu",
             email_unsubscribe_signing_key="test-signing-secret-that-is-at-least-32-bytes",
         )
         message_index = MagicMock()
@@ -372,6 +373,29 @@ class EmailWorkerTests(unittest.TestCase):
             acs_message_id="operation-1",
             claim_owner="claim-1",
         )
+
+    def test_targeted_pipeline_test_gets_unsubscribe_token(self) -> None:
+        recipient = _recipient("recipient-1", email="target@example.com")
+        event = StockAvailableEvent.test_event(
+            target_recipient_ids=[recipient.recipient_id]
+        )
+        worker, _ledger = self._worker(event, recipient)
+        job = EmailJob.create(event.event_id, recipient.recipient_id)
+
+        with (
+            patch(
+                "airco_tracker.alert_pipeline.build_message",
+                return_value=_test_email_message(),
+            ) as build,
+            patch(
+                "airco_tracker.alert_pipeline.send_message",
+                return_value=SendResult("operation-1", "accepted"),
+            ),
+        ):
+            worker.handle(job)
+
+        self.assertTrue(build.call_args.kwargs["test"])
+        self.assertIsNotNone(build.call_args.kwargs["unsubscribe_token"])
 
     def test_email_worker_reloads_address_after_rate_limit_wait(self) -> None:
         event = _event(coverage={"fr"})
