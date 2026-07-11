@@ -26,9 +26,9 @@
 - Scanner job：`airco-tracker-job`，`*/10 * * * *` UTC
 - Publisher job：`airco-alert-publisher-job`，`* * * * *` UTC
 - Production mail provider：Azure Communication Services Email
-- 已部署 backend image/commit：`d11004dd428905555dd1c3375ef10848d9459a21`
-- 兼容 frontend commit：`c73b4bb3b78c8d8cbd56177bf016f7549423f4ee`
-- 最新成功 backend workflow：`29146949432`；最新成功 frontend workflow：`29143329174`
+- 已部署 backend image/commit：`e4194c25cce82f650eb96d72b37f10bdd6d067a7`
+- 兼容 frontend commit：`241be5cd0fc2d8c5359ba3c02758bd79b4f7da15`
+- 最新成功 backend workflow：`29167702065`；最新成功 frontend workflow：`29167702772`
 - 最新 foundation deployment：`airco-foundation`（2026-07-11 成功）
 - GitHub 生产暂停变量：`DEPLOYMENT_PAUSED=false`
 - 纯文档 push 不会触发部署 workflow。
@@ -115,14 +115,16 @@ Coordinator 最多 4 replicas，fan-out 最多 16。Service Bus Standard entitie
 
 ## 本次 release 已完成验证
 
-四语 release candidate 已通过 212/212 后端 tests、翻译完整性和前端 map 一致性检查、JSON parsing、`compileall` 与 `git diff --check`。Unit coverage 包含法语 Profile 投影、worker 重读、法国/荷兰配送文案、法/荷金额格式、邮件 HTML/纯文本单复数及法语退订导航。生产 i18n 播种和真实法语 OTP/库存提醒投递仍是 release checks。
+四语 release 已部署并完成生产验证。它通过 212/212 后端 tests、翻译完整性和前端 map 一致性检查、JSON parsing、`compileall` 与 `git diff --check`。Unit coverage 包含法语 Profile 投影、worker 重读、法国/荷兰配送文案、法/荷金额格式、邮件 HTML/纯文本单复数及法语退订导航。
 
-- Backend：202/202 unit tests、compileall、shell syntax、两个 Bicep entry points、`git diff --check`、GAMMA/KARWEI 真实目录及完整 sitemap 解析全部通过。
-- Frontend：66/66 tests、typecheck、production build、Bicep/deployment verification 和生产 HTTP checks 全部通过。
-- GitHub 通过 workflow `29146949432` 部署 immutable backend SHA `d11004d…`，通过 workflow `29143329174` 部署 frontend SHA `c73b4bb…`；全部 required steps 成功。
+- Backend：212/212 unit tests、compileall、shell syntax、两个 Bicep entry points、`git diff --check`、GAMMA/KARWEI 真实目录及完整 sitemap 解析全部通过。
+- Frontend：71/71 tests、app/server typecheck、production build、Bicep/deployment verification 和生产 HTTP checks 全部通过。法语 Landing、Subscribe、Profile、登录和退订状态已通过桌面与窄屏视觉检查；生产浏览器 console 没有 warning 或 error。
+- GitHub 通过 workflow `29167702065` 部署 immutable backend SHA `e4194c2…`，通过 workflow `29167702772` 部署 frontend SHA `241be5c…`；全部 required steps 成功。Frontend image 在 revision `airco-tracking-web--0000044` 承接 100% 流量。
+- 生产 Table `i18n` 已播种 `email` 与 `web` 两个 scope、共 56 条。38-key web map 的四种语言均非空，并与前端 fallback 按值完全一致；播种/支持检查所用的临时表级权限已撤销，复查 assignment 数量为 0。
 - Event Grid system topic/subscription、`email-fanout` subscription、三条 queues、两张 delivery tables、七日 dead-letter lifecycle、七条 metric alerts 和两条 scheduled-query alerts 均已启用。最终检查的四个 broker entities 的 active、scheduled、transfer-DLQ 和 DLQ 全部为零。
 - Customer-managed ACS domain 状态为 `Succeeded`；Domain/SPF/DKIM/DKIM2 均为 `Verified`，已连接到 Communication Service，同时保留 `AzureManagedDomain` fallback。生产发件身份为 `Airco Tracker <DoNotReply@airco-tracker.eu>`。
 - 生产定向事件 `a4ec09309cd8fa12ba09881f27ea635d5a05baa7420654495ffce4fc024b5ead` 对两个已授权 recipient 都到达最终 `delivered`，两个 monitored provider 都将其放入收件箱。Gmail 原始邮件头显示对齐的 SPF、DKIM、DMARC 全部通过，Reply-To 正确，包含 HTTPS `List-Unsubscribe`，并具有精确的 RFC 8058 `List-Unsubscribe-Post` 语义；此处不记录地址。
+- 一封生产法语 OTP 已由自定义域 sender 投递到已授权 Outlook inbox，subject、标题、有效期和安全提示均为法语。随后法语 canary event `a78f237c1ae49be79519c4049c11f4876864ae224b5b77f630cfe9cbb3ed33df` 对已授权 Gmail 测试账户到达最终 `delivered`；subject、正文和可见暂停提醒链接均为法语。测试后 Profile 偏好已恢复，topic subscription 与全部三条 queues 的 active/DLQ 均回到 0。
 - 真实 one-click POST 在无需登录的情况下暂停提醒邮件，付费订阅和库存权益保持不变。重新开启提醒会轮换 capability；旧链接仍幂等返回，但不能改变新状态。
 - 真实外部 inbound-forwarding canary 到达两个 monitored mailbox。一次初始 support-forwarding canary 进入 spam，因此仍需逐步 warm-up 和 reputation monitoring。DMARC 在 aggregate reports 和合法 sender 完成审查前保持观察模式 `p=none`。
 - 最新 scheduled scanner execution `airco-tracker-job-29729490` 成功。GAMMA/KARWEI 在分类 host 对 Azure 限流时使用严格的 public-catalogue fallback；schema/key/index 漂移仍会 fail closed，不能制造库存。

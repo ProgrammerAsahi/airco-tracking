@@ -26,9 +26,9 @@ The released architecture replaces synchronous per-user sending with an Azure Se
 - Scanner job: `airco-tracker-job`, `*/10 * * * *` UTC
 - Publisher job: `airco-alert-publisher-job`, `* * * * *` UTC
 - Production mail provider: Azure Communication Services Email
-- Deployed backend image/commit: `d11004dd428905555dd1c3375ef10848d9459a21`
-- Compatible frontend commit: `c73b4bb3b78c8d8cbd56177bf016f7549423f4ee`
-- Latest successful backend workflow: `29146949432`; latest successful frontend workflow: `29143329174`
+- Deployed backend image/commit: `e4194c25cce82f650eb96d72b37f10bdd6d067a7`
+- Compatible frontend commit: `241be5cd0fc2d8c5359ba3c02758bd79b4f7da15`
+- Latest successful backend workflow: `29167702065`; latest successful frontend workflow: `29167702772`
 - Latest foundation deployment: `airco-foundation` (succeeded 2026-07-11)
 - GitHub production pause variable: `DEPLOYMENT_PAUSED=false`
 - Documentation-only pushes are ignored by the deployment workflow.
@@ -115,14 +115,16 @@ Production uses the verified customer-managed ACS sender domain `airco-tracker.e
 
 ## Verification completed for this release
 
-The four-language release candidate passes 212/212 backend tests, translation completeness and frontend-map equality checks, JSON parsing, `compileall`, and `git diff --check`. Unit coverage verifies French Profile projection, worker reload, France/Netherlands destination wording, French/Dutch price formats, singular/plural email HTML and text, and French unsubscribe navigation. Production i18n seeding and real French OTP/stock-alert delivery remain release checks.
+The four-language release is deployed and production-verified. It passes 212/212 backend tests, translation completeness and frontend-map equality checks, JSON parsing, `compileall`, and `git diff --check`. Unit coverage verifies French Profile projection, worker reload, France/Netherlands destination wording, French/Dutch price formats, singular/plural email HTML and text, and French unsubscribe navigation.
 
-- Backend: 202/202 unit tests, compileall, shell syntax, both Bicep entry points, `git diff --check`, and live GAMMA/KARWEI catalogue plus complete-sitemap parsing passed.
-- Frontend: 66/66 tests, typecheck, production build, Bicep/deployment verification, and production HTTP checks passed.
-- GitHub deployed immutable backend SHA `d11004d…` in workflow `29146949432` and frontend SHA `c73b4bb…` in workflow `29143329174`; all required steps succeeded.
+- Backend: 212/212 unit tests, compileall, shell syntax, both Bicep entry points, `git diff --check`, and live GAMMA/KARWEI catalogue plus complete-sitemap parsing passed.
+- Frontend: 71/71 tests, app/server typecheck, production build, Bicep/deployment verification, and production HTTP checks passed. French Landing, Subscribe, Profile, login, and unsubscribe states passed desktop and narrow visual checks; the production browser console had no warning or error.
+- GitHub deployed immutable backend SHA `e4194c2…` in workflow `29167702065` and frontend SHA `241be5c…` in workflow `29167702772`; all required steps succeeded. The frontend image is serving revision `airco-tracking-web--0000044` at 100% traffic.
+- Production Table `i18n` was seeded with 56 entries across the `email` and `web` scopes. The 38-key web map exposes four non-empty languages and matches the frontend fallback value-for-value. The temporary table-scoped seed/support permissions were removed and read back as zero assignments.
 - Event Grid system topic/subscription, the `email-fanout` subscription, all three queues, both delivery tables, the seven-day dead-letter lifecycle, seven metric alerts, and two scheduled-query alerts are enabled. The four inspected broker entities ended with zero active, scheduled, transfer-DLQ, and DLQ messages.
 - The customer-managed ACS domain reports `Succeeded`; Domain/SPF/DKIM/DKIM2 are `Verified`, it is linked to the Communication Service, and `AzureManagedDomain` remains linked as fallback. Production sender identity is `Airco Tracker <DoNotReply@airco-tracker.eu>`.
 - Targeted production event `a4ec09309cd8fa12ba09881f27ea635d5a05baa7420654495ffce4fc024b5ead` reached final `delivered` state for both authorized recipients, and both monitored providers placed it in the inbox. Gmail original headers showed aligned SPF, DKIM, and DMARC passes, the expected Reply-To, an HTTPS `List-Unsubscribe`, and exact RFC 8058 `List-Unsubscribe-Post` semantics. No recipient address is recorded here.
+- A production French OTP reached the authorized Outlook inbox from the custom-domain sender with French subject, title, expiry, and safety copy. French canary event `a78f237c1ae49be79519c4049c11f4876864ae224b5b77f630cfe9cbb3ed33df` then reached final `delivered` for the authorized Gmail test account; subject, body, and visible pause-alert link were French. The Profile preference was restored after the test, and the topic subscription plus all three queues returned to zero active and dead-letter messages.
 - A real one-click POST paused alert email without login while leaving the paid subscription and inventory entitlement unchanged. Re-enabling alerts rotated the capability; the old link remained idempotent but could not change the new state.
 - External inbound-forwarding canaries reached both monitored mailboxes. One initial support-forwarding canary landed in spam, so gradual warm-up and reputation monitoring remain required. DMARC stays at observation-only `p=none` while aggregate reports and legitimate senders are reviewed.
 - The latest scheduled scanner execution `airco-tracker-job-29729490` succeeded. GAMMA/KARWEI use the strict public-catalogue fallback when their category host rate-limits Azure; schema/key/index drift still fails closed rather than inventing stock.
