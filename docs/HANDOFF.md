@@ -5,7 +5,7 @@
   <a href="./HANDOFF.md"><img alt="English" src="https://img.shields.io/badge/HANDOFF-English-0969da"></a>
 </p>
 
-Last updated: 2026-07-11 (Europe/Amsterdam)
+Last updated: 2026-07-15 CEST (Europe/Amsterdam)
 
 Update this English file and `HANDOFF.zh.md` together. Do not record secrets, email addresses, access tokens, payment data, or unnecessary personal information.
 
@@ -25,12 +25,14 @@ The released architecture replaces synchronous per-user sending with an Azure Se
 - Private inventory contract: Blob `airco-tracker/inventory.json`, schema version `1`
 - Scanner job: `airco-tracker-job`, `*/10 * * * *` UTC
 - Publisher job: `airco-alert-publisher-job`, `* * * * *` UTC
+- Reconciler job: `airco-alert-reconciler-job`, `17 3 * * *` UTC
 - Production mail provider: Azure Communication Services Email
-- Deployed backend image/commit: `e4194c25cce82f650eb96d72b37f10bdd6d067a7`
-- Compatible frontend commit: `241be5cd0fc2d8c5359ba3c02758bd79b4f7da15`
-- Latest successful backend workflow: `29167702065`; latest successful frontend workflow: `29167702772`
+- Deployed backend image/commit: `efeb50220e7b1d4a6a607f84d65038af620b3feb`
+- Compatible deployed frontend commit: `db98ce83f7f46517a75fa9977d4985dc25d5eee1`
+- Latest successful backend workflow: `29372369189`; latest successful frontend workflow: `29367033016`
 - Latest foundation deployment: `airco-foundation` (succeeded 2026-07-11)
 - GitHub production pause variable: `DEPLOYMENT_PAUSED=false`
+- First-seen production alert policy: `ALERT_ON_FIRST_SEEN=true`
 - Documentation-only pushes are ignored by the deployment workflow.
 
 ## Production email delivery and reputation controls
@@ -59,7 +61,7 @@ The complete design is in [ALERT_PIPELINE.md](./ALERT_PIPELINE.md); consent, dom
 
 Supporting schedules:
 
-- `airco-alert-reconciler-job`: daily `03:17 UTC`, repairs the web-maintained projection from canonical `users`.
+- `airco-alert-reconciler-job`: daily `03:17 UTC` (`17 3 * * *`), repairs the web-maintained projection from canonical `users`.
 - `airco-alert-retention-job`: daily `02:17 UTC`, removes published outbox rows after 30 days and terminal delivery rows after 90 days.
 - `airco-delivery-dlq-cleanup`: daily `02:43 UTC`, removes raw provider reports from the dedicated delivery-report DLQ.
 
@@ -100,9 +102,11 @@ Production uses the verified customer-managed ACS sender domain `airco-tracker.e
 
 ## Inventory and retailer semantics
 
-- There are 45 active credential-free adapters: 28 Dutch and 17 French. README contains the authoritative active list and per-retailer notes.
+- There are 47 active credential-free adapters: 28 Dutch and 19 French. README contains the authoritative active list and per-retailer notes.
 - Track genuine compressor air conditioners. Exclude air coolers, fans, accessories, quote-only items, fixed split systems outside the supported portable scope, store-only/pickup-only products, expired deals, and multi-week lead times.
 - Presale can appear in the dashboard but never triggers an immediate-stock email. Presale-to-immediate is a valid restock transition.
+- EcoFlow France reads the official France Shopify catalogue and product data. Shopify variant availability remains authoritative, preorder copy only classifies an orderable variant as presale, and outbound product links currently go directly to the official EcoFlow France product page.
+- E.Leclerc France uses the retailer's official storefront live API for discovery and per-scan stock truth, then sends users through an Awin deep link using advertiser `15135` and publisher `2981827`. Immediate stock and presale offers are strictly separated; presale never becomes an immediate-stock alert.
 - GAMMA and KARWEI normally parse their category tiles. Azure receives a Vercel 429 from that host, so the production fallback uses the storefront-published read-only catalogue with a strict multi-field online-stock contract. A robots-declared sitemap can only confirm a safely empty product catalogue; sitemap membership never proves stock. Schema/key/index or sitemap drift fails closed and retains stale inventory.
 - One retailer failure cannot stop others. A failed site retains the last successful inventory with `status: error` / `stale: true`, and alert state is updated only for successful sites.
 - Live inventory and alert state remain separate. Inventory schema version `1` is a production cross-repository contract; breaking changes require an explicit version bump and coordinated frontend/backend release.
@@ -115,11 +119,13 @@ Production uses the verified customer-managed ACS sender domain `airco-tracker.e
 
 ## Verification completed for this release
 
-The four-language release is deployed and production-verified. It passes 212/212 backend tests, translation completeness and frontend-map equality checks, JSON parsing, `compileall`, and `git diff --check`. Unit coverage verifies French Profile projection, worker reload, France/Netherlands destination wording, French/Dutch price formats, singular/plural email HTML and text, and French unsubscribe navigation.
+Backend image/commit `efeb50220e7b1d4a6a607f84d65038af620b3feb` is deployed and production-verified. It passes 239/239 backend tests, translation completeness and frontend-map equality checks, JSON parsing, `compileall`, and `git diff --check`. Unit coverage includes French Profile projection, worker reload, France/Netherlands destination wording, French/Dutch price formats, singular/plural email HTML and text, French unsubscribe navigation, and strict EcoFlow/E.Leclerc immediate-stock-versus-presale handling.
 
-- Backend: 212/212 unit tests, compileall, shell syntax, both Bicep entry points, `git diff --check`, and live GAMMA/KARWEI catalogue plus complete-sitemap parsing passed.
+- Backend: 239/239 unit tests, compileall, shell syntax, both Bicep entry points, `git diff --check`, and live retailer parsing passed.
 - Frontend: 71/71 tests, app/server typecheck, production build, Bicep/deployment verification, and production HTTP checks passed. French Landing, Subscribe, Profile, login, and unsubscribe states passed desktop and narrow visual checks; the production browser console had no warning or error.
-- GitHub deployed immutable backend SHA `e4194c2…` in workflow `29167702065` and frontend SHA `241be5c…` in workflow `29167702772`; all required steps succeeded. The frontend image is serving revision `airco-tracking-web--0000044` at 100% traffic.
+- GitHub workflow `29371474576` performed the silent paused deployment. Seed execution `airco-tracker-job-ig2bh32` succeeded and logged `No new stock` / `no outbox`, preventing first-seen mail from the two newly enabled retailers.
+- Restore workflow `29372369189` succeeded. Its verification executions—reconciler suffix `vi4r23m`, scanner suffix `1cpvmx0`, and publisher suffix `czszdod`—all succeeded. The final production settings are `DEPLOYMENT_PAUSED=false` and `ALERT_ON_FIRST_SEEN=true`.
+- GitHub continues to serve compatible frontend SHA `db98ce8…` from workflow `29367033016`; the frontend image is serving revision `airco-tracking-web--0000053` at 100% traffic.
 - Production Table `i18n` was seeded with 56 entries across the `email` and `web` scopes. The 38-key web map exposes four non-empty languages and matches the frontend fallback value-for-value. The temporary table-scoped seed/support permissions were removed and read back as zero assignments.
 - Event Grid system topic/subscription, the `email-fanout` subscription, all three queues, both delivery tables, the seven-day dead-letter lifecycle, seven metric alerts, and two scheduled-query alerts are enabled. The four inspected broker entities ended with zero active, scheduled, transfer-DLQ, and DLQ messages.
 - The customer-managed ACS domain reports `Succeeded`; Domain/SPF/DKIM/DKIM2 are `Verified`, it is linked to the Communication Service, and `AzureManagedDomain` remains linked as fallback. Production sender identity is `Airco Tracker <DoNotReply@airco-tracker.eu>`.
@@ -127,7 +133,8 @@ The four-language release is deployed and production-verified. It passes 212/212
 - A production French OTP reached the authorized Outlook inbox from the custom-domain sender with French subject, title, expiry, and safety copy. French canary event `a78f237c1ae49be79519c4049c11f4876864ae224b5b77f630cfe9cbb3ed33df` then reached final `delivered` for the authorized Gmail test account; subject, body, and visible pause-alert link were French. The Profile preference was restored after the test, and the topic subscription plus all three queues returned to zero active and dead-letter messages.
 - A real one-click POST paused alert email without login while leaving the paid subscription and inventory entitlement unchanged. Re-enabling alerts rotated the capability; the old link remained idempotent but could not change the new state.
 - External inbound-forwarding canaries reached both monitored mailboxes. One initial support-forwarding canary landed in spam, so gradual warm-up and reputation monitoring remain required. DMARC stays at observation-only `p=none` while aggregate reports and legitimate senders are reviewed.
-- The latest scheduled scanner execution `airco-tracker-job-29729490` succeeded. GAMMA/KARWEI use the strict public-catalogue fallback when their category host rate-limits Azure; schema/key/index drift still fails closed rather than inventing stock.
+- Production verification returned 47 sites and 92 available products, with one stale site. EcoFlow France returned 16 products / 2 available; E.Leclerc France returned 18 products / 16 available. Costway France returned HTTP 403 and correctly retained its previous result as stale instead of inventing or clearing stock.
+- The publisher outbox was empty after restoration and verification. GAMMA/KARWEI continue to use the strict public-catalogue fallback when their category host rate-limits Azure; schema/key/index drift still fails closed rather than inventing stock.
 - `/`, `/health`, and `www` health returned 200; anonymous `/api/inventory` returned 401 as required. The monitoring Action Group sent a real inbox notification, and the first delivery-DLQ cleanup execution succeeded.
 
 ## Deployment order
