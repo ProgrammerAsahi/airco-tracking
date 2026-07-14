@@ -39,6 +39,8 @@ _DELIVERY_COVERAGE_BY_SITE_ID: dict[str, frozenset[str]] = {
     "fr:Auchan": frozenset({"fr"}),
     "fr:Rue du Commerce": frozenset({"fr"}),
     "fr:Electro Dépôt France": frozenset({"fr"}),
+    "fr:EcoFlow France": frozenset({"fr"}),
+    "fr:E.Leclerc France": frozenset({"fr"}),
     "fr:Costway France": frozenset({"fr"}),
     "fr:Maison Energy": frozenset({"fr"}),
     "fr:Create France": frozenset({"fr"}),

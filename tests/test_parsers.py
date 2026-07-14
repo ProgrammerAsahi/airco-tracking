@@ -52,6 +52,7 @@ from airco_tracker.adapters.fr.costway import CostwayFranceAdapter
 from airco_tracker.adapters.fr.create_store import _parse_card as parse_create_fr_card
 from airco_tracker.adapters.fr.delonghi import _product_urls as delonghi_fr_product_urls
 from airco_tracker.adapters.fr.electrodepot import ElectroDepotFranceAdapter
+from airco_tracker.adapters.fr.common import is_real_air_conditioner_fr
 from airco_tracker.adapters.fr.evolarshop import _parse_hit as parse_evolar_fr_hit
 from airco_tracker.adapters.fr.klarstein import KlarsteinFranceAdapter
 from airco_tracker.adapters.fr.lidl import _product_urls as lidl_fr_product_urls
@@ -173,6 +174,10 @@ class ParserTests(unittest.TestCase):
     def test_explicit_cooling_watts_are_converted_but_input_power_is_not(self) -> None:
         self.assertEqual(parse_cooling_watts_btu("Koelcapaciteit 1495 W"), 5101)
         self.assertEqual(parse_cooling_watts_btu("Met 3,5 kW koelvermogen"), 11942)
+        self.assertEqual(
+            parse_cooling_watts_btu("Puissance de refroidissement 1 800 W"),
+            6142,
+        )
         self.assertIsNone(parse_cooling_watts_btu("Stroomverbruik 1500 W"))
 
     def test_known_low_capacity_models_are_inferred(self) -> None:
@@ -190,7 +195,18 @@ class ParserTests(unittest.TestCase):
     def test_french_presale_and_cooling_capacity_markers(self) -> None:
         self.assertTrue(is_presale_delivery("Pré-commande, livraison prévue semaine 29"))
         self.assertTrue(is_presale_delivery("Délai de livraison : X à Y semaines"))
+        self.assertFalse(is_presale_delivery("Délai de livraison : 2 à 3 jours"))
         self.assertEqual(parse_cooling_watts_btu("Capacité de refroidissement 2,6 kW"), 8871)
+
+    def test_french_dehumidifier_is_not_mistaken_for_humidifier(self) -> None:
+        self.assertTrue(
+            is_real_air_conditioner_fr(
+                "Climatiseur mobile avec déshumidificateur"
+            )
+        )
+        self.assertFalse(
+            is_real_air_conditioner_fr("Climatiseur humidificateur mobile")
+        )
 
     def test_btu_enrichment_fetches_only_available_unknown_products(self) -> None:
         class DetailFetcher:

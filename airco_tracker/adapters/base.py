@@ -37,8 +37,6 @@ PRESALE_MARKERS = (
     "livraison a partir",
     "livraison prévue semaine",
     "livraison prevue semaine",
-    "délai de livraison",
-    "delai de livraison",
     "sur commande",
     "retour en stock prévu",
     "retour en stock prevu",
@@ -82,12 +80,13 @@ COOLING_LABEL = (
     r"capacit[ée]\s+de\s+refroidissement|puissance\s+frigorifique|"
     r"puissance\s+de\s+refroidissement)"
 )
+COOLING_VALUE = r"(\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+(?:[.,]\d+)?)"
 COOLING_WATTS_AFTER_RE = re.compile(
-    rf"{COOLING_LABEL}.{{0,50}}?(\d+(?:[.,]\d+)?)\s*(kW|Watt|W)\b",
+    rf"{COOLING_LABEL}.{{0,50}}?{COOLING_VALUE}\s*(kW|Watt|W)\b",
     re.I,
 )
 COOLING_WATTS_BEFORE_RE = re.compile(
-    rf"(\d+(?:[.,]\d+)?)\s*(kW|Watt|W)\b.{{0,50}}?{COOLING_LABEL}",
+    rf"{COOLING_VALUE}\s*(kW|Watt|W)\b.{{0,50}}?{COOLING_LABEL}",
     re.I,
 )
 LABELED_BTU_PATTERNS = (
@@ -154,7 +153,7 @@ def parse_cooling_watts_btu(text: str) -> int | None:
     match = COOLING_WATTS_AFTER_RE.search(text) or COOLING_WATTS_BEFORE_RE.search(text)
     if not match:
         return None
-    value = float(match.group(1).replace(",", "."))
+    value = float(re.sub(r"[ \u00a0\u202f]", "", match.group(1)).replace(",", "."))
     watts = value * 1000 if match.group(2).lower() == "kw" else value
     if not 300 <= watts <= 10_000:
         return None

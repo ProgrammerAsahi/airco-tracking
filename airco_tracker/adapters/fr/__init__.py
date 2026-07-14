@@ -9,6 +9,8 @@ from .costway import CostwayFranceAdapter
 from .create_store import CreateFranceAdapter
 from .delonghi import DelonghiFranceAdapter
 from .electrodepot import ElectroDepotFranceAdapter
+from .ecoflow import EcoFlowFranceAdapter
+from .eleclerc import ELeclercFranceAdapter
 from .evolarshop import EvolarshopFranceAdapter
 from .h2r import H2REquipementsAdapter
 from .klarstein import KlarsteinFranceAdapter
@@ -26,6 +28,8 @@ ADAPTERS = [
     AuchanAdapter,
     RueDuCommerceAdapter,
     ElectroDepotFranceAdapter,
+    EcoFlowFranceAdapter,
+    ELeclercFranceAdapter,
     CostwayFranceAdapter,
     MaisonEnergyAdapter,
     CreateFranceAdapter,

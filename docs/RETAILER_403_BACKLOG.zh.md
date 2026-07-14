@@ -5,13 +5,17 @@
   <a href="./RETAILER_403_BACKLOG.md"><img alt="English" src="https://img.shields.io/badge/docs-English-0969da"></a>
 </p>
 
-最后更新：2026-07-06
+最后更新：2026-07-14
 
 本文档记录值得后续重新探索、但目前因为普通 tracker 请求遇到直接 `403`、captcha 或类似反爬拦截而未启用的各国零售商站点。它们应与普通 parser backlog 分开管理：只有在找到稳定、公开、生产安全的数据源，并且从 Azure Container Apps 验证成功后，才可以注册 adapter。
 
 修改本文档时，必须同步更新中文和英语版本。
 
 ## France
+
+E.Leclerc 已从本 backlog 移除：系统不会抓取其反爬店面页面，而是使用
+第一方同源前端 API 进行商品发现并读取实时库存详情。该第一方数据路径如有
+格式异常、字段矛盾或不可用，适配器会 fail closed。
 
 ### 严格 direct-403 站点
 
@@ -52,7 +56,6 @@
 | Boulanger | Azure production read timeout | Local/GitHub-hosted 请求可读页面，但 Azure Container Apps 稳定遇到 60 秒 read timeout。 |
 | Brico Dépôt France | Azure production receives too-small/unusable responses | Parser code 和 tests 保留，但普通 category page 和 smartcache fragment 从 Azure 都不稳定。 |
 | Cdiscount | JS shell / anti-bot / 暂无稳定 server-side product data | 值得后续探索，但不记录为普通 direct-403。 |
-| E.Leclerc | SPA / anti-bot / 暂无稳定 server-side product data | 值得后续探索，但不记录为普通 direct-403。 |
 | Habitat et Jardin | 测试 search page 没有稳定 product cards | 需要更好的 category/search data source，而不是反爬路径。 |
 | Olimpia Splendid France | Brand/catalog source without reliable direct stock | 适合作产品参考，不适合作当前 stock-alert source。 |
 | Midea France | Brand/catalog source without reliable direct stock | 适合作产品参考，不适合作当前 stock-alert source。 |

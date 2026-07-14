@@ -25,6 +25,10 @@ def is_real_air_conditioner_fr(name: str, extra_text: str = "") -> bool:
         "rafraichisseur",
         "refroidisseur d'air",
         "aircooler",
+        "air cooler",
+        "système d'évaporation et de refroidissement",
+        "systeme d'evaporation et de refroidissement",
+        "diffuseur d'air froid",
         "sans tuyau d'évacuation",
         "sans tuyau d’évacuation",
         "sans tuyau d'evacuation",
@@ -38,6 +42,10 @@ def is_real_air_conditioner_fr(name: str, extra_text: str = "") -> bool:
         "gps pour",
     )
     if any(term in lower for term in hard_excluded):
+        return False
+    # Do not use a raw substring here: ``déshumidificateur`` is a normal
+    # compressor-air-conditioner function and contains ``humidificateur``.
+    if re.search(r"\bhumidificateur\b", lower):
         return False
 
     name_excluded = (

@@ -5,7 +5,7 @@
   <a href="./RETAILER_403_BACKLOG.md"><img alt="English" src="https://img.shields.io/badge/docs-English-0969da"></a>
 </p>
 
-Last updated: 2026-07-06
+Last updated: 2026-07-14
 
 This document tracks country-specific retailer sites that are worth revisiting
 but are not currently enabled because normal tracker requests hit direct `403`,
@@ -17,6 +17,11 @@ Apps.
 When this file changes, update the Chinese and English variants together.
 
 ## France
+
+E.Leclerc has been removed from this backlog: its anti-bot storefront pages are
+not scraped, but the first-party same-origin frontend API now provides a stable
+first-party data path for product discovery and live stock details. The adapter fails
+closed when that API is malformed, contradictory, or unavailable.
 
 ### Strict direct-403 sites
 
@@ -61,7 +66,6 @@ strategy.
 | Boulanger | Azure production read timeout | Local/GitHub-hosted requests can read the page, but Azure Container Apps consistently hits a 60-second read timeout. |
 | Brico Dépôt France | Azure production receives too-small/unusable responses | Parser code and tests are retained, but both the normal category page and smartcache fragment are unstable from Azure. |
 | Cdiscount | JS shell / anti-bot / no stable server-side product data yet | Worth revisiting, but not recorded as a plain direct-403 site. |
-| E.Leclerc | SPA / anti-bot / no stable server-side product data yet | Worth revisiting, but not recorded as a plain direct-403 site. |
 | Habitat et Jardin | No stable product cards on tested search page | Needs a better category/search data source rather than anti-bot work. |
 | Olimpia Splendid France | Brand/catalog source without reliable direct stock | Useful for product reference, not currently a stock-alert source. |
 | Midea France | Brand/catalog source without reliable direct stock | Useful for product reference, not currently a stock-alert source. |
