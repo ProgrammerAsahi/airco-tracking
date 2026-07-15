@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -44,22 +45,36 @@ class LocalPartnerFeedCache:
     def save(self, namespace: str, feed_id: str, payload: dict[str, Any]) -> None:
         path = self._path(namespace, feed_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
+        temporary: Path | None = None
         try:
             body = json.dumps(
                 _validate_cache(payload), ensure_ascii=False, separators=(",", ":")
             ).encode("utf-8")
             if len(body) > _MAX_CACHE_BYTES:
                 raise RuntimeError("Local partner-feed cache exceeds the safety limit")
-            temporary.write_bytes(body)
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as destination:
+                destination.write(body)
+                temporary = Path(destination.name)
             temporary.replace(path)
         except RuntimeError:
             try:
-                temporary.unlink(missing_ok=True)
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
             except OSError:
                 pass
             raise
         except OSError as exc:
+            try:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
             raise RuntimeError("Cannot write local partner-feed cache") from exc
 
     def _path(self, namespace: str, feed_id: str) -> Path:

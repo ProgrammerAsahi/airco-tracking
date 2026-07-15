@@ -379,6 +379,7 @@ class ELeclercFranceAdapterTests(unittest.TestCase):
         query = parse_qs(urlsplit(product.url).query)
         self.assertEqual(query["awinmid"], ["15135"])
         self.assertEqual(query["awinaffid"], ["2981827"])
+        self.assertEqual(query["cons"], ["0"])
         self.assertEqual(query["ued"], [f"https://www.e.leclerc/fp/{sku}"])
 
     def test_current_discount_price_is_used_before_base_price(self) -> None:

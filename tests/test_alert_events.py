@@ -52,8 +52,14 @@ class AlertEventTests(unittest.TestCase):
         self.assertNotEqual(first_id, stock_event_id(self.available, 2))
 
     def test_stock_event_round_trip_preserves_delivery_and_product_contract(self) -> None:
+        product = Product(
+            **{
+                **self.available.__dict__,
+                "affiliate_url": "https://www.awin1.com/cread.php?ued=airco-1",
+            }
+        )
         event = StockAvailableEvent.for_product(
-            self.available,
+            product,
             availability_generation=2,
             delivery_coverage={"FR", "be", "fr"},
         )
@@ -64,6 +70,22 @@ class AlertEventTests(unittest.TestCase):
         self.assertEqual(decoded.delivery_coverage, ("be", "fr"))
         self.assertEqual(decoded.product.country, "fr")
         self.assertEqual(decoded.product.price_eur, 399.0)
+        self.assertEqual(decoded.product.affiliate_url, product.affiliate_url)
+
+    def test_affiliate_link_does_not_change_event_or_state_identity(self) -> None:
+        linked = Product(
+            **{
+                **self.available.__dict__,
+                "affiliate_url": "https://www.awin1.com/cread.php?ued=airco-1",
+            }
+        )
+        self.assertEqual(stock_event_id(linked, 1), stock_event_id(self.available, 1))
+        state = updated_state({"version": 1, "products": {}}, [linked])
+        self.assertIn("fr:https://shop.test/airco-1", state["products"])
+        self.assertEqual(
+            state["products"]["fr:https://shop.test/airco-1"]["affiliate_url"],
+            linked.affiliate_url,
+        )
 
     def test_stock_event_rejects_invalid_json_schema_type_and_target_invariants(self) -> None:
         event = StockAvailableEvent.for_product(

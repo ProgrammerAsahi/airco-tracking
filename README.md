@@ -66,6 +66,8 @@ Boulanger 和 Brico Dépôt France 的适配器代码已保留，但暂未在生
 
 E.Leclerc France 不抓取其反爬店面页面，而是通过店面使用的第一方同源前端 API 工作：约每 12 小时用商品搜索低频发现候选，已知 SKU 则每 10 分钟通过批量详情刷新库存。商品必须精确满足 `family.code=climatiseur`，配件、冷风机和风扇会被排除。offer 的 `additionalFields` 中 `availability-status` 是权威状态：即时现货必须同时满足 `in-stock`、数字库存大于 0、处于有效日期窗口、EUR 价格有效且大于 0、seller 非空；预售只接受 `preorder`、`unlimited-preorder`、`forthcoming` 或 `future-stock`，并同样要求有效日期窗口、有效价格和 seller，但库存可以为 0。`shipped-under`、`temporarily-unavailable`、`unavailable`、缺失/未知状态，以及库存不大于 0 的 `in-stock` 均按不可用处理；多个 offer 优先选择最便宜的即时现货，其次选择最便宜的预售，否则为不可用。库存真相来自这套第一方 live API，用户跳转链接才使用已批准的 Awin deep link；当前 E.Leclerc Awin Product Feed 不包含空调，因此运行时不依赖 Awin Product Feed data key。
 
+Trotec France 每轮扫描都读取其官方店面使用的 Algolia 商品索引；它是即时库存和预售分类的唯一权威来源。即使 `availability_status` 显示 `En stock`，只要 `sold_out=Oui` 就会被硬性否决。已批准的 Awin advertiser `62319` 只用于 Link Builder：系统把已验证的 `fr.trotec.com/shop/...` 商品 URL 以最多 100 条一批提交给官方 API，并把成功结果缓存一天。只有 API 返回的链接通过 HTTPS、Awin host、advertiser、publisher 和最终 Trotec URL 校验后才写入 `affiliate_url`；API 超时、单条拒绝或无 token 时直接使用 Trotec canonical URL，绝不会让库存扫描失败或变成 stale。`Product.url` 始终作为库存状态、去重和变化事件的稳定身份；网页和提醒邮件会在推广链接前显示披露。
+
 Costway France 读取 Magento 分类页的 `qty-N` 库存和 `Précommande` 标签，并排除 split、冷风机和配件；Maison Energy 会让 `Non disponible`/`Demande de devis` 优先于 schema `PreOrder`，避免不可下单商品触发现货。H2R Équipements 只读取房车/露营车的 `climatisation nomade` 分类，`En stock` 才算即时现货，`Sur commande`/`Retour en stock prévu` 不会触发现货提醒；Obelink France 通过公开 JSON-LD 分类和商品页追踪 mobile/split 露营空调；Narbonne Accessoires 只在 `Livraison à Domicile` 明确 `En stock` 时算可配送，避免把仅门店自取误报为现货；Mon Camping Car 的 `BackOrder`/`Disponible à partir` 会作为预售展示。Action France 当前搜索结果主要是冷风机/风扇，因此会被严格过滤；Boulanger、Brico Dépôt France、Cdiscount 以及直接 403 的法国站点暂未启用，避免把超时、反爬页或 JS 壳误当库存来源。
 
 EP.nl 通过服务器输出的商品卡识别在线库存；Electro World 使用其网页公开调用的只读商品搜索索引，并在每次运行时动态读取公开搜索配置；Wehkamp 读取分类页的主商品数据。三者均不需要账号或秘密凭据。Wehkamp 会把售罄商品从分类移除，因此明确的空分类是正常状态；商品补货并重新出现时会立即触发首次有货提醒。
@@ -226,12 +228,14 @@ az containerapp job logs show \
 
 正式 fan-out 收件人来自 Web 项目同步维护的 `alertrecipients` Table。用户在 Profile 修改邮箱后会保留稳定 UUID，而 email worker 会在每次发送前按 UUID 点读 canonical 用户，因此投影短暂落后也不会发往旧地址。生产不会读取 `notification-email` 或 `EMAIL_TO` 作为回退；无法核对 canonical 账户时必须 fail closed。
 
-Key Vault 只保留未来第三方 adapter 的秘密凭据。容器可通过 Managed Identity 和以下映射读取：
+Key Vault 只保留必要的第三方 adapter 秘密凭据。容器可通过 Managed Identity 加载 Trotec France Awin Link Builder 的 publisher token：
 
 ```text
 AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
-KEY_VAULT_SECRET_MAP=PARTNER_API_KEY=partner-api-key
+KEY_VAULT_SECRET_MAP=AWIN_PUBLISHER_API_TOKEN=awin-publisher-api-token
 ```
+
+系统只调用 Awin Link Builder Batch API，Bearer token 仅进入 `Authorization` header；不支持把 data-feed key 放进 URL 的 Legacy Create-a-Feed 路径。扫描先完成第一方库存判定，再批量生成并校验推广链接；API 失败时回退 canonical URL。尚未接入 CMP，因此 API 返回的链接会被明确覆盖为 `cons=0`：Awin 不设置 cookie，也不向商家传递 click identifier，当前不能依赖其完成佣金归因。网页和邮件都会在点击前显示推广联盟披露；以后只有在实现真实同意管理后才能按当次选择发送 `cons=1`。
 
 Secret 不进入代码、镜像、Bicep 参数或 Service Bus 消息。更换订阅邮箱必须通过 Web Profile，不能通过 Key Vault 或部署变量修改。
 

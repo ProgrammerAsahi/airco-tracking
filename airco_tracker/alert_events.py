@@ -146,6 +146,7 @@ class StockAvailableEvent:
                 btu=_optional_int(product_data.get("btu")),
                 presale=presale,
                 country=_optional_string(product_data.get("country")) or "nl",
+                affiliate_url=_optional_string(product_data.get("affiliate_url")),
             )
             coverage = _string_tuple(data.get("deliveryCoverage"), "deliveryCoverage")
             targets = _string_tuple(data.get("targetRecipientIds", []), "targetRecipientIds")

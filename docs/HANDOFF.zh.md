@@ -107,6 +107,7 @@ Coordinator 最多 4 replicas，fan-out 最多 16。Service Bus Standard entitie
 - 预售可以进入 dashboard，但不能触发现货邮件；预售转即时现货是有效 restock transition。
 - EcoFlow France 读取法国官方 Shopify 目录和商品数据。Shopify variant availability 始终是权威依据，预售文案只用于把已可下单 variant 分类为预售；当前商品链接直接指向 EcoFlow France 官方商品页。
 - E.Leclerc France 通过商家官方店面 live API 发现商品并在每轮扫描确定库存，用户跳转则经过 Awin deep link，advertiser 为 `15135`、publisher 为 `2981827`。即时现货和预售严格分离，预售绝不会触发即时现货提醒。
+- Trotec France 的官方店面 Algolia 是即时库存和预售的唯一权威。`sold_out` 只接受严格的已知 boolean/string；可下单状态遇到缺失或未知 veto signal 时会 fail closed。已批准的 Awin advertiser `62319` 只在第一方分类完成后通过 Link Builder Batch API 使用。API 链接缓存一天，并且必须同时匹配经过验证的 Trotec canonical URL、advertiser `62319` 与 publisher `2981827`；请求、单条结果或缓存校验失败都会回退 canonical URL，不能让库存 stale。`Product.url` 继续作为状态、去重和事件身份。Bearer token 从 Key Vault secret `awin-publisher-api-token` 加载到 `AWIN_PUBLISHER_API_TOKEN`；带 secret URL 的 Legacy feed 不受支持。在真正接入 CMP 前，所有返回链接强制使用 `cons=0`，这会关闭 Awin cookie 和 click identifier（因此当前不能依赖它完成佣金归因）。网页和邮件都必须在点击前显示推广联盟披露。
 - GAMMA 和 KARWEI 正常解析分类商品卡；Azure 访问该分类 host 时收到 Vercel 429，因此生产 fallback 使用店面公开的只读目录，并以多个线上库存字段相互一致作为现货条件。Robots 声明的 sitemap 只能确认当前商品目录安全为空，sitemap 收录本身绝不代表现货。Schema/key/index 或 sitemap 漂移时会 fail closed 并保留 stale inventory。
 - 单一 retailer 失败不能阻断其它站点。失败站点保留上次成功库存并标记 `status: error` / `stale: true`；alert state 只为成功站点更新。
 - Live inventory 与 alert state 分离。Inventory schema version `1` 是生产跨仓库契约；breaking change 必须显式 bump version 并协调前后端 release。

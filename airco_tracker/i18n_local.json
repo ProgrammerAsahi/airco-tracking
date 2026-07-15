@@ -48,6 +48,12 @@
       "en": "Stock changes quickly; please confirm the price and delivery date before buying.",
       "fr": "Les stocks évoluent rapidement ; veuillez vérifier le prix et la date de livraison avant l'achat."
     },
+    "affiliate_disclosure": {
+      "zh": "部分购买链接为推广联盟链接；如果您通过链接完成购买，Airco Tracker 可能获得佣金，但您的价格不会因此改变。",
+      "nl": "Sommige aankooplinks zijn affiliatelinks. Als je via zo'n link koopt, kan Airco Tracker een commissie ontvangen zonder dat jouw prijs verandert.",
+      "en": "Some purchase links are affiliate links. Airco Tracker may earn a commission if you buy through one, without changing the price you pay.",
+      "fr": "Certains liens d’achat sont des liens affiliés. Airco Tracker peut recevoir une commission si vous achetez via l’un d’eux, sans modifier le prix que vous payez."
+    },
     "html_title": {
       "zh": "便携空调恢复库存",
       "nl": "Mobiele airco's weer op voorraad",
@@ -271,6 +277,24 @@
       "nl": "Naar productpagina bestellen",
       "en": "Go to product page to order",
       "fr": "Commander sur la page du produit"
+    },
+    "affiliate_disclosure": {
+      "zh": "部分购买链接为推广联盟链接；如果您通过链接完成购买，Airco Tracker 可能获得佣金，但您的价格不会因此改变。",
+      "nl": "Sommige aankooplinks zijn affiliatelinks. Als je via zo'n link koopt, kan Airco Tracker een commissie ontvangen zonder dat jouw prijs verandert.",
+      "en": "Some purchase links are affiliate links. Airco Tracker may earn a commission if you buy through one, without changing the price you pay.",
+      "fr": "Certains liens d’achat sont des liens affiliés. Airco Tracker peut recevoir une commission si vous achetez via l’un d’eux, sans modifier le prix que vous payez."
+    },
+    "affiliate_link_badge": {
+      "zh": "推广联盟链接",
+      "nl": "Affiliatelink",
+      "en": "Affiliate link",
+      "fr": "Lien affilié"
+    },
+    "affiliate_disclosure_cta": {
+      "zh": "查看推广联盟说明",
+      "nl": "Lees de affiliate-informatie",
+      "en": "Read the affiliate disclosure",
+      "fr": "Lire l’information sur l’affiliation"
     },
     "detail_back": {
       "zh": "返回",

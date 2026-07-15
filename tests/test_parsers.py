@@ -549,9 +549,12 @@ class ParserTests(unittest.TestCase):
         }
         presale = dict(stocked, url="https://fr.trotec.com/shop/pac-2020.html", availability_status="Délai de livraison : X à Y semaines")
         unavailable = dict(stocked, url="https://fr.trotec.com/shop/pac-3000.html", availability_status="Actuellement indisponible")
-        self.assertTrue(parse_trotec_fr_hit(stocked).available)  # type: ignore[union-attr]
+        parsed_stocked = parse_trotec_fr_hit(stocked)
+        self.assertTrue(parsed_stocked.available)  # type: ignore[union-attr]
         self.assertTrue(parse_trotec_fr_hit(presale).presale)  # type: ignore[union-attr]
         self.assertFalse(parse_trotec_fr_hit(unavailable).available)  # type: ignore[union-attr]
+        self.assertEqual(parsed_stocked.url, stocked["url"])  # type: ignore[union-attr]
+        self.assertIsNone(parsed_stocked.affiliate_url)  # type: ignore[union-attr]
 
     def test_trotec_fr_rejects_category_matched_accessories(self) -> None:
         accessory = {
@@ -563,6 +566,29 @@ class ParserTests(unittest.TestCase):
             "categories_without_path": ["Climatiseur mobile"],
         }
         self.assertIsNone(parse_trotec_fr_hit(accessory))
+
+    def test_trotec_fr_accepts_local_air_conditioner_wording_but_rejects_industrial(self) -> None:
+        portable = {
+            "name": "Appareil de climatisation local PAC 3910 X WiFi",
+            "url": "https://fr.trotec.com/shop/pac-3910.html",
+            "availability_status": "Actuellement indisponible",
+            "sold_out": "Oui",
+            "price": {"EUR": {"default": 699.99}},
+            "main_characteristic_3_value": "14000 Btu/h",
+            "categories_without_path": ["Climatiseur mobile", "Climatiseur"],
+        }
+        industrial = {
+            **portable,
+            "name": "Climatiseur split PAC AC 15000",
+            "url": "https://fr.trotec.com/shop/pac-ac-15000.html",
+            "categories_without_path": [
+                "Climatiseur",
+                "Climatisation professionnelle et industrielle",
+            ],
+        }
+
+        self.assertIsNotNone(parse_trotec_fr_hit(portable))
+        self.assertIsNone(parse_trotec_fr_hit(industrial))
 
     def test_lidl_fr_product_urls_filter_sitemap(self) -> None:
         sitemap = gzip.compress(

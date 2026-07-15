@@ -37,6 +37,7 @@ param appBaseUrl string = 'https://airco-tracker.eu'
   'zh'
   'nl'
   'en'
+  'fr'
 ])
 param emailLang string = 'zh'
 
@@ -156,6 +157,8 @@ resource scannerJob 'Microsoft.App/jobs@2025-01-01' = {
             { name: 'ALERT_ON_FIRST_SEEN', value: 'true' }
             { name: 'REQUEST_TIMEOUT_SECONDS', value: '25' }
             { name: 'SCANNER_LEASE_SECONDS', value: '480' }
+            { name: 'AZURE_KEY_VAULT_URL', value: keyVaultUrl }
+            { name: 'KEY_VAULT_SECRET_MAP', value: 'AWIN_PUBLISHER_API_TOKEN=awin-publisher-api-token' }
           ])
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
         }

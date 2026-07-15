@@ -6,7 +6,7 @@ import json
 import smtplib
 import ssl
 from email.utils import format_datetime, getaddresses
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from email.message import EmailMessage
@@ -80,6 +80,14 @@ def build_message(
 
     intro_key = "body_intro_one" if len(products) == 1 else "body_intro"
     lines = [translate(lang, intro_key, country=country_name), ""]
+    has_affiliate_link = any(_is_affiliate_purchase(product) for product in products)
+    affiliate_disclosure = (
+        translate(lang, "affiliate_disclosure") if has_affiliate_link else ""
+    )
+    if affiliate_disclosure:
+        # Keep the relationship visible before the first tracked purchase
+        # link, in both the text and HTML alternatives.
+        lines.extend([affiliate_disclosure, ""])
     cards: list[str] = []
     for product in products:
         price = (
@@ -89,12 +97,13 @@ def build_message(
         )
         power = f" · {product.btu} BTU" if product.btu else ""
         delivery = product.delivery or delivery_fallback
-        lines.extend([f"{product.site} — {product.name}", f"{price}{power} · {delivery}", product.url, ""])
+        purchase_url = product.purchase_url
+        lines.extend([f"{product.site} — {product.name}", f"{price}{power} · {delivery}", purchase_url, ""])
         cards.append(
             "<li style='margin-bottom:18px'>"
             f"<strong>{html.escape(product.site)} — {html.escape(product.name)}</strong><br>"
             f"{html.escape(price + power)} · {html.escape(delivery)}<br>"
-            f"<a href='{html.escape(product.url, quote=True)}'>{html.escape(view_link)}</a></li>"
+            f"<a href='{html.escape(purchase_url, quote=True)}'>{html.escape(view_link)}</a></li>"
         )
     footer = translate(lang, "body_footer")
     html_title_key = "html_title_one" if len(products) == 1 else "html_title"
@@ -110,7 +119,14 @@ def build_message(
     message.set_content("\n".join(lines))
     message.add_alternative(
         f"<!doctype html><html lang='{html.escape(lang, quote=True)}'><body>"
-        f"<h2>{html.escape(translate(lang, html_title_key))}</h2><ul>"
+        f"<h2>{html.escape(translate(lang, html_title_key))}</h2>"
+        + (
+            "<p style='color:#607789;font-size:13px'>"
+            f"{html.escape(affiliate_disclosure)}</p>"
+            if affiliate_disclosure
+            else ""
+        )
+        + "<ul>"
         + "".join(cards)
         + "</ul>"
         + f"<p>{html.escape(footer)}</p>"
@@ -134,6 +150,20 @@ def build_message(
 def _delivery_country(explicit: str | None, product_country: str | None) -> str:
     country = (explicit or product_country or "nl").strip().lower()
     return country if country in {"nl", "fr"} else "nl"
+
+
+def _is_affiliate_purchase(product: Product) -> bool:
+    affiliate_url = (product.affiliate_url or "").strip()
+    if affiliate_url and product.purchase_url == affiliate_url:
+        return True
+    try:
+        hostname = (urlsplit(product.purchase_url).hostname or "").lower()
+    except ValueError:
+        return False
+    # Older E.Leclerc records use the Awin URL as their canonical product URL.
+    # Keep email disclosure aligned with the website while preserving those
+    # durable state identities until they can be migrated without false alerts.
+    return hostname == "awin1.com" or hostname.endswith(".awin1.com")
 
 
 def _format_eur(value: float, lang: str) -> str:

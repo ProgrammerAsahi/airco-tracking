@@ -90,6 +90,103 @@ class CloudBackendTests(unittest.TestCase):
                 message.get_body(preferencelist=("plain",)).get_content(),
             )
 
+    def test_alert_message_prefers_affiliate_purchase_url(self) -> None:
+        config = SimpleNamespace(
+            email_from="DoNotReply@example.azurecomm.net",
+            email_to="recipient@example.com",
+            email_reply_to="",
+            app_base_url="https://airco-tracker.eu",
+            email_lang="en",
+        )
+        product = Product(
+            "Shop",
+            "Airco 7000 BTU",
+            "https://shop.test/airco",
+            True,
+            affiliate_url="https://www.awin1.com/cread.php?ued=airco",
+        )
+
+        message = build_message(config, [product])
+        plain = message.get_body(preferencelist=("plain",)).get_content()
+        html_body = message.get_body(preferencelist=("html",)).get_content()
+        self.assertIn(product.affiliate_url, plain)
+        self.assertIn(product.affiliate_url, html_body)
+        self.assertNotIn("https://shop.test/airco", plain)
+        self.assertIn("affiliate links", plain)
+        self.assertIn("affiliate links", html_body)
+        self.assertLess(plain.index("affiliate links"), plain.index(product.affiliate_url))
+        self.assertLess(html_body.index("affiliate links"), html_body.index(product.affiliate_url))
+
+    def test_alert_message_rejects_non_https_affiliate_purchase_url(self) -> None:
+        config = SimpleNamespace(
+            email_from="DoNotReply@example.azurecomm.net",
+            email_to="recipient@example.com",
+            email_reply_to="",
+            app_base_url="https://airco-tracker.eu",
+            email_lang="en",
+        )
+        product = Product(
+            "Shop",
+            "Airco 7000 BTU",
+            "https://shop.test/airco",
+            True,
+            affiliate_url="javascript:alert(1)",
+        )
+
+        message = build_message(config, [product])
+        plain = message.get_body(preferencelist=("plain",)).get_content()
+        html_body = message.get_body(preferencelist=("html",)).get_content()
+        self.assertIn(product.url, plain)
+        self.assertIn(product.url, html_body)
+        self.assertNotIn("javascript:", plain)
+        self.assertNotIn("javascript:", html_body)
+        self.assertNotIn("affiliate links", plain)
+        self.assertNotIn("affiliate links", html_body)
+
+    def test_alert_message_rejects_control_characters_in_affiliate_url(self) -> None:
+        config = SimpleNamespace(
+            email_from="DoNotReply@example.azurecomm.net",
+            email_to="recipient@example.com",
+            email_reply_to="",
+            app_base_url="https://airco-tracker.eu",
+            email_lang="en",
+        )
+        product = Product(
+            "Shop",
+            "Airco 7000 BTU",
+            "https://shop.test/airco",
+            True,
+            affiliate_url="https://www.awin1.com/cread.php?ok=1\nForged: value",
+        )
+
+        message = build_message(config, [product])
+        plain = message.get_body(preferencelist=("plain",)).get_content()
+        self.assertIn(product.url, plain)
+        self.assertNotIn("Forged: value", plain)
+        self.assertNotIn("affiliate links", plain)
+
+    def test_alert_message_discloses_legacy_awin_purchase_url(self) -> None:
+        config = SimpleNamespace(
+            email_from="DoNotReply@example.azurecomm.net",
+            email_to="recipient@example.com",
+            email_reply_to="",
+            app_base_url="https://airco-tracker.eu",
+            email_lang="en",
+        )
+        product = Product(
+            "E.Leclerc France",
+            "Climatiseur 9000 BTU",
+            "https://www.awin1.com/cread.php?awinmid=15135&awinaffid=2981827",
+            True,
+        )
+
+        message = build_message(config, [product])
+        plain = message.get_body(preferencelist=("plain",)).get_content()
+        html_body = message.get_body(preferencelist=("html",)).get_content()
+        self.assertIn("affiliate links", plain)
+        self.assertIn("affiliate links", html_body)
+        self.assertLess(plain.index("affiliate links"), plain.index(product.url))
+
     def test_alert_message_localizes_destination_and_price_for_french(self) -> None:
         config = SimpleNamespace(
             email_from="DoNotReply@example.azurecomm.net",

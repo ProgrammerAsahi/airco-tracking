@@ -1,14 +1,30 @@
 from __future__ import annotations
 
 import json
-import re
+import logging
+import os
+from dataclasses import replace
+from datetime import timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
+import requests
+
+from ...awin import AwinLinkBuilderClient
 from ...fetch import Fetcher
 from ...models import Product
+from ...partner_feed_store import build_partner_feed_cache
 from ..base import is_presale_delivery, parse_btu, parse_cooling_watts_btu
 from .common import is_real_air_conditioner_fr, parse_float
+
+
+LOG = logging.getLogger(__name__)
+
+_AWIN_ADVERTISER_ID = "62319"
+_AWIN_PUBLISHER_ID = "2981827"
+_AWIN_CACHE_NAMESPACE = "awin-trotec-fr-links-v1"
+_AWIN_CACHE_KEY = "links"
+_AWIN_CACHE_TTL = timedelta(days=1)
 
 
 class TrotecFranceAdapter:
@@ -16,8 +32,14 @@ class TrotecFranceAdapter:
     search_url = "https://fr.trotec.com/shop/catalogsearch/result/?q=climatiseur"
     query_url = "https://{app_id}-dsn.algolia.net/1/indexes/*/queries"
 
-    def __init__(self, fetcher: Fetcher) -> None:
+    def __init__(
+        self,
+        fetcher: Fetcher,
+        *,
+        awin_client: AwinLinkBuilderClient | None = None,
+    ) -> None:
         self.fetcher = fetcher
+        self._awin_client = awin_client
 
     def fetch_products(self) -> list[Product]:
         config = _algolia_config(self.fetcher.get(self.search_url))
@@ -48,7 +70,57 @@ class TrotecFranceAdapter:
                 products[product.url] = product
         if not products:
             raise RuntimeError("Trotec France search returned no air conditioners")
-        return list(products.values())
+        # Complete first-party discovery and stock classification before the
+        # optional partner call. Only an API-generated, validated Awin link is
+        # attached; failures keep the canonical Trotec URL as purchase target.
+        awin_links = self._awin_links(products)
+        return [
+            replace(product, affiliate_url=awin_links.get(product.url))
+            for product in products.values()
+        ]
+
+    def _awin_links(self, products: dict[str, Product]) -> dict[str, str]:
+        try:
+            client = self._awin_client or _build_awin_client(self.fetcher)
+            return client.links_for(products) if client is not None else {}
+        except Exception:
+            # Link generation must never make first-party inventory stale.
+            # Keep this log generic because the API token is a credential.
+            LOG.warning(
+                "Trotec France Awin links are unavailable; using canonical URLs"
+            )
+            return {}
+
+
+def _build_awin_client(fetcher: Fetcher) -> AwinLinkBuilderClient | None:
+    bearer_token = os.getenv("AWIN_PUBLISHER_API_TOKEN", "").strip()
+    if not bearer_token:
+        return None
+
+    common: dict[str, Any] = {
+        "session": _awin_session(fetcher),
+        "cache": build_partner_feed_cache(),
+        "cache_namespace": _AWIN_CACHE_NAMESPACE,
+        "cache_key": _AWIN_CACHE_KEY,
+        "ttl": _AWIN_CACHE_TTL,
+        "timeout": min(fetcher.timeout, 10),
+    }
+    return AwinLinkBuilderClient(
+        publisher_id=_AWIN_PUBLISHER_ID,
+        advertiser_id=_AWIN_ADVERTISER_ID,
+        bearer_token=bearer_token,
+        **common,
+    )
+
+
+def _awin_session(fetcher: Fetcher) -> requests.Session:
+    session = requests.Session()
+    source_headers = getattr(fetcher.session, "headers", {})
+    for key in ("User-Agent", "Accept-Language"):
+        value = source_headers.get(key) if hasattr(source_headers, "get") else None
+        if isinstance(value, str) and value:
+            session.headers[key] = value
+    return session
 
 
 def _algolia_config(page: str) -> dict[str, Any]:
@@ -92,7 +164,9 @@ def _json_object_end(text: str, start: int) -> int:
     raise RuntimeError("Trotec France search settings were incomplete")
 
 
-def _parse_hit(hit: dict[str, Any]) -> Product | None:
+def _parse_hit(
+    hit: dict[str, Any],
+) -> Product | None:
     if not isinstance(hit, dict):
         return None
     name = str(hit.get("name", "")).strip()
@@ -100,11 +174,23 @@ def _parse_hit(hit: dict[str, Any]) -> Product | None:
     details = _details(hit)
     if not name or not url or not _is_trotec_air_conditioner(name, details):
         return None
+    _validate_trotec_url(url)
     status = str(hit.get("availability_status", "")).strip()
-    sold_out = str(hit.get("sold_out", "")).strip().casefold() == "oui"
     lower_status = status.casefold()
-    immediate = not sold_out and lower_status in {"en stock", "stock limité", "stock limite"}
-    presale = not sold_out and is_presale_delivery(status)
+    has_immediate_status = lower_status in {"en stock", "stock limité", "stock limite"}
+    has_presale_status = is_presale_delivery(status)
+    has_unavailable_status = lower_status in {
+        "actuellement indisponible",
+        "délai de livraison sur demande",
+        "delai de livraison sur demande",
+    }
+    if not (has_immediate_status or has_presale_status or has_unavailable_status):
+        raise RuntimeError("Trotec France product has an invalid availability status")
+    sold_out = _sold_out(hit.get("sold_out"))
+    if sold_out is None:
+        raise RuntimeError("Trotec France product has an invalid sold_out signal")
+    immediate = sold_out is False and has_immediate_status
+    presale = sold_out is False and has_presale_status
     return Product(
         site="Trotec France",
         name=name,
@@ -114,17 +200,64 @@ def _parse_hit(hit: dict[str, Any]) -> Product | None:
         delivery=status or None,
         btu=parse_btu(f"{name} {details}") or parse_cooling_watts_btu(details),
         presale=presale,
+        country="fr",
     )
+
+
+def _sold_out(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if not isinstance(value, str):
+        return None
+    key = value.strip().casefold()
+    if key in {"oui", "yes", "true", "1"}:
+        return True
+    if key in {"non", "no", "false", "0"}:
+        return False
+    return None
+
+
+def _validate_trotec_url(value: str) -> None:
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise RuntimeError("Trotec France product has an invalid URL")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise RuntimeError("Trotec France product has an invalid URL") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or (parsed.hostname or "").lower() != "fr.trotec.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or not parsed.path.startswith("/shop/")
+    ):
+        raise RuntimeError("Trotec France product has an invalid URL")
 
 
 def _is_trotec_air_conditioner(name: str, details: str) -> bool:
     name_lower = name.casefold()
+    details_lower = details.casefold()
     if not is_real_air_conditioner_fr(name, details):
         return False
     # Trotec's Algolia result set also contains accessories and spare parts
     # whose category path includes "Climatiseur mobile". Require the product
     # name itself to be an air conditioner; category text alone is not enough.
-    if "climatiseur" not in name_lower:
+    if (
+        "climatiseur" not in name_lower
+        and "appareil de climatisation local" not in name_lower
+    ):
+        return False
+    # Trotec also indexes fixed industrial equipment.  The portable PAC-S
+    # split remains valid because its category is explicitly mobile; the
+    # professional/industrial category is not.
+    if "climatisation professionnelle et industrielle" in details_lower:
+        return False
+    if (
+        "appareil de climatisation local" in name_lower
+        and "climatiseur mobile" not in details_lower
+    ):
         return False
     accessory_prefixes = (
         "adaptateur",

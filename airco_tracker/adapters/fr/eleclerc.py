@@ -560,6 +560,7 @@ def _awin_deep_link(merchant_url: str) -> str:
         {
             "awinmid": _AWIN_ADVERTISER_ID,
             "awinaffid": _AWIN_PUBLISHER_ID,
+            "cons": "0",
             "ued": merchant_url,
         }
     )
