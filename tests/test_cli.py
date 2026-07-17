@@ -32,6 +32,13 @@ class _FailingAdapter:
         raise RuntimeError("403 Forbidden")
 
 
+class _ConstructorFailingAdapter:
+    site = "Misconfigured shop"
+
+    def __init__(self, _fetcher, *args, **kwargs) -> None:
+        raise RuntimeError("credentials are not configured")
+
+
 class _AvailableAdapter:
     """Returns a product that is in stock — eligible for an alert on first run."""
 
@@ -143,6 +150,35 @@ class CliTests(unittest.TestCase):
         ):
             self.assertEqual(check(config, dry_run=True, show_all=False), 0)
 
+    def test_constructor_failure_is_stale_and_other_retailers_continue(self) -> None:
+        config = self._config_with_alerts()
+        working = _adapter_class(_SuccessAdapter, "Working shop")
+        broken = _adapter_class(_ConstructorFailingAdapter, "Misconfigured shop")
+        specs = [
+            AdapterSpec(country="nl", adapter_class=broken),
+            AdapterSpec(country="nl", adapter_class=working),
+        ]
+        state_store = MagicMock()
+        state_store.load.return_value = {"version": 1, "products": {}}
+        inventory_store = MagicMock()
+        inventory_store.load.return_value = {"version": 1, "sites": {}}
+
+        with (
+            patch("airco_tracker.cli.load_adapter_specs", return_value=specs),
+            patch("airco_tracker.cli.build_state_store", return_value=state_store),
+            patch("airco_tracker.cli.build_inventory_store", return_value=inventory_store),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(check(config, dry_run=False, show_all=False), 0)
+
+        inventory_store.save.assert_called_once()
+        snapshot = inventory_store.save.call_args.args[0]
+        self.assertEqual(snapshot["site_count"], 2)
+        self.assertEqual(snapshot["stale_site_count"], 1)
+        self.assertTrue(snapshot["sites"]["nl:Misconfigured shop"]["stale"])
+        self.assertFalse(snapshot["sites"]["nl:Working shop"]["stale"])
+        state_store.save.assert_called_once()
+
     def test_all_retailer_failures_are_fatal(self) -> None:
         config = SimpleNamespace(
             request_timeout_seconds=1,
@@ -154,6 +190,23 @@ class CliTests(unittest.TestCase):
             redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(check(config, dry_run=True, show_all=False), 2)
+
+    def test_all_constructor_failures_are_fatal_and_saved_as_stale(self) -> None:
+        config = self._config_with_alerts()
+        inventory_store = MagicMock()
+        inventory_store.load.return_value = {"version": 1, "sites": {}}
+
+        with (
+            _patched_adapters(_ConstructorFailingAdapter),
+            patch("airco_tracker.cli.build_inventory_store", return_value=inventory_store),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(check(config, dry_run=False, show_all=False), 2)
+
+        inventory_store.save.assert_called_once()
+        snapshot = inventory_store.save.call_args.args[0]
+        self.assertEqual(snapshot["site_count"], 28)
+        self.assertEqual(snapshot["stale_site_count"], 28)
 
     def _config_with_alerts(self) -> SimpleNamespace:
         return SimpleNamespace(

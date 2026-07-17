@@ -105,7 +105,6 @@ def _mask_email(address: str | None) -> str:
 def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
     fetcher = Fetcher(config.request_timeout_seconds)
     adapter_specs = load_adapter_specs(config.countries)
-    adapters = [(spec, spec.adapter_class(fetcher)) for spec in adapter_specs]
     products: list[Product] = []
     failures: list[str] = []
     site_identity = {
@@ -115,13 +114,14 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
             "site_id": spec.site_id,
             "delivery_coverage": sorted(spec.delivery_coverage),
         }
-        for spec, _adapter in adapters
+        for spec in adapter_specs
     }
     successful_sites: set[str] = set()
-    for spec, adapter in adapters:
+    for spec in adapter_specs:
         country = spec.country
         adapter_site_id = spec.site_id
         try:
+            adapter = spec.adapter_class(fetcher)
             found = adapter.fetch_products()
             found = [
                 replace(product, site=spec.site, country=country)
@@ -194,7 +194,9 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         config.validate_alert_pipeline()
         if alerts:
             outbox = build_outbox(config)
-            coverage_by_site = {spec.site_id: spec.delivery_coverage for spec, _adapter in adapters}
+            coverage_by_site = {
+                spec.site_id: spec.delivery_coverage for spec in adapter_specs
+            }
             created = 0
             for product in alerts:
                 state_record = new_state["products"].get(
@@ -228,7 +230,7 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         sent_count = 0
         coverage_by_site = {
             spec.site_id: spec.delivery_coverage
-            for spec, _adapter in adapters
+            for spec in adapter_specs
         }
         for recipient in recipients:
             recipient_alerts = [
