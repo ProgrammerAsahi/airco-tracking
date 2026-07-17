@@ -41,7 +41,7 @@
 
 - 已 read back 权威 MX 与两个 monitored forwarding aliases，并通过真实外部 canary 验证。DMARC 只有一条观察模式的 `p=none` 记录，aggregate reporting 由 DNS 服务商管理；forwarding destination 不写入 Git 或支持工单。
 - 登录验证和库存提醒邮件都使用自定义域上的结构化 support `Reply-To`。
-- 付费用户可以独立于 billing 和实时库存权益开启或暂停提醒邮件。可见退订和 RFC 8058 one-click unsubscribe 使用版本化 HMAC capability，signing key 从 Key Vault 读取。
+- 有效 pass 用户可以独立于 pass 权益和实时库存访问开启或暂停提醒邮件。可见退订和 RFC 8058 one-click unsubscribe 使用版本化 HMAC capability，signing key 从 Key Vault 读取。
 - ACS recipient-level final delivery 通过 Event Grid → 专用 Service Bus queue → 独立 delivery-report worker。Ledger 保存归一化终态，hard bounce 只 suppress 对应地址，no-resend 检查保持权威。
 - Raw recipient data 被限制在 provider-report 路径：一日 queue TTL、过期不进 DLQ、私有 Event Grid dead letters 七日 lifecycle，以及每日 Service Bus delivery-report DLQ privacy-cleanup job。
 - Event Grid dead-letter/dropped/repeated-failure alerts、privacy-safe final-outcome queries 和 ACS operation diagnostics 均已启用；首次手动 cleanup execution 与真实 Action Group 通知都成功。
@@ -69,9 +69,9 @@ Service Bus stock/fan-out 消息 TTL 一天；email jobs 和应用 event freshne
 
 ## 跨仓库 recipient contract
 
-Web/auth 改动为每个用户加入稳定 UUID `userId`；修改邮箱不会改变此 ID。注册、Profile preferences、Stripe subscription webhooks、取消订阅和注销账户都会同步 `alertrecipients`。
+Web/auth 服务为每个用户分配稳定 UUID `userId`；修改邮箱不会改变此 ID。注册、Profile preferences、Stripe 一次性 pass 支付/退款 webhook、pass 撤销和注销账户都会同步 `alertrecipients`。
 
-Projection contract 固定为 32 partitions（`r-00`…`r-1f`），使用 `sha256(userId)` 的最低五位。它只保存提醒所需的最新邮箱、语言、配送国家、plan/status/period end、enabled 和同步 metadata。改变 shard count 必须在两个仓库进行协调、版本化迁移。
+Projection contract 固定为 32 partitions（`r-00`…`r-1f`），使用 `sha256(userId)` 的最低五位。它只保存提醒所需的最新邮箱、语言、配送国家、`entitlementTier`、`entitlementStatus`、`entitlementExpiresAt`、enabled 和同步 metadata。`alerts` 与 `radar` 都可接收邮件，只有 `radar` 在 Web 服务中获得实时库存访问。迁移期后端仍兼容读取旧 recurring-subscription 字段，但新 pass 字段为权威。改变 shard count 必须在两个仓库进行协调、版本化迁移。
 
 Backend reconciler 支持旧 rows 的确定性 UUID 回填、记录用于常数时间权威投递读取的私有 canonical source-row pointer，并使用安全/乐观并发删除规则。它是每日 repair path，不会让每个库存事件依赖完整 `users` 扫描。只有在旧 source row 重新派生出的 UUID 与请求的 recipient UUID 完全一致时才会信任该 row。
 

@@ -41,7 +41,7 @@ The email-delivery hardening release is deployed and production-tested:
 
 - The authoritative MX and both monitored forwarding aliases were read back and verified with external canaries. DMARC has exactly one observation-only `p=none` record; aggregate reporting is provider-managed. Forwarding destinations remain outside Git and support-ticket documentation.
 - Authentication and stock-alert messages use a structured support `Reply-To` on the custom domain.
-- Paid users can enable or pause alert email independently of billing and realtime-inventory access. Visible unsubscribe and RFC 8058 one-click unsubscribe use a versioned HMAC capability whose signing key is read from Key Vault.
+- Active pass holders can enable or pause alert email independently of their pass entitlement and realtime-inventory access. Visible unsubscribe and RFC 8058 one-click unsubscribe use a versioned HMAC capability whose signing key is read from Key Vault.
 - ACS recipient-level final delivery flows through Event Grid → dedicated Service Bus queue → separate delivery-report worker. The ledger records normalized final states, hard bounces suppress only the affected address, and no-resend checks remain authoritative.
 - Raw recipient data is confined to the provider-report path: one-day queue TTL, no expiry-to-DLQ, private Event Grid dead letters with seven-day lifecycle deletion, and a daily Service Bus delivery-report DLQ privacy-cleanup job.
 - Event Grid dead-letter/dropped/repeated-failure alerts, privacy-safe final-outcome queries, and ACS operation diagnostics are active. The first manual cleanup execution and a real Action Group notification both succeeded.
@@ -69,9 +69,9 @@ Service Bus stock/fan-out messages have a one-day TTL; email jobs and applicatio
 
 ## Cross-repository recipient contract
 
-The web/auth change adds a stable UUID `userId`. Changing an email address preserves this ID. Registration, profile preference changes, Stripe subscription webhooks, cancellation, and account deletion synchronize `alertrecipients`.
+The web/auth service assigns a stable UUID `userId`; changing an email address preserves it. Registration, profile preference changes, Stripe one-time pass payment/refund webhooks, pass revocation, and account deletion synchronize `alertrecipients`.
 
-The projection contract is fixed at 32 partitions (`r-00`…`r-1f`) using the low five bits of `sha256(userId)`. It contains only the current email, language, delivery country, plan/status/period end, enabled flag, and synchronization metadata needed for alerts. A shard-count change requires a coordinated versioned migration in both repositories.
+The projection contract is fixed at 32 partitions (`r-00`…`r-1f`) using the low five bits of `sha256(userId)`. It contains only the current email, language, delivery country, `entitlementTier`, `entitlementStatus`, `entitlementExpiresAt`, enabled flag, and synchronization metadata needed for alerts. `alerts` and `radar` both receive email while only `radar` grants realtime inventory in the web service. The backend still reads legacy recurring-subscription fields during migration, but new pass fields are authoritative. A shard-count change requires a coordinated versioned migration in both repositories.
 
 The backend reconciler supports deterministic UUID backfill for legacy rows, records a private canonical source-row pointer for constant-time authoritative delivery reads, and uses optimistic/safe deletion rules. It is a daily repair path, not an event-time dependency on a full `users` scan. A legacy source row is trusted only when re-deriving its UUID matches the requested recipient UUID.
 

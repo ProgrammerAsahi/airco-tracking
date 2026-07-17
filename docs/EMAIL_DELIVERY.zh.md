@@ -36,17 +36,17 @@ Backend 的 `EMAIL_REPLY_TO` 和 Web/auth 服务的 `AUTH_EMAIL_REPLY_TO` 必须
 
 ## 用户同意与退订
 
-库存提醒邮件偏好独立于付费订阅和实时库存权益：
+库存提醒邮件偏好独立于付费 pass 和实时库存权益：
 
 - 新用户默认 `emailAlertsEnabled=true`。对于旧 profile，字段缺失时仍解释为 enabled，以保持此前用户明确购买的提醒行为；只要明确保存为 `false`，fan-out 就必须 suppress 邮件。
-- Profile 提供登录后的开启/暂停开关。暂停提醒邮件不会取消付费，也不会移除实时库存页面权限。
+- Profile 提供登录后的开启/暂停开关。暂停提醒邮件不会撤销 pass，也不会移除实时库存页面权限。
 - 每封非测试库存提醒都包含可见退订链接，以及 RFC 8058 headers：`List-Unsubscribe` 和 `List-Unsubscribe-Post: List-Unsubscribe=One-Click`。
 - RFC 8058 endpoint 只接受 `POST`、`application/x-www-form-urlencoded` 和 `List-Unsubscribe=One-Click`。操作必须幂等、不需要 session cookie，也不泄露账户是否存在。
 - 浏览器可见链接先显示确认页面，再使用同一暂停操作；用户以后可以在 Profile 中重新开启。
 - Capability token 只含稳定 UUID 和 token version，使用 HMAC-SHA-256 认证，绝不包含邮箱。Signing key 存在 Key Vault 中，两个仓库都通过 Managed Identity-backed secret reference 使用；不得进入 Git、镜像或浏览器 bundle。
 - 更改邮箱或邮件提醒偏好都会递增 token version，使旧链接失效；注销账户后所有链接也自然失效。
 
-这个 transactional consent 不能被用于营销或无关推广。收件地址只能来自自行注册、完成邮箱验证、选择包含库存提醒的付费方案且尚未暂停提醒的用户；严禁 purchased、scraped、rented 或第三方名单。
+这个 transactional consent 不能被用于营销或无关推广。收件地址只能来自自行注册、完成邮箱验证、持有未过期 `alerts` 或 `radar` pass 且尚未暂停提醒的用户；严禁 purchased、scraped、rented 或第三方名单。
 
 ## 最终投递与 hard-bounce suppression
 

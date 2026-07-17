@@ -129,9 +129,9 @@ def _recipient(
         email=email or f"{recipient_id}@example.com",
         language="en",
         delivery_country=country,
-        plan="monthly_priority",
-        status="active",
-        entitlement_end=(datetime.now(timezone.utc) + expires_delta).isoformat(),
+        entitlement_tier="radar",
+        entitlement_status="active",
+        entitlement_expires_at=(datetime.now(timezone.utc) + expires_delta).isoformat(),
         enabled=enabled,
     )
 

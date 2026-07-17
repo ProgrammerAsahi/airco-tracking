@@ -273,9 +273,9 @@ class RecipientProjectionTests(unittest.TestCase):
             "email": "latest@example.com",
             "languagePreference": "en",
             "deliveryCountry": "fr",
-            "subscriptionPlan": "monthly_priority",
-            "subscriptionStatus": "active",
-            "subscriptionCurrentPeriodEnd": (
+            "entitlementTier": "radar",
+            "entitlementStatus": "active",
+            "entitlementExpiresAt": (
                 datetime.now(timezone.utc) + timedelta(days=1)
             ).isoformat(),
             "updatedAt": "2026-07-09T12:34:56Z",
@@ -299,6 +299,9 @@ class RecipientProjectionTests(unittest.TestCase):
                 "email",
                 "languagePreference",
                 "deliveryCountry",
+                "entitlementTier",
+                "entitlementStatus",
+                "entitlementExpiresAt",
                 "subscriptionPlan",
                 "subscriptionStatus",
                 "subscriptionCurrentPeriodEnd",
@@ -444,15 +447,15 @@ class RecipientProjectionTests(unittest.TestCase):
 
         self.assertIsNone(entity)
 
-    def test_naive_legacy_entitlement_timestamp_is_treated_as_utc(self) -> None:
+    def test_naive_pass_entitlement_timestamp_is_treated_as_utc(self) -> None:
         recipient = ProjectedRecipient(
             recipient_id=str(uuid.uuid4()),
             email="user@example.com",
             language="en",
             delivery_country="fr",
-            plan="monthly_basic",
-            status="active",
-            entitlement_end=(datetime.now(timezone.utc) + timedelta(days=1)).replace(
+            entitlement_tier="alerts",
+            entitlement_status="active",
+            entitlement_expires_at=(datetime.now(timezone.utc) + timedelta(days=1)).replace(
                 tzinfo=None
             ).isoformat(),
             enabled=True,
@@ -492,6 +495,26 @@ class RecipientProjectionTests(unittest.TestCase):
 
         self.assertEqual(recipient.language, "fr")
 
+    def test_projection_reader_uses_pass_entitlement_fields(self) -> None:
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=90)).isoformat()
+        recipient = _projected_from_entity(
+            {
+                "RowKey": str(uuid.uuid4()),
+                "email": "user@example.com",
+                "language": "en",
+                "deliveryCountry": "fr",
+                "entitlementTier": "radar",
+                "entitlementStatus": "active",
+                "entitlementExpiresAt": expires_at,
+                "enabled": True,
+            }
+        )
+
+        self.assertEqual(recipient.entitlement_tier, "radar")
+        self.assertEqual(recipient.entitlement_status, "active")
+        self.assertEqual(recipient.entitlement_expires_at, expires_at)
+        self.assertTrue(recipient.entitled())
+
     def test_reconciler_projects_french_profile_preference(self) -> None:
         entity = _projection_entity(
             {
@@ -500,9 +523,9 @@ class RecipientProjectionTests(unittest.TestCase):
                 "email": "user@example.com",
                 "languagePreference": "fr",
                 "deliveryCountry": "fr",
-                "subscriptionPlan": "monthly_basic",
-                "subscriptionStatus": "active",
-                "subscriptionCurrentPeriodEnd": (
+                "entitlementTier": "alerts",
+                "entitlementStatus": "active",
+                "entitlementExpiresAt": (
                     datetime.now(timezone.utc) + timedelta(days=30)
                 ).isoformat(),
                 "updatedAt": "2026-07-11T12:00:00Z",
@@ -514,6 +537,9 @@ class RecipientProjectionTests(unittest.TestCase):
         self.assertIsNotNone(entity)
         self.assertEqual(entity["language"], "fr")
         self.assertEqual(entity["deliveryCountry"], "fr")
+        self.assertEqual(entity["entitlementTier"], "alerts")
+        self.assertEqual(entity["entitlementStatus"], "active")
+        self.assertNotIn("subscriptionPlan", entity)
 
     def test_reconciler_preserves_canonical_updated_timestamp(self) -> None:
         timestamp = "2026-07-09T12:34:56.789Z"

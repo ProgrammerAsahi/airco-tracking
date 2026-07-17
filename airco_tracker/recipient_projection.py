@@ -11,7 +11,7 @@ from .alert_events import recipient_shard, utc_now_iso
 from .azure_auth import default_azure_credential, table_endpoint_from_storage_url
 from .config import Config
 from .i18n import supported_lang
-from .subscribers import has_email_alert_entitlement
+from .subscribers import email_alert_entitlement_fields, has_email_alert_entitlement
 
 
 LOG = logging.getLogger(__name__)
@@ -25,6 +25,9 @@ _DELIVERY_AUTHORITY_FIELDS = [
     "email",
     "languagePreference",
     "deliveryCountry",
+    "entitlementTier",
+    "entitlementStatus",
+    "entitlementExpiresAt",
     "subscriptionPlan",
     "subscriptionStatus",
     "subscriptionCurrentPeriodEnd",
@@ -41,9 +44,9 @@ class ProjectedRecipient:
     email: str
     language: str
     delivery_country: str | None
-    plan: str
-    status: str
-    entitlement_end: str
+    entitlement_tier: str
+    entitlement_status: str
+    entitlement_expires_at: str
     enabled: bool
     unsubscribe_token_version: int = 1
 
@@ -51,17 +54,32 @@ class ProjectedRecipient:
         if (
             not self.enabled
             or not _valid_email(self.email)
-            or self.plan not in {"weekly_basic", "weekly_priority", "monthly_basic", "monthly_priority"}
-            or self.status not in {"active", "canceled"}
+            or self.entitlement_tier not in {"alerts", "radar"}
+            or self.entitlement_status != "active"
         ):
             return False
-        expires = _parse_datetime(self.entitlement_end)
+        expires = _parse_datetime(self.entitlement_expires_at)
         if expires is None:
             return False
         reference = now or datetime.now(timezone.utc)
         if reference.tzinfo is None:
             reference = reference.replace(tzinfo=timezone.utc)
         return expires > reference
+
+    @property
+    def plan(self) -> str:
+        """Deprecated compatibility alias for older worker integrations."""
+        return self.entitlement_tier
+
+    @property
+    def status(self) -> str:
+        """Deprecated compatibility alias for older worker integrations."""
+        return self.entitlement_status
+
+    @property
+    def entitlement_end(self) -> str:
+        """Deprecated compatibility alias for older worker integrations."""
+        return self.entitlement_expires_at
 
 
 class RecipientProjection:
@@ -103,7 +121,7 @@ class RecipientProjection:
         """Resolve the current canonical profile by stable UUID for delivery.
 
         ``alertrecipients`` is an efficient sharded fan-out read model, but its
-        cross-table update can briefly lag a committed email/subscription
+        cross-table update can briefly lag a committed email/entitlement
         change. The UUID-keyed canonical profile is therefore the final send
         authority. Legacy email-keyed profiles are point-read through the
         source row recorded by reconciliation; the bounded ``userId`` query is
@@ -185,8 +203,9 @@ class RecipientProjection:
             f"PartitionKey eq '{partition}'",
             results_per_page=self.page_size,
             select=[
-                "RowKey", "email", "language", "deliveryCountry", "subscriptionPlan",
-                "plan", "status", "currentPeriodEnd", "entitlementEnd", "enabled",
+                "RowKey", "email", "language", "deliveryCountry", "entitlementTier",
+                "entitlementStatus", "entitlementExpiresAt", "subscriptionPlan", "plan",
+                "status", "currentPeriodEnd", "entitlementEnd", "enabled",
                 "unsubscribeTokenVersion",
             ],
         ).by_page()
@@ -348,9 +367,9 @@ def _projection_entity(
     if not supported_lang(language):
         language = "zh"
     enabled = has_email_alert_entitlement(user)
-    plan = str(user.get("subscriptionPlan") or "none")
-    status = str(user.get("subscriptionStatus") or "none")
-    entitlement_end = str(user.get("subscriptionCurrentPeriodEnd") or "")
+    entitlement_tier, entitlement_status, entitlement_expires_at = (
+        email_alert_entitlement_fields(user)
+    )
     shard = recipient_shard(recipient_id, shard_count)
     source_updated_at = str(user.get("updatedAt") or "").strip() or utc_now_iso()
     source_revision = _nonnegative_revision(user.get("profileRevision"))
@@ -361,9 +380,9 @@ def _projection_entity(
         "email": email,
         "language": language,
         "deliveryCountry": str(user.get("deliveryCountry") or "").strip().lower(),
-        "subscriptionPlan": plan,
-        "status": status,
-        "currentPeriodEnd": entitlement_end,
+        "entitlementTier": entitlement_tier,
+        "entitlementStatus": entitlement_status,
+        "entitlementExpiresAt": entitlement_expires_at,
         "enabled": enabled,
         "unsubscribeTokenVersion": max(
             1, _nonnegative_revision(user.get("emailAlertsTokenVersion"))
@@ -384,14 +403,17 @@ def _projected_from_entity(entity: dict[str, Any]) -> ProjectedRecipient:
     language = str(entity.get("language") or "zh").strip().lower()
     if not supported_lang(language):
         language = "zh"
+    entitlement_tier, entitlement_status, entitlement_expires_at = (
+        email_alert_entitlement_fields(entity)
+    )
     return ProjectedRecipient(
         recipient_id=str(entity.get("recipientId") or entity.get("RowKey") or ""),
         email=str(entity.get("email") or "").strip().lower(),
         language=language,
         delivery_country=str(entity.get("deliveryCountry") or "").strip().lower() or None,
-        plan=str(entity.get("subscriptionPlan") or entity.get("plan") or "none"),
-        status=str(entity.get("status") or "none"),
-        entitlement_end=str(entity.get("currentPeriodEnd") or entity.get("entitlementEnd") or ""),
+        entitlement_tier=entitlement_tier,
+        entitlement_status=entitlement_status,
+        entitlement_expires_at=entitlement_expires_at,
         enabled=bool(entity.get("enabled", False)),
         unsubscribe_token_version=max(
             1, _nonnegative_revision(entity.get("unsubscribeTokenVersion"))

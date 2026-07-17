@@ -36,17 +36,17 @@ Do not configure `ruf`; forensic reports may contain message or recipient data a
 
 ## User consent and unsubscribe
 
-Email alerts are a preference independent of the paid subscription and realtime-inventory entitlement:
+Email alerts are a preference independent of the paid pass and realtime-inventory entitlement:
 
 - New users default to `emailAlertsEnabled=true`. For legacy profiles, a missing field is interpreted as enabled to preserve the previously explicit paid-alert behavior; an explicit `false` always suppresses alert fan-out.
-- Profile exposes an authenticated enable/pause switch. Pausing alert mail does not cancel billing and does not remove realtime-inventory access.
+- Profile exposes an authenticated enable/pause switch. Pausing alert mail does not revoke the pass and does not remove realtime-inventory access.
 - Every non-test stock alert contains a visible unsubscribe link plus RFC 8058 headers: `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`.
 - The RFC 8058 endpoint accepts only `POST` with `application/x-www-form-urlencoded` and `List-Unsubscribe=One-Click`. It is idempotent, does not require a session cookie, and reveals no account-existence state.
 - The browser-facing link presents a confirmation page before using the same pause operation. Users can later re-enable alerts in Profile.
 - The capability token contains only a stable UUID and token version, is authenticated with HMAC-SHA-256, and never contains an email address. The signing key lives in Key Vault and is shared by the two repositories through Managed Identity-backed secret references; it must never appear in Git, an image, or a browser bundle.
 - Changing an email address or changing the alert preference increments the token version, invalidating older links. Account deletion also makes all links inert.
 
-The sender must not send marketing or unrelated promotional content under this transactional consent. Recipient addresses come only from users who registered, verified their address, chose a paid plan that includes stock alerts, and have not paused alerts. Purchased, scraped, rented, or third-party lists are prohibited.
+The sender must not send marketing or unrelated promotional content under this transactional consent. Recipient addresses come only from users who registered, verified their address, hold a non-expired `alerts` or `radar` pass, and have not paused alerts. Purchased, scraped, rented, or third-party lists are prohibited.
 
 ## Final delivery and hard-bounce suppression
 

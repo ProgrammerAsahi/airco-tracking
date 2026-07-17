@@ -39,7 +39,7 @@ airco-alert-delivery-worker（0–4 replicas）
           └─ hard bounce 后 suppress 准确的 address fingerprint
 ```
 
-前端/auth 服务是 `alertrecipients` 的主要写入方。注册、邮箱/语言/国家修改、Stripe 订阅 webhook、取消订阅和注销账户都会同步投影。`airco-alert-reconciler-job` 每天 `03:17 UTC` 运行一次，只用于修复跨表部分失败和回填旧用户，不位于每条事件的热路径上。
+前端/auth 服务是 `alertrecipients` 的主要写入方。注册、邮箱/语言/国家修改、Stripe 一次性 pass 支付/退款 webhook、pass 撤销和注销账户都会同步投影。`airco-alert-reconciler-job` 每天 `03:17 UTC` 运行一次，只用于修复跨表部分失败和回填旧用户，不位于每条事件的热路径上。
 
 `airco-alert-retention-job` 每天 `02:17 UTC` 清理历史数据。Outbox publisher 每分钟运行，scanner 仍按 `*/10 * * * *` UTC 运行。
 
@@ -54,9 +54,11 @@ airco-alert-delivery-worker（0–4 replicas）
 - `alertdeliveries`：幂等、租约、尝试次数、终态和 ACS operation metadata。
 - `alertdeliveryindex`：ACS message ID 到匿名 delivery binding 以及 address fingerprint；不存明文地址。
 - `alertsuppression`：对准确 address fingerprint 生效的 recipient-scoped hard-bounce suppression；不存明文地址。
-- `users`：由 Web 服务拥有的 canonical 账户/订阅表；每条事件的处理链路不会扫描它。
+- `users`：由 Web 服务拥有的 canonical 账户/pass 权益表；每条事件的处理链路不会扫描它。
 
 32 分片规则是跨仓库契约。Web 投影写入器和本后端都使用 `sha256(userId)` 的最低五位，且 `ALERT_RECIPIENT_SHARDS` 会被强制验证为 `32`。修改它必须同时在两个仓库做有版本的迁移。
+
+Pass 迁移必须先部署能同时读取 pass 与旧 subscription 字段的后端，再部署改为写入 pass 字段的 Web 服务。两个 revision 均健康后运行一次 reconciliation，把剩余 projection rows 替换成新的最小权益结构。顺序反转可能在短时间内错误 suppress 合法收件人。
 
 ## 投递语义
 
@@ -69,7 +71,7 @@ airco-alert-delivery-worker（0–4 replicas）
 - ACS operation 成功后，Email worker 先记录 `accepted`；之后 Event Grid 才把 ledger 推进到 recipient-level final state：`delivered`、`expanded`、`bounced`、`provider_suppressed`、`quarantined`、`filtered_spam` 或 `provider_failed`。ACS accepted 绝不能被表述为已经进入收件箱。
 - 调用 ACS 前，worker 会先创建 message-ID correlation row。Final reports 按 Event Grid event ID 幂等处理，并拒绝更旧的 out-of-order evidence。Hard bounce 或 provider suppression 会启用 recipient/address-fingerprint suppression，两个发信前检查都会执行；同一 fingerprint 上更新的 delivered report 可以清除 suppression。旧地址的 report 不能 suppress 用户后来验证的新地址。
 - 瞬时邮件错误按退避策略重新排队；永久错误进入 dead letter。应用最多尝试发送五次，Service Bus `maxDeliveryCount` 为八次。
-- 每次发送前 worker 都会按 UUID 点读 canonical `users/id:<uuid>` profile，并在 sender rate wait 之后再读一次。对于旧的 email-keyed profile，reconciler 会在 recipient projection 中保存私有 `sourceUserRowKey`，让 worker 点读 canonical row，并严格重新派生 UUID、确认与请求的 UUID 一致后才信任该 row。只有尚未回填该 pointer 的旧 projection 才使用有界 `userId` query fallback。因此即使 fan-out projection 尚在追赶，邮箱变更也会立即以 canonical 为准；订阅过期/取消、账户删除、配送国家改变，或生产事件超过六小时时，会标记 suppressed 而不是发送。
+- 每次发送前 worker 都会按 UUID 点读 canonical `users/id:<uuid>` profile，并在 sender rate wait 之后再读一次。对于旧的 email-keyed profile，reconciler 会在 recipient projection 中保存私有 `sourceUserRowKey`，让 worker 点读 canonical row，并严格重新派生 UUID、确认与请求的 UUID 一致后才信任该 row。只有尚未回填该 pointer 的旧 projection 才使用有界 `userId` query fallback。因此即使 fan-out projection 尚在追赶，邮箱变更也会立即以 canonical 为准；pass 过期、退款或撤销、账户删除、配送国家改变，或生产事件超过六小时时，会标记 suppressed 而不是发送。迁移期仍兼容读取旧 recurring-subscription 字段，但只要任一 pass 字段存在便以新字段为权威，旧订阅数据不能恢复已撤销的权益。
 
 跨外部邮件服务的分布式系统无法承诺数学意义上的 exactly-once，但确定性的 provider request 和 delivery ledger 让重复邮件很难发生并且可追查。
 
@@ -78,9 +80,9 @@ airco-alert-delivery-worker（0–4 replicas）
 - 生产通过 Entra ID 和 user-assigned Managed Identity 访问资源。Storage、Service Bus 和 ACS 在支持的范围内禁用本地/shared-key authentication；镜像和 GitHub 中不保存 connection string 或 ACS key。
 - Scanner/shared web runtime、outbox publisher、fan-out 和 email delivery 使用相互分离的身份。新流水线权限在 Azure RBAC 支持的范围内限制到具体 Service Bus entity 或 Table；不要把 workers 合并成一个宽泛的 Contributor 身份。
 - `stock-events` 只含商品和配送范围，不含 subscriber 数据。
-- Service Bus fan-out/email 消息只含稳定的匿名 recipient UUID，不含邮箱、昵称、Stripe customer/subscription ID、支付方式或卡片信息。
+- Service Bus fan-out/email 消息只含稳定的匿名 recipient UUID，不含邮箱、昵称、Stripe customer/payment ID、支付方式或卡片信息。
 - 独立的 ACS delivery-report queue 是唯一受严格限制的 PII 例外：Microsoft event schema 必然包含 recipient address。一日 TTL、私有七日 Event Grid dead-letter container、每日 Service Bus DLQ purge、独立 least-privilege identity 和禁止记录 body 的日志约束共同限制了风险。Azure Event Grid 会在 storage-account scope 校验 dead-letter 权限，因此其 managed identity 在 state account 上具有 `Storage Blob Data Contributor`，但实际 endpoint 仍是专用私有 container；该 identity 没有 application tables reader，应用也不会使用它。绝不能把 raw provider report 复制进 ticket、普通日志或其它 queue。
-- `alertrecipients` 是提醒专用表中唯一保存邮箱的表，只保留决定和生成邮件所必需的字段：稳定 user ID、邮箱、语言、配送国家、方案/status/end time、enabled、同步时间，以及仅用于旧 profile 点读的私有 canonical source-row pointer。
+- `alertrecipients` 是提醒专用表中唯一保存邮箱的表，只保留决定和生成邮件所必需的字段：稳定 user ID、邮箱、语言、配送国家、`entitlementTier`（`alerts` 或 `radar`）、`entitlementStatus`、`entitlementExpiresAt`、enabled、同步时间，以及仅用于旧 profile 点读的私有 canonical source-row pointer。购买时间和 Stripe identifiers 会被明确排除。
 - `alertdeliveries`、`alertdeliveryindex` 和 `alertsuppression` 只保存匿名 ID、投递状态和 pseudonymous address fingerprints，不保存目标邮箱；应用日志会遮蔽邮箱 local part，final-report logs 只使用匿名 delivery ID。
 - Email worker 会在发信前从 canonical profile 解析最新地址；其 identity 对 `users` 只有只读权限，代码只消费投递字段。私有 source-row pointer 不得进入 Service Bus message、日志、重试 metadata 或 API。
 - 库存 Blob container 必须保持私有。浏览器只能通过前端同源 API 和 Managed Identity 读取。

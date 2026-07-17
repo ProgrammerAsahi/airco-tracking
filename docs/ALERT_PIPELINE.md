@@ -39,7 +39,7 @@ airco-alert-delivery-worker (0–4 replicas)
           └─ suppresses the exact address fingerprint after a hard bounce
 ```
 
-The frontend/auth service is the primary writer of `alertrecipients`. Registration, email/language/country changes, Stripe subscription webhooks, cancellation, and account deletion synchronize the projection. `airco-alert-reconciler-job` runs daily at `03:17 UTC` as a repair and legacy-backfill safety net; it is not on the per-event hot path.
+The frontend/auth service is the primary writer of `alertrecipients`. Registration, email/language/country changes, Stripe one-time pass payment/refund webhooks, pass revocation, and account deletion synchronize the projection. `airco-alert-reconciler-job` runs daily at `03:17 UTC` as a repair and legacy-backfill safety net; it is not on the per-event hot path.
 
 `airco-alert-retention-job` runs daily at `02:17 UTC`. The outbox publisher runs every minute, and the scanner remains on `*/10 * * * *` UTC.
 
@@ -54,9 +54,11 @@ The frontend/auth service is the primary writer of `alertrecipients`. Registrati
 - `alertdeliveries`: idempotency, lease, attempt, terminal status, and ACS operation metadata.
 - `alertdeliveryindex`: ACS message ID to opaque delivery binding plus an address fingerprint; no plaintext address.
 - `alertsuppression`: recipient-scoped hard-bounce suppression for the exact address fingerprint; no plaintext address.
-- `users`: canonical account/subscription table owned by the web service; the event path does not scan it.
+- `users`: canonical account/pass-entitlement table owned by the web service; the event path does not scan it.
 
 The 32-shard rule is a cross-repository contract. Both the web projection writer and this backend use the low five bits of `sha256(userId)` and `ALERT_RECIPIENT_SHARDS` is deliberately validated as exactly `32`. Changing it requires a versioned, coordinated migration in both repositories.
+
+For the pass migration, deploy the backend version that reads both pass and legacy subscription fields before deploying the web service that writes pass fields. After both revisions are healthy, run reconciliation once to replace remaining projection rows with the new minimal entitlement shape. Reversing this order can temporarily suppress legitimate email recipients.
 
 ## Delivery semantics
 
@@ -69,7 +71,7 @@ The pipeline is at-least-once and makes every stage idempotent:
 - The email worker records `accepted` after the ACS operation succeeds. Event Grid later advances the ledger to a recipient-level final state: `delivered`, `expanded`, `bounced`, `provider_suppressed`, `quarantined`, `filtered_spam`, or `provider_failed`. ACS acceptance alone is never reported as inbox delivery.
 - Before calling ACS, the worker creates the message-ID correlation row. Final reports are idempotent by Event Grid event ID and reject out-of-order older evidence. A hard bounce or provider suppression activates a recipient/address-fingerprint suppression that both send checks enforce; a later delivery for that same fingerprint can clear it. A report for an old address cannot suppress a newly verified address.
 - Transient mail failures are rescheduled with backoff; permanent failures are dead-lettered. The application retry budget is five send attempts and Service Bus `maxDeliveryCount` is eight.
-- Before each send, the worker point-reads the UUID-keyed canonical `users/id:<uuid>` profile, then repeats that read after any sender-rate wait. For legacy email-keyed profiles, reconciliation stores a private `sourceUserRowKey` in the recipient projection so the worker can point-read the canonical row and strictly re-derive the requested UUID before trusting it. Only projections created before that pointer was backfilled use the bounded `userId` query fallback. A changed email address is therefore authoritative even while the fan-out projection is catching up; an expired/cancelled entitlement, deleted account, changed delivery country, or event older than six hours is suppressed rather than sent.
+- Before each send, the worker point-reads the UUID-keyed canonical `users/id:<uuid>` profile, then repeats that read after any sender-rate wait. For legacy email-keyed profiles, reconciliation stores a private `sourceUserRowKey` in the recipient projection so the worker can point-read the canonical row and strictly re-derive the requested UUID before trusting it. Only projections created before that pointer was backfilled use the bounded `userId` query fallback. A changed email address is therefore authoritative even while the fan-out projection is catching up; an expired, refunded, or revoked pass, deleted account, changed delivery country, or event older than six hours is suppressed rather than sent. Legacy recurring-subscription fields remain read-compatible during the migration window, but any present pass field is authoritative so stale subscription data cannot restore a revoked entitlement.
 
 No distributed system can promise mathematical exactly-once delivery across an external mail provider, but the deterministic provider request and delivery ledger make duplicates unlikely and observable.
 
@@ -78,9 +80,9 @@ No distributed system can promise mathematical exactly-once delivery across an e
 - Production uses Entra ID and user-assigned Managed Identities. Storage, Service Bus, and ACS local/shared-key authentication is disabled where supported; no connection string or ACS key is stored in the image or GitHub.
 - Scanner/shared web runtime, outbox publisher, fan-out, and email delivery use separate identities. New pipeline access is scoped to its specific Service Bus entity or Table wherever Azure RBAC permits; do not merge the workers into one broad Contributor identity.
 - `stock-events` contains product and delivery-coverage data, but no subscriber data.
-- Service Bus fan-out and email messages contain only stable opaque recipient UUIDs. They never contain an email address, nickname, Stripe customer/subscription ID, payment method, or card data.
+- Service Bus fan-out and email messages contain only stable opaque recipient UUIDs. They never contain an email address, nickname, Stripe customer/payment ID, payment method, or card data.
 - The separate ACS delivery-report queue is the one narrow PII exception: the Microsoft event schema necessarily contains the recipient address. Its one-day TTL, private seven-day Event Grid dead-letter container, daily Service Bus DLQ purge, dedicated least-privilege identity, and no-body logging bound that exposure. Azure Event Grid validates dead-letter authorization at storage-account scope, so its managed identity has `Storage Blob Data Contributor` on the state account even though the configured endpoint is the dedicated private container; it has no reader role on application tables and no application uses that identity. Never copy a raw provider report into a ticket, normal log, or another queue.
-- `alertrecipients` is the only alert-specific table containing email addresses. It contains only the fields required to decide and render a delivery: stable user ID, email, language, delivery country, plan/status/end time, enabled flag, synchronization timestamps, and a private canonical source-row pointer used only for legacy point reads.
+- `alertrecipients` is the only alert-specific table containing email addresses. It contains only the fields required to decide and render a delivery: stable user ID, email, language, delivery country, `entitlementTier` (`alerts` or `radar`), `entitlementStatus`, `entitlementExpiresAt`, enabled flag, synchronization timestamps, and a private canonical source-row pointer used only for legacy point reads. Purchase timestamps and Stripe identifiers are deliberately excluded.
 - `alertdeliveries`, `alertdeliveryindex`, and `alertsuppression` contain opaque IDs, delivery state, and pseudonymous address fingerprints, not the destination address. Application logs mask email local parts and final-report logs use only opaque delivery IDs.
 - The email worker resolves the current address from the canonical profile immediately before send. Its identity has read-only access to `users`; code consumes only delivery fields. The private source-row pointer is never copied into Service Bus messages, logs, retry metadata, or APIs.
 - The private Blob container remains private. Browser access to inventory stays behind the frontend same-origin API and Managed Identity.
