@@ -51,6 +51,18 @@ class _AvailableAdapter:
         return [Product(self.site, "Airco", "https://shop.test/1", True, 399.0, "Morgen", 7000)]
 
 
+class _FutureDeliveryAdapter:
+    """Returns an in-stock product whose delivery text is a future date."""
+
+    site = "Future shop"
+
+    def __init__(self, _fetcher, *args, **kwargs) -> None:
+        pass
+
+    def fetch_products(self):
+        return [Product(self.site, "Airco", "https://shop.test/1", True, 399.0, "Binnen 2-3 weken leverbaar", 7000)]
+
+
 def _adapter_class(base, site: str):
     """Build a one-off adapter subclass with a unique site name.
 
@@ -238,6 +250,35 @@ class CliTests(unittest.TestCase):
         mock_send.assert_not_called()
         store.save.assert_not_called()
         inventory_store.save.assert_not_called()
+
+    def test_presale_delivery_text_does_not_trigger_immediate_stock_alert(self) -> None:
+        # The alert path must apply the same delivery-text presale detection as
+        # the inventory snapshot: a multi-week lead time is not immediate stock.
+        config = self._config_with_alerts()
+        future = _adapter_class(_FutureDeliveryAdapter, "Future shop")
+        specs = [AdapterSpec(country="nl", adapter_class=future)]
+        store = MagicMock()
+        store.load.return_value = {"version": 1, "products": {}}
+        inventory_store = MagicMock()
+        inventory_store.load.return_value = {"version": 1, "sites": {}}
+        with (
+            patch("airco_tracker.cli.load_adapter_specs", return_value=specs),
+            patch("airco_tracker.cli.load_alert_recipients", return_value=[AlertRecipient("subscriber@example.com", "zh", "nl")]),
+            patch("airco_tracker.cli.send_message") as mock_send,
+            patch("airco_tracker.cli.build_state_store", return_value=store),
+            patch("airco_tracker.cli.build_inventory_store", return_value=inventory_store),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(check(config, dry_run=False, show_all=False), 0)
+        mock_send.assert_not_called()
+        snapshot = inventory_store.save.call_args.args[0]
+        site = snapshot["sites"]["nl:Future shop"]
+        self.assertEqual(site["presale_product_count"], 1)
+        self.assertEqual(site["immediate_product_count"], 0)
+        saved_state = store.save.call_args.args[0]
+        record = saved_state["products"]["nl:https://shop.test/1"]
+        self.assertTrue(record["available"])
+        self.assertTrue(record["presale"])
 
     def test_non_dry_run_emails_and_saves_state(self) -> None:
         config = self._config_with_alerts()

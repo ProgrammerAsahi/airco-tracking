@@ -9,7 +9,6 @@ class LidlFranceAdapter(LidlSitemapAdapter):
     sitemap_url = "https://www.lidl.fr/p/export/FR/fr/product_sitemap.xml.gz"
     include_url_terms = ("climatiseur",)
     exclude_url_terms = ("rafraichisseur", "refroidisseur", "ventilateur")
-    empty_message = "Lidl France sitemap contained no portable air conditioners"
     invalid_sitemap_message = "Lidl France product sitemap was invalid"
     parse_failure_message = "Lidl France product pages could not be parsed"
     available_delivery = "En ligne"

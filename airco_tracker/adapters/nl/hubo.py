@@ -33,8 +33,9 @@ class HuboAdapter:
 
     def fetch_products(self) -> list[Product]:
         product_urls = self._discover_airco_urls()
-        if not product_urls:
-            raise RuntimeError("Hubo sitemap contained no portable air conditioners")
+        # Hubo removes seasonal aircos from its sitemaps. A healthy sitemap
+        # without airco candidates is a legitimate empty snapshot: a restock
+        # will reappear and be alerted as first-seen stock.
         products: dict[str, Product] = {}
         failures: list[str] = []
         for url in sorted(product_urls):
@@ -46,7 +47,7 @@ class HuboAdapter:
                 continue
             if product is not None:
                 products[product.url] = product
-        if not products:
+        if product_urls and not products:
             raise RuntimeError("Hubo product pages could not be parsed: " + "; ".join(failures))
         return list(products.values())
 
@@ -55,14 +56,24 @@ class HuboAdapter:
         index.raise_for_status()
         sitemap_urls = _sitemap_locs(index.content)
         product_sitemaps = [u for u in sitemap_urls if "sitemap_products_" in u]
+        if not product_sitemaps:
+            raise RuntimeError("Hubo sitemap index listed no product sitemaps")
         airco_urls: set[str] = set()
+        product_url_count = 0
         for sitemap_url in product_sitemaps:
             resp = self.fetcher.session.get(sitemap_url, timeout=self.fetcher.timeout)
             if resp.status_code != 200:
                 continue
-            for loc in _sitemap_locs(resp.content):
+            locs = _sitemap_locs(resp.content)
+            product_url_count += len(locs)
+            for loc in locs:
                 if _is_airco_url(loc):
                     airco_urls.add(loc)
+        if not product_url_count:
+            # Sitemaps that once listed products no longer do: the sitemap
+            # contract changed, so fail loudly instead of looking legitimately
+            # empty.
+            raise RuntimeError("Hubo product sitemaps contained no product URLs")
         return airco_urls
 
 
@@ -96,7 +107,12 @@ def _parse_product_page(page: str, page_url: str) -> Product | None:
         raise RuntimeError("Hubo product data did not contain an offer")
     description = str(data.get("description", ""))
     text = clean_text(soup)
-    available, delivery = _availability_from_page(offer, text)
+    # Availability markers must come from the product area only: the cart
+    # drawer/footer always contains order-button text such as "in
+    # winkelwagen"/"bezorgen", and related-product sections can carry their
+    # own "uitverkocht" labels.
+    scoped = clean_text(_product_area(soup))
+    available, delivery = _availability_from_page(offer, scoped)
     return Product(
         site="Hubo",
         name=name,
@@ -106,6 +122,14 @@ def _parse_product_page(page: str, page_url: str) -> Product | None:
         delivery=delivery,
         btu=parse_btu(f"{name} {description} {text}"),
     )
+
+
+def _product_area(soup: BeautifulSoup) -> Any:
+    """Return the main product section, falling back to <main> then the page."""
+    section = soup.select_one('[id^="shopify-section-"][id$="__product"]')
+    if section is not None:
+        return section
+    return soup.find("main") or soup
 
 
 def _is_portable_airco(name: str) -> bool:

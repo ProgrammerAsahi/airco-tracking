@@ -22,7 +22,6 @@ class LidlSitemapAdapter:
     sitemap_url: str
     include_url_terms: tuple[str, ...]
     exclude_url_terms: tuple[str, ...]
-    empty_message: str
     invalid_sitemap_message: str
     parse_failure_message: str
     available_delivery: str
@@ -40,9 +39,9 @@ class LidlSitemapAdapter:
             exclude_terms=self.exclude_url_terms,
             invalid_message=self.invalid_sitemap_message,
         )
-        if not urls:
-            raise RuntimeError(self.empty_message)
-
+        # Lidl removes seasonal aircos from the export. A healthy sitemap
+        # without airco candidates is a legitimate empty snapshot: a restock
+        # will reappear and be alerted as first-seen stock.
         products: dict[str, Product] = {}
         failures: list[str] = []
         for url in urls:
@@ -59,7 +58,7 @@ class LidlSitemapAdapter:
                 LOG.warning("%s product check failed for %s: %s", self.site, url, exc)
                 continue
             products[product.url] = product
-        if not products:
+        if urls and not products:
             raise RuntimeError(self.parse_failure_message + ": " + "; ".join(failures))
         return list(products.values())
 
@@ -77,14 +76,22 @@ def product_urls_from_sitemap(
     except (OSError, ElementTree.ParseError) as exc:
         raise RuntimeError(invalid_message) from exc
     urls: list[str] = []
+    total = 0
     for node in root.findall(".//{*}loc"):
         url = (node.text or "").strip()
+        if not url:
+            continue
+        total += 1
         lower = url.casefold()
-        if not url or not any(term in lower for term in include_terms):
+        if not any(term in lower for term in include_terms):
             continue
         if any(term in lower for term in exclude_terms):
             continue
         urls.append(url)
+    if not total:
+        # An export without any product URL no longer proves the catalogue is
+        # empty; treat it as a changed sitemap contract.
+        raise RuntimeError(invalid_message)
     return urls
 
 

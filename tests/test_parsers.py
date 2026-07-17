@@ -10,7 +10,10 @@ from bs4 import BeautifulSoup
 
 from airco_tracker.adapters.nl.action import ActionAdapter, _parse_product_page as parse_action_page
 from airco_tracker.adapters.nl.aircovoorinhuis import AircoVoorInHuisAdapter
-from airco_tracker.adapters.nl.aircowebwinkel import _parse_product_page as parse_aircowebwinkel_page
+from airco_tracker.adapters.nl.aircowebwinkel import (
+    AircoWebwinkelAdapter,
+    _parse_product_page as parse_aircowebwinkel_page,
+)
 from airco_tracker.adapters.nl.alternate import _parse_product_page as parse_alternate_page
 from airco_tracker.adapters.nl.bostools import BostoolsAdapter
 from airco_tracker.adapters.nl.coolblue import CoolblueAdapter
@@ -22,8 +25,8 @@ from airco_tracker.adapters.nl.electroworld import ElectroWorldAdapter
 from airco_tracker.adapters.nl.ep import EpAdapter
 from airco_tracker.adapters.nl.evolarshop import EvolarshopAdapter, _parse_hit as parse_evolar_hit
 from airco_tracker.adapters.nl.expert import ExpertAdapter
-from airco_tracker.adapters.nl.flinq import _parse_product_page as parse_flinq_page
-from airco_tracker.adapters.nl.hubo import _parse_product_page as parse_hubo_page
+from airco_tracker.adapters.nl.flinq import FlinqAdapter, _parse_product_page as parse_flinq_page
+from airco_tracker.adapters.nl.hubo import HuboAdapter, _parse_product_page as parse_hubo_page
 from airco_tracker.adapters.nl.klarstein import KlarsteinAdapter
 from airco_tracker.adapters.nl.kampeerwereld import _parse_product_page as parse_kampeerwereld_page
 from airco_tracker.adapters.nl.klimaatshop import KlimaatshopAdapter
@@ -42,6 +45,7 @@ from airco_tracker.adapters.base import (
     parse_cooling_watts_btu,
     parse_price,
     parse_product_page_btu,
+    with_detected_presale,
 )
 from airco_tracker.adapters.fr.action import ActionFranceAdapter
 from airco_tracker.adapters.fr.auchan import AuchanAdapter
@@ -140,6 +144,35 @@ class SitemapFetcher:
         return self.pages[url]
 
 
+class StatusResponse:
+    def __init__(self, content):
+        self.content = content
+        self.status_code = 200
+
+    def raise_for_status(self):
+        return None
+
+
+class MappingSession:
+    def __init__(self, pages):
+        self.pages = pages
+
+    def get(self, url, **kwargs):
+        return StatusResponse(self.pages[url])
+
+
+class MappingFetcher:
+    """Fetcher whose session returns per-URL sitemap documents."""
+
+    def __init__(self, pages):
+        self.timeout = 25
+        self.session = MappingSession(pages)
+        self.pages = pages
+
+    def get(self, url):
+        return self.pages[url]
+
+
 class RateLimitedDiyFetcher:
     def __init__(self, sitemap, catalog_payload=None):
         self.timeout = 25
@@ -197,6 +230,16 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(is_presale_delivery("Délai de livraison : X à Y semaines"))
         self.assertFalse(is_presale_delivery("Délai de livraison : 2 à 3 jours"))
         self.assertEqual(parse_cooling_watts_btu("Capacité de refroidissement 2,6 kW"), 8871)
+
+    def test_with_detected_presale_flags_delivery_text_only_when_unset(self) -> None:
+        future = Product("Shop", "Airco 9000 BTU", "https://shop.test/1", True, 399.0, "Leverbaar vanaf 1 augustus", 9000)
+        self.assertTrue(with_detected_presale(future).presale)
+        long_lead = Product("Shop", "Airco 9000 BTU", "https://shop.test/2", True, 399.0, "Binnen 2-3 weken leverbaar", 9000)
+        self.assertTrue(with_detected_presale(long_lead).presale)
+        immediate = Product("Shop", "Airco 9000 BTU", "https://shop.test/3", True, 399.0, "Morgen in huis", 9000)
+        self.assertIs(with_detected_presale(immediate), immediate)
+        flagged = Product("Shop", "Airco 9000 BTU", "https://shop.test/4", True, 399.0, "Op voorraad", 9000, True)
+        self.assertIs(with_detected_presale(flagged), flagged)
 
     def test_french_dehumidifier_is_not_mistaken_for_humidifier(self) -> None:
         self.assertTrue(
@@ -620,6 +663,23 @@ class ParserTests(unittest.TestCase):
         parsed.fetcher.get = lambda _url: html
         self.assertEqual(parsed.fetch_products(), [])
 
+    def test_action_fr_search_card_fails_closed_on_unverified_stock(self) -> None:
+        # The search page cannot prove online orderability ("disponibilité
+        # magasin à vérifier"), so a real air conditioner must not be
+        # reported as available.
+        html = """
+        <div data-testid="product-card">
+          <a data-testid="product-card-link" href="/fr-fr/p/3215454/climatiseur-mobile-nedis-9000-btu/">
+            Climatiseur mobile Nedis 9000 BTU | 299,99 €/pce
+          </a>
+        </div>"""
+        parsed = ActionFranceAdapter(DummyFetcher())
+        parsed.fetcher.get = lambda _url: html
+        products = parsed.fetch_products()
+        self.assertEqual(len(products), 1)
+        self.assertFalse(products[0].available)
+        self.assertEqual(products[0].btu, 9000)
+
     def test_coolblue_out_of_stock_and_available(self) -> None:
         html = """
         <main>
@@ -661,6 +721,23 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(products[0].price_eur, 349.95)
         self.assertEqual(products[0].btu, 9000)
         self.assertEqual(products[0].delivery, "Morgen in huis")
+
+    def test_ep_future_date_stock_text_becomes_presale(self) -> None:
+        html = """
+        <div class="lister-card">
+          <a class="lister-card__title" href="/products/one/1/">One 9000 BTU</a>
+          <div class="prijs"><span>349,95</span></div>
+          <p class="stock is-green"><span title="Leverbaar vanaf 22 augustus">Leverbaar vanaf 22 augustus</span></p>
+        </div>"""
+        products = EpAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.ep.nl/producten/categorie-mobiele-airco/",
+        )
+        self.assertTrue(products[0].available)
+        self.assertFalse(products[0].presale)
+        # The shared alert/inventory helper flags the future delivery date so
+        # the alert path cannot treat it as immediate stock.
+        self.assertTrue(with_detected_presale(products[0]).presale)
 
     def test_electroworld_reads_public_category_search(self) -> None:
         config = {
@@ -769,6 +846,38 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(products[0].price_eur, 249.99)
         self.assertEqual(products[0].btu, 9000)
         self.assertEqual(products[0].name, "TRONIC Mobiele airco 9000 BTU")
+
+    def test_lidl_empty_seasonal_sitemap_is_legitimate(self) -> None:
+        sitemap = gzip.compress(
+            b"""<?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>https://www.lidl.nl/p/test-hamer/p2001</loc></url>
+              <url><loc>https://www.lidl.nl/p/test-accuboormachine/p2002</loc></url>
+            </urlset>"""
+        )
+        products = LidlAdapter(SitemapFetcher(sitemap, {})).fetch_products()
+        self.assertEqual(products, [])
+
+    def test_lidl_sitemap_without_any_product_url_fails_closed(self) -> None:
+        sitemap = gzip.compress(
+            b"""<?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>"""
+        )
+        with self.assertRaises(RuntimeError):
+            LidlAdapter(SitemapFetcher(sitemap, {})).fetch_products()
+
+    def test_lidl_still_raises_when_every_candidate_page_fails(self) -> None:
+        product_url = "https://www.lidl.nl/p/test-mobiele-airco-9000-btu/p1001"
+        sitemap = gzip.compress(
+            f"""<?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>{product_url}</loc></url>
+              <url><loc>https://www.lidl.nl/p/test-hamer/p2001</loc></url>
+            </urlset>""".encode()
+        )
+        # The candidate page is missing from the fetcher, so every fetch fails.
+        with self.assertRaises(RuntimeError):
+            LidlAdapter(SitemapFetcher(sitemap, {})).fetch_products()
 
     def test_gamma_and_karwei_require_online_availability(self) -> None:
         html = """
@@ -1167,6 +1276,15 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(result.price_eur, 599.99)
         self.assertEqual(result.btu, 15000)
 
+    def test_flinq_empty_seasonal_sitemap_is_legitimate(self) -> None:
+        sitemap = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://www.flinqproducts.nl/product/flinq-led-strip/</loc></url>
+          <url><loc>https://www.flinqproducts.nl/product/flinq-wekkerradio/</loc></url>
+        </urlset>"""
+        products = FlinqAdapter(SitemapFetcher(sitemap, {})).fetch_products()
+        self.assertEqual(products, [])
+
     def test_action_treats_expired_deal_as_unavailable(self) -> None:
         data = {
             "@type": "Product",
@@ -1188,6 +1306,28 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(result.delivery, "Deal verlopen")
         self.assertEqual(result.price_eur, 299.0)
         self.assertEqual(result.btu, 14000)
+
+    def test_action_expired_deal_vetoes_schema_in_stock(self) -> None:
+        # A stale schema offer may still claim InStock after the weekly deal
+        # expired; the visible "Deal verlopen" text must win.
+        data = {
+            "@type": "Product",
+            "name": "Mobiele smart airco - wit",
+            "description": "14.000 BTU compressor-airconditioner",
+            "url": "https://shop.action.com/nl-nl/p/1/mobiele-smart-airco-wit",
+            "offers": [{
+                "price": 299,
+                "availability": "https://schema.org/InStock",
+                "url": "https://shop.action.com/nl-nl/p/1/mobiele-smart-airco-wit",
+            }],
+        }
+        page = (
+            f'<script type="application/ld+json">{json.dumps(data)}</script>'
+            "<main><h1>Mobiele smart airco</h1><p>Deal verlopen</p></main>"
+        )
+        result = parse_action_page(page, "https://shop.action.com/nl-nl/p/1/mobiele-smart-airco-wit")
+        self.assertFalse(result.available)
+        self.assertEqual(result.delivery, "Deal verlopen")
 
     def test_expert_requires_online_saleability(self) -> None:
         payload = {
@@ -1481,6 +1621,48 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(products[0].btu, 12000)
         self.assertEqual(products[0].price_eur, 499.0)
 
+    def test_costway_without_qty_marker_fails_closed(self) -> None:
+        html = """
+        <ul class="products-grid">
+          <li class="item product">
+            <div class="product-item-photo qty-10"></div>
+            <a class="product-item-link" href="/mobiele-airconditioning-9000-btu.html">
+              Mobiele Airconditioning 9000 BTU</a>
+            <div class="price-box">€ 399,00</div>
+          </li>
+          <li class="item product">
+            <div class="product-item-photo"></div>
+            <a class="product-item-link" href="/mobiele-airconditioner-12000-btu.html">
+              Mobiele Airconditioner 12000 BTU</a>
+            <div class="price-box">€ 499,00</div>
+          </li>
+        </ul>"""
+        products = CostwayAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://nl.costway.com/huishoudelijke-apparaten/klimaatbeheersing/aircos.html",
+        )
+        # Unknown stock must never be reported as available.
+        self.assertEqual([product.available for product in products], [True, False])
+        self.assertEqual(products[1].delivery, "Voorraad onbekend")
+
+    def test_costway_raises_when_qty_marker_disappears_from_page(self) -> None:
+        html = """
+        <ul class="products-grid">
+          <li class="item product">
+            <div class="product-item-photo"></div>
+            <a class="product-item-link" href="/mobiele-airconditioning-9000-btu.html">
+              Mobiele Airconditioning 9000 BTU</a>
+            <div class="price-box">€ 399,00</div>
+          </li>
+        </ul>"""
+        # Every classified card lost the qty marker: markup drift, not a
+        # page-wide stock collapse.
+        with self.assertRaises(RuntimeError):
+            CostwayAdapter(DummyFetcher()).parse(
+                BeautifulSoup(html, "html.parser"),
+                "https://nl.costway.com/huishoudelijke-apparaten/klimaatbeheersing/aircos.html",
+            )
+
     # --- Evolarshop ---
 
     def test_evolarshop_excludes_hoseless_and_reads_nosto_hit(self) -> None:
@@ -1721,6 +1903,88 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(product.available)
         self.assertEqual(product.delivery, "Alleen verkrijgbaar in de winkel")
 
+    def test_hubo_footer_order_text_does_not_mark_out_of_stock_available(self) -> None:
+        # The cart drawer/footer always contains order text ("in winkelwagen",
+        # "bezorgen"); on an out-of-stock page it must not count as online
+        # stock.
+        data = {
+            "@type": "Product",
+            "name": "Mobiele airco PAC 9.3 compact",
+            "offers": {
+                "@type": "Offer",
+                "availability": "https://schema.org/OutOfStock",
+                "price": "179.00",
+                "priceCurrency": "EUR",
+            },
+        }
+        page = (
+            f'<script type="application/ld+json">{json.dumps(data)}</script>'
+            '<main id="MainContent">'
+            '<section id="shopify-section-template--1__product">'
+            "<h1>Mobiele airco PAC 9.3 compact</h1>"
+            "</section>"
+            "</main>"
+            "<footer><button>In winkelwagen</button><p>Bezorgen aan huis</p></footer>"
+        )
+        product = parse_hubo_page(page, "https://www.hubo.nl/products/mobiele-airco-pac-9-3-compact")
+        self.assertIsNotNone(product)
+        self.assertFalse(product.available)
+
+    def test_hubo_related_product_uitverkocht_does_not_veto_in_stock(self) -> None:
+        # Related-product sections inside <main> can carry their own
+        # "uitverkocht" labels; they must not veto the actual product.
+        data = {
+            "@type": "Product",
+            "name": "Qlima P 522 mobiele airconditioner met verwarming 7000BTU",
+            "offers": {
+                "@type": "Offer",
+                "availability": "https://schema.org/InStock",
+                "price": "399.00",
+                "priceCurrency": "EUR",
+                "url": "https://www.hubo.nl/products/qlima-p-522",
+            },
+        }
+        page = (
+            f'<script type="application/ld+json">{json.dumps(data)}</script>'
+            '<main id="MainContent">'
+            '<section id="shopify-section-template--1__product">'
+            "<button>In winkelwagen</button>"
+            "</section>"
+            '<section id="shopify-section-template--1__slider_product_ab">'
+            "<h2>Producten die hierop lijken</h2><p>Uitverkocht</p>"
+            "</section>"
+            "</main>"
+        )
+        product = parse_hubo_page(page, "https://www.hubo.nl/products/qlima-p-522-mobiele-airconditioner")
+        self.assertIsNotNone(product)
+        self.assertTrue(product.available)
+
+    def test_hubo_empty_seasonal_sitemap_is_legitimate(self) -> None:
+        index = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <sitemap><loc>https://www.hubo.nl/sitemap_products_1.xml</loc></sitemap>
+        </sitemapindex>"""
+        child = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://www.hubo.nl/products/hamer</loc></url>
+          <url><loc>https://www.hubo.nl/products/schroevendraaier</loc></url>
+        </urlset>"""
+        pages = {
+            "https://www.hubo.nl/sitemap.xml": index,
+            "https://www.hubo.nl/sitemap_products_1.xml": child,
+        }
+        products = HuboAdapter(MappingFetcher(pages)).fetch_products()
+        self.assertEqual(products, [])
+
+    def test_hubo_sitemap_without_product_sitemaps_fails_closed(self) -> None:
+        index = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <sitemap><loc>https://www.hubo.nl/sitemap_pages_1.xml</loc></sitemap>
+        </sitemapindex>"""
+        pages = {"https://www.hubo.nl/sitemap.xml": index}
+        with self.assertRaises(RuntimeError):
+            HuboAdapter(MappingFetcher(pages)).fetch_products()
+
     # --- Vrijbuiter ---
 
     def test_vrijbuiter_reads_graph_product_offer(self) -> None:
@@ -1792,6 +2056,32 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(products[1].available)
         self.assertEqual(products[1].price_eur, 577.0)
 
+    def test_klimaatshop_future_delivery_becomes_presale_on_alert_path(self) -> None:
+        html = """
+        <div class="product"
+             data-url="https://www.klimaatshop.nl/sinclair-amc-14p-mobiele-airco-40-kw.html">
+          <span class="price">€627,-</span>
+          <span class="stock">Leverbaar vanaf 12 augustus</span>
+        </div>
+        <div class="product"
+             data-url="https://www.klimaatshop.nl/sinclair-amc-11p-mobiele-airco-30-kw.html">
+          <span class="price">€577,-</span>
+          <span class="stock">Binnen 2-3 weken leverbaar</span>
+        </div>"""
+        products = KlimaatshopAdapter(DummyFetcher()).parse(
+            BeautifulSoup(html, "html.parser"),
+            "https://www.klimaatshop.nl/aircos/aircos-zonder-buitenunit/",
+        )
+        # Both phrasings classify as in stock at the adapter level; the shared
+        # alert/inventory helper must flag them as presale so no immediate-stock
+        # alert is sent while the dashboard shows presale.
+        self.assertEqual([product.available for product in products], [True, True])
+        self.assertEqual([product.presale for product in products], [False, False])
+        self.assertEqual(
+            [with_detected_presale(product).presale for product in products],
+            [True, True],
+        )
+
     # --- Airco-Webwinkel ---
 
     def test_aircowebwinkel_reads_json_ld_stock(self) -> None:
@@ -1813,6 +2103,15 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(product.available)
         self.assertEqual(product.price_eur, 299.0)
         self.assertEqual(product.btu, 9000)
+
+    def test_aircowebwinkel_empty_seasonal_sitemap_is_legitimate(self) -> None:
+        sitemap = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://www.airco-webwinkel.nl/product/split-airco-installatie/</loc></url>
+          <url><loc>https://www.airco-webwinkel.nl/product/raamafdichtingskit/</loc></url>
+        </urlset>"""
+        products = AircoWebwinkelAdapter(SitemapFetcher(sitemap, {})).fetch_products()
+        self.assertEqual(products, [])
 
     # --- Bostools ---
 

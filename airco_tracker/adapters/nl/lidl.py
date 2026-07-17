@@ -11,7 +11,6 @@ class LidlAdapter(LidlSitemapAdapter):
     sitemap_url = "https://www.lidl.nl/p/export/NL/nl/product_sitemap.xml.gz"
     include_url_terms = ("airco", "aircondition")
     exclude_url_terms = ("aircooler", "luchtkoeler", "ventilator")
-    empty_message = "Lidl sitemap contained no portable air conditioners"
     invalid_sitemap_message = "Lidl product sitemap was invalid"
     parse_failure_message = "Lidl product pages could not be parsed"
     available_delivery = "Online op voorraad"

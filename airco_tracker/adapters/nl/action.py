@@ -69,6 +69,10 @@ def _parse_product_page(page: str, page_url: str) -> Product:
         raise RuntimeError("Action product data did not contain a name and offer")
     available = schema_in_stock(offer)
     text = clean_text(soup)
+    # An expired deal is never orderable, even when the schema offer still
+    # claims the product is in stock.
+    if "deal verlopen" in text.lower():
+        available = False
     delivery = _delivery(text, available)
     description = str(data.get("description", ""))
     return Product(

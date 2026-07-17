@@ -24,9 +24,13 @@ class FlinqAdapter:
     def fetch_products(self) -> list[Product]:
         response = self.fetcher.session.get(self.sitemap_url, timeout=self.fetcher.timeout)
         response.raise_for_status()
-        urls = [url for url in sitemap_locations(response.content) if _is_product_url(url)]
-        if not urls:
-            raise RuntimeError("FlinQ sitemap contained no portable air conditioners")
+        locations = sitemap_locations(response.content)
+        if not locations:
+            raise RuntimeError("FlinQ product sitemap contained no product URLs")
+        urls = [url for url in locations if _is_product_url(url)]
+        # FlinQ removes seasonal aircos from the sitemap. A healthy sitemap
+        # without airco candidates is a legitimate empty snapshot: a restock
+        # will reappear and be alerted as first-seen stock.
         products: dict[str, Product] = {}
         failures: list[str] = []
         for url in urls:
@@ -37,7 +41,7 @@ class FlinqAdapter:
                 LOG.warning("FlinQ product check failed for %s: %s", url, exc)
                 continue
             products[product.url] = product
-        if not products:
+        if urls and not products:
             raise RuntimeError("FlinQ product pages could not be parsed: " + "; ".join(failures))
         return list(products.values())
 

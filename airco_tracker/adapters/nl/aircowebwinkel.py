@@ -27,9 +27,13 @@ class AircoWebwinkelAdapter:
     def fetch_products(self) -> list[Product]:
         response = self.fetcher.session.get(self.sitemap_url, timeout=self.fetcher.timeout)
         response.raise_for_status()
-        urls = [u for u in sitemap_locations(response.content) if _is_airco_url(u)]
-        if not urls:
-            raise RuntimeError("Airco-Webwinkel sitemap contained no portable air conditioners")
+        locations = sitemap_locations(response.content)
+        if not locations:
+            raise RuntimeError("Airco-Webwinkel product sitemap contained no product URLs")
+        urls = [u for u in locations if _is_airco_url(u)]
+        # Seasonal aircos can disappear from the sitemap. A healthy sitemap
+        # without airco candidates is a legitimate empty snapshot: a restock
+        # will reappear and be alerted as first-seen stock.
         products: dict[str, Product] = {}
         failures: list[str] = []
         for url in urls:
@@ -41,7 +45,7 @@ class AircoWebwinkelAdapter:
                 continue
             if product is not None:
                 products[product.url] = product
-        if not products:
+        if urls and not products:
             raise RuntimeError("Airco-Webwinkel product pages could not be parsed: " + "; ".join(failures))
         return list(products.values())
 

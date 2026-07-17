@@ -17,6 +17,7 @@ class CostwayAdapter(Adapter):
 
     def parse(self, soup: BeautifulSoup, page_url: str) -> list[Product]:
         products: dict[str, Product] = {}
+        unknown_stock = 0
         for card in soup.select("li.item.product"):
             link = card.select_one("a.product-item-link")
             if link is None:
@@ -29,26 +30,34 @@ class CostwayAdapter(Adapter):
             if url in products:
                 continue
             text = clean_text(card)
-            available = _in_stock(card, text)
+            qty = stock_quantity_from_qty_class(card)
+            if qty is None:
+                # Fail closed at product level: without the qty-N marker the
+                # stock state is unknown and must not be reported as available.
+                unknown_stock += 1
             products[url] = Product(
                 site=self.site,
                 name=name,
                 url=url,
-                available=available,
+                available=qty is not None and qty > 0,
                 price_eur=parse_price(text),
-                delivery="Op voorraad" if available else "Uitverkocht",
+                delivery=_delivery(qty),
                 btu=parse_btu(text),
+            )
+        if products and unknown_stock == len(products):
+            # Every classified card lacked the qty-N stock marker, so stock can
+            # no longer be verified at all: treat the page as markup drift.
+            raise RuntimeError(
+                f"{self.site}: qty stock marker missing on every product card; "
+                "site markup may have changed"
             )
         return list(products.values())
 
 
-def _in_stock(card: BeautifulSoup, text: str) -> bool:
-    """Costway marks the product photo with a ``qty-N`` class; N>0 means in stock."""
-    qty = stock_quantity_from_qty_class(card)
-    if qty is not None:
-        return qty > 0
-    # Fall back to the visible out-of-stock label.
-    return "uitverkocht" not in text.lower()
+def _delivery(qty: int | None) -> str:
+    if qty is None:
+        return "Voorraad onbekend"
+    return "Op voorraad" if qty > 0 else "Uitverkocht"
 
 
 def _is_portable_airco(name: str) -> bool:

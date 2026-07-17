@@ -57,6 +57,17 @@ def is_presale_delivery(text: str) -> bool:
     lower = text.lower()
     return any(marker in lower for marker in PRESALE_MARKERS)
 
+
+def with_detected_presale(product: Product) -> Product:
+    """Flag presale from the delivery text when the adapter did not set it.
+
+    Shared by the alert path (cli.check) and the inventory snapshot so both
+    paths treat the same product as presale and never disagree.
+    """
+    if product.presale or not product.delivery or not is_presale_delivery(product.delivery):
+        return product
+    return replace(product, presale=True)
+
 PRICE_PATTERNS = (
     re.compile(r"(?:€|EUR)\s*([\d.]+)\s*[,.]\s*(\d{2})", re.I),
     re.compile(r"(?:€|EUR)\s*([\d.]+)\s*,?\s*[-–]", re.I),

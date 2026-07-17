@@ -7,6 +7,7 @@ import sys
 from copy import copy
 from dataclasses import is_dataclass, replace
 
+from .adapters.base import with_detected_presale
 from .adapters.registry import load_adapter_specs
 from .alert_events import EmailJob, StockAvailableEvent
 from .alert_pipeline import (
@@ -141,6 +142,12 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
             len(failures),
             "; ".join(failures),
         )
+
+    # Centralized presale detection, identical to the inventory snapshot: a
+    # product whose delivery text indicates a presale or multi-week lead time
+    # must not trigger an immediate-stock alert when the adapter left
+    # ``presale`` unset.
+    products = [with_detected_presale(product) for product in products]
 
     inventory_store = build_inventory_store(config)
     inventory = updated_inventory(

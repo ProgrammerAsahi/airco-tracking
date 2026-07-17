@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
-from .adapters.base import is_presale_delivery
+from .adapters.base import with_detected_presale
 from .models import Product, DEFAULT_COUNTRY, normalize_country, site_id_for
 
 
@@ -63,8 +63,7 @@ def updated_inventory(
             # Centralized presale detection: if the adapter did not already
             # flag the product as presale, check the delivery text for
             # presale markers (multi-week lead times, pre-order, etc.).
-            if not product.presale and product.delivery and is_presale_delivery(product.delivery):
-                product = replace(product, presale=True)
+            product = with_detected_presale(product)
             available_by_site.setdefault(site_id, []).append(product.to_dict())
 
     sites: dict[str, dict[str, Any]] = {}

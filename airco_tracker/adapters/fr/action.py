@@ -44,7 +44,10 @@ def _parse_card(card: Tag, page_url: str) -> Product | None:
         site="Action France",
         name=name,
         url=canonical_url(page_url, str(link.get("href", ""))),
-        available=True,
+        # Fail closed: the search page only shows catalogue cards whose store
+        # stock must be verified ("disponibilité magasin à vérifier"). Online
+        # orderability cannot be confirmed here, so this must not be available.
+        available=False,
         price_eur=parse_french_price(text),
         delivery="Catalogue Action France — disponibilité magasin à vérifier",
         btu=parse_btu(text),
