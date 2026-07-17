@@ -68,6 +68,8 @@ E.Leclerc France 不抓取其反爬店面页面，而是通过店面使用的第
 
 Trotec France 每轮扫描都读取其官方店面使用的 Algolia 商品索引；它是即时库存和预售分类的唯一权威来源。即使 `availability_status` 显示 `En stock`，只要 `sold_out=Oui` 就会被硬性否决。已批准的 Awin advertiser `62319` 只用于 Link Builder：系统把已验证的 `fr.trotec.com/shop/...` 商品 URL 以最多 100 条一批提交给官方 API，并把成功结果缓存一天。只有 API 返回的链接通过 HTTPS、Awin host、advertiser、publisher 和最终 Trotec URL 校验后才写入 `affiliate_url`；API 超时、单条拒绝或无 token 时直接使用 Trotec canonical URL，绝不会让库存扫描失败或变成 stale。`Product.url` 始终作为库存状态、去重和变化事件的稳定身份；网页和提醒邮件会在推广链接前显示披露。
 
+AliExpress 已实现共用的 Affiliate Open Platform 客户端，以及分别绑定法国、荷兰配送目的地的检查适配器。每次搜索和 SKU 详情请求都会携带真实配送国家；法国返回结果绝不会被复用为“可配送荷兰”的证据，反之亦然。已获批的 SKU 接口契约只提供商品、含税价格、运费、发货国、预计交期和 SKU 属性，并没有文档化的库存量或可下单字段。因此 AliExpress 目前只用于诊断，刻意没有加入生产 adapter registry：返回 SKU、价格、交期或推广链接都不会被当成现货。详见 [docs/ALIEXPRESS_INTEGRATION.zh.md](docs/ALIEXPRESS_INTEGRATION.zh.md)。
+
 Costway France 读取 Magento 分类页的 `qty-N` 库存和 `Précommande` 标签，并排除 split、冷风机和配件；Maison Energy 会让 `Non disponible`/`Demande de devis` 优先于 schema `PreOrder`，避免不可下单商品触发现货。H2R Équipements 只读取房车/露营车的 `climatisation nomade` 分类，`En stock` 才算即时现货，`Sur commande`/`Retour en stock prévu` 不会触发现货提醒；Obelink France 通过公开 JSON-LD 分类和商品页追踪 mobile/split 露营空调；Narbonne Accessoires 只在 `Livraison à Domicile` 明确 `En stock` 时算可配送，避免把仅门店自取误报为现货；Mon Camping Car 的 `BackOrder`/`Disponible à partir` 会作为预售展示。Action France 当前搜索结果主要是冷风机/风扇，因此会被严格过滤；Boulanger、Brico Dépôt France、Cdiscount 以及直接 403 的法国站点暂未启用，避免把超时、反爬页或 JS 壳误当库存来源。
 
 EP.nl 通过服务器输出的商品卡识别在线库存；Electro World 使用其网页公开调用的只读商品搜索索引，并在每次运行时动态读取公开搜索配置；Wehkamp 读取分类页的主商品数据。三者均不需要账号或秘密凭据。Wehkamp 会把售罄商品从分类移除，因此明确的空分类是正常状态；商品补货并重新出现时会立即触发首次有货提醒。
@@ -232,7 +234,7 @@ Key Vault 只保留必要的第三方 adapter 秘密凭据。容器可通过 Man
 
 ```text
 AZURE_KEY_VAULT_URL=https://<vault>.vault.azure.net
-KEY_VAULT_SECRET_MAP=AWIN_PUBLISHER_API_TOKEN=awin-publisher-api-token
+KEY_VAULT_SECRET_MAP=AWIN_PUBLISHER_API_TOKEN=awin-publisher-api-token,ALIEXPRESS_APP_KEY=aliexpress-app-key,ALIEXPRESS_APP_SECRET=aliexpress-app-secret
 ```
 
 系统只调用 Awin Link Builder Batch API，Bearer token 仅进入 `Authorization` header；不支持把 data-feed key 放进 URL 的 Legacy Create-a-Feed 路径。扫描先完成第一方库存判定，再批量生成并校验推广链接；API 失败时回退 canonical URL。尚未接入 CMP，因此 API 返回的链接会被明确覆盖为 `cons=0`：Awin 不设置 cookie，也不向商家传递 click identifier，当前不能依赖其完成佣金归因。网页和邮件都会在点击前显示推广联盟披露；以后只有在实现真实同意管理后才能按当次选择发送 `cons=1`。
