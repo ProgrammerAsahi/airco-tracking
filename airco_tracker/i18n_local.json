@@ -337,10 +337,34 @@
     "lang_name_en": { "zh": "英语", "nl": "Engels", "en": "English", "fr": "Anglais" },
     "lang_name_fr": { "zh": "法语", "nl": "Frans", "en": "French", "fr": "Français" },
     "checking_subscription": {
-      "zh": "正在检查订阅状态…",
-      "nl": "Abonnement controleren…",
-      "en": "Checking subscription…",
-      "fr": "Vérification de l’abonnement…"
+      "zh": "正在检查热浪通行证…",
+      "nl": "Heatwave-pass controleren…",
+      "en": "Checking Heatwave Pass…",
+      "fr": "Vérification du pass canicule…"
+    },
+    "legal_privacy_link": {
+      "zh": "隐私政策",
+      "nl": "Privacyverklaring",
+      "en": "Privacy policy",
+      "fr": "Politique de confidentialité"
+    },
+    "legal_terms_link": {
+      "zh": "用户协议",
+      "nl": "Servicevoorwaarden",
+      "en": "Terms of service",
+      "fr": "Conditions d’utilisation"
+    },
+    "legal_imprint_link": {
+      "zh": "网站信息",
+      "nl": "Colofon",
+      "en": "Imprint",
+      "fr": "Mentions légales"
+    },
+    "legal_affiliate_link": {
+      "zh": "推广联盟披露",
+      "nl": "Affiliateverklaring",
+      "en": "Affiliate disclosure",
+      "fr": "Information sur l’affiliation"
     }
   }
 }
