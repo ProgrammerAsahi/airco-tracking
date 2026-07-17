@@ -44,7 +44,6 @@
 - Electro Dépôt France
 - EcoFlow France
 - E.Leclerc France
-- Costway France
 - Maison Energy
 - Create France
 - Evolarshop France
@@ -70,7 +69,7 @@ Trotec France 每轮扫描都读取其官方店面使用的 Algolia 商品索引
 
 AliExpress 已实现共用的 Affiliate Open Platform 客户端，以及分别绑定法国、荷兰配送目的地的检查适配器。每次搜索和 SKU 详情请求都会携带真实配送国家；法国返回结果绝不会被复用为“可配送荷兰”的证据，反之亦然。已获批的 SKU 接口契约只提供商品、含税价格、运费、发货国、预计交期和 SKU 属性，并没有文档化的库存量或可下单字段。因此 AliExpress 目前只用于诊断，刻意没有加入生产 adapter registry：返回 SKU、价格、交期或推广链接都不会被当成现货。详见 [docs/ALIEXPRESS_INTEGRATION.zh.md](docs/ALIEXPRESS_INTEGRATION.zh.md)。
 
-Costway France 读取 Magento 分类页的 `qty-N` 库存和 `Précommande` 标签，并排除 split、冷风机和配件；Maison Energy 会让 `Non disponible`/`Demande de devis` 优先于 schema `PreOrder`，避免不可下单商品触发现货。H2R Équipements 只读取房车/露营车的 `climatisation nomade` 分类，`En stock` 才算即时现货，`Sur commande`/`Retour en stock prévu` 不会触发现货提醒；Obelink France 通过公开 JSON-LD 分类和商品页追踪 mobile/split 露营空调；Narbonne Accessoires 只在 `Livraison à Domicile` 明确 `En stock` 时算可配送，避免把仅门店自取误报为现货；Mon Camping Car 的 `BackOrder`/`Disponible à partir` 会作为预售展示。Action France 当前搜索结果主要是冷风机/风扇，因此会被严格过滤；Boulanger、Brico Dépôt France、Cdiscount 以及直接 403 的法国站点暂未启用，避免把超时、反爬页或 JS 壳误当库存来源。
+Maison Energy 会让 `Non disponible`/`Demande de devis` 优先于 schema `PreOrder`，避免不可下单商品触发现货。H2R Équipements 只读取房车/露营车的 `climatisation nomade` 分类，`En stock` 才算即时现货，`Sur commande`/`Retour en stock prévu` 不会触发现货提醒；Obelink France 通过公开 JSON-LD 分类和商品页追踪 mobile/split 露营空调；Narbonne Accessoires 只在 `Livraison à Domicile` 明确 `En stock` 时算可配送，避免把仅门店自取误报为现货；Mon Camping Car 的 `BackOrder`/`Disponible à partir` 会作为预售展示。Costway France 因生产环境持续返回 HTTP 403，已从活跃注册表移除并保留为 deferred adapter；Boulanger、Brico Dépôt France、Cdiscount 以及其它直接 403 的法国站点也暂未启用，避免把超时、反爬页或 JS 壳误当库存来源。Action France 当前搜索结果主要是冷风机/风扇，因此会被严格过滤。
 
 EP.nl 通过服务器输出的商品卡识别在线库存；Electro World 使用其网页公开调用的只读商品搜索索引，并在每次运行时动态读取公开搜索配置；Wehkamp 读取分类页的主商品数据。三者均不需要账号或秘密凭据。Wehkamp 会把售罄商品从分类移除，因此明确的空分类是正常状态；商品补货并重新出现时会立即触发首次有货提醒。
 

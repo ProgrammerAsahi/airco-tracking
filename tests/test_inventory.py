@@ -72,6 +72,42 @@ class InventoryTests(unittest.TestCase):
         self.assertIsNone(never_succeeded["last_success_at"])
         self.assertEqual(snapshot["stale_site_count"], 2)
 
+    def test_retired_site_is_removed_instead_of_retained_as_stale(self) -> None:
+        old = {
+            "version": 1,
+            "sites": {
+                "fr:Costway France": {
+                    "site_id": "fr:Costway France",
+                    "site": "Costway France",
+                    "country": "fr",
+                    "status": "error",
+                    "stale": True,
+                    "last_success_at": "2026-07-16T09:00:00+00:00",
+                    "products": [],
+                }
+            },
+        }
+
+        snapshot = updated_inventory(
+            old,
+            [],
+            all_sites={
+                "fr:Replacement": {
+                    "country": "fr",
+                    "site": "Replacement",
+                    "site_id": "fr:Replacement",
+                    "delivery_coverage": ["fr"],
+                }
+            },
+            checked_sites={"fr:Replacement"},
+            now=NOW,
+        )
+
+        self.assertNotIn("fr:Costway France", snapshot["sites"])
+        self.assertEqual(set(snapshot["sites"]), {"fr:Replacement"})
+        self.assertEqual(snapshot["site_count"], 1)
+        self.assertEqual(snapshot["stale_site_count"], 0)
+
     def test_presale_products_are_counted_separately_from_immediate_stock(self) -> None:
         products = [
             Product("Shop", "Immediate", "https://shop.test/now", True, 499.0, "Morgen", 9000),

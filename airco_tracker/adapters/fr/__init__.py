@@ -30,7 +30,6 @@ ADAPTERS = [
     ElectroDepotFranceAdapter,
     EcoFlowFranceAdapter,
     ELeclercFranceAdapter,
-    CostwayFranceAdapter,
     MaisonEnergyAdapter,
     CreateFranceAdapter,
     EvolarshopFranceAdapter,
@@ -48,4 +47,5 @@ ADAPTERS = [
 DEFERRED_ADAPTERS = [
     BoulangerAdapter,
     BricoDepotFranceAdapter,
+    CostwayFranceAdapter,
 ]

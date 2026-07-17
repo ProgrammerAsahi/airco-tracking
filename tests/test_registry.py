@@ -4,6 +4,8 @@ import unittest
 from unittest.mock import patch
 
 from airco_tracker.adapters import registry
+from airco_tracker.adapters import fr
+from airco_tracker.adapters.fr.costway import CostwayFranceAdapter
 
 
 class _AdapterA:
@@ -48,6 +50,15 @@ class RegistryTests(unittest.TestCase):
             set(registry._DELIVERY_COVERAGE_BY_SITE_ID),
         )
         self.assertTrue(all(spec.delivery_coverage for spec in specs))
+
+    def test_costway_fr_is_deferred_not_registered(self) -> None:
+        specs = registry.load_adapter_specs(["fr"])
+        nl_specs = registry.load_adapter_specs(["nl"])
+
+        self.assertNotIn("fr:Costway France", {spec.site_id for spec in specs})
+        self.assertIn("nl:Costway NL", {spec.site_id for spec in nl_specs})
+        self.assertNotIn(CostwayFranceAdapter, fr.ADAPTERS)
+        self.assertIn(CostwayFranceAdapter, fr.DEFERRED_ADAPTERS)
 
     def test_invalid_delivery_coverage_tokens_fail_fast(self) -> None:
         class _AdapterWithInvalidCoverage:
