@@ -27,6 +27,13 @@ param operationsAlertEmail string = ''
 @description('Create Standard Service Bus entities with 16 partitions. This creation-time setting requires entity recreation to change.')
 param enableServiceBusPartitioning bool = true
 
+@description('Monthly cost budget in EUR for the resource group. Actual spend crossing 80% or 100% notifies the operations action group.')
+@minValue(1)
+param monthlyBudgetAmountEur int = 50
+
+@description('First day of the month from which the cost budget measures spend. Defaults to the deployment month; earlier costs are not counted.')
+param budgetStartDate string = '${utcNow('yyyy-MM')}-01'
+
 var token = resourceToken
 var acrName = 'aircotracker${token}'
 var storageName = 'aircostate${token}'
@@ -238,6 +245,10 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
       family: 'A'
       name: 'standard'
     }
+    // Soft-delete retention is fixed at vault creation time and Azure
+    // rejects later changes ("has been set already and it can't be
+    // modified"), so this value must stay at the creation-time 7 days.
+    // Purge protection below already blocks permanent deletion inside it.
     softDeleteRetentionInDays: 7
     enablePurgeProtection: true
     tenantId: tenant().tenantId
@@ -426,6 +437,23 @@ resource communicationEmailDiagnostics 'Microsoft.Insights/diagnosticSettings@20
   }
 }
 
+// Key Vault AuditEvent records every secret read so access to the stored
+// third-party credentials stays attributable. AllMetrics follows the Service
+// Bus diagnostic pattern above.
+resource keyVaultDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'airco-keyvault-diagnostics'
+  scope: vault
+  properties: {
+    workspaceId: logs.id
+    logs: [
+      { category: 'AuditEvent', enabled: true }
+    ]
+    metrics: [
+      { category: 'AllMetrics', enabled: true }
+    ]
+  }
+}
+
 resource operationsActionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (!empty(operationsAlertEmail)) {
   name: '${prefix}-operations-alerts'
   location: 'global'
@@ -453,6 +481,44 @@ var serviceBusAlertActions = empty(operationsAlertEmail)
 var scheduledQueryActionGroupIds = empty(operationsAlertEmail)
   ? []
   : [ operationsActionGroup.id ]
+
+// A monthly cost budget bounds the blast radius of a runaway job or an
+// unexpected price change. It exists to notify the operations mailbox, so
+// without a configured receiver there is no one to alert and it is skipped
+// like the action group itself.
+resource monthlyCostBudget 'Microsoft.Consumption/budgets@2023-11-01' = if (!empty(operationsAlertEmail)) {
+  name: '${prefix}-monthly-budget'
+  properties: {
+    category: 'Cost'
+    amount: monthlyBudgetAmountEur
+    timeGrain: 'Monthly'
+    timePeriod: {
+      startDate: budgetStartDate
+    }
+    notifications: {
+      actual_GreaterThan_80_Percent: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 80
+        thresholdType: 'Actual'
+        contactEmails: []
+        contactGroups: [
+          operationsActionGroup.id
+        ]
+      }
+      actual_GreaterThan_100_Percent: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 100
+        thresholdType: 'Actual'
+        contactEmails: []
+        contactGroups: [
+          operationsActionGroup.id
+        ]
+      }
+    }
+  }
+}
 
 resource serviceBusDeadLetterAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
   name: '${prefix}-servicebus-deadletter'
@@ -766,11 +832,45 @@ resource adverseEmailOutcomeAlert 'Microsoft.Insights/scheduledQueryRules@2023-1
 var acrPullRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
 var blobContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
 var keyVaultSecretsUserRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
-var communicationOwnerRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '09976791-48a7-449e-bb21-39d1a415f350')
 var tableDataContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
 var tableDataReaderRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '76199698-9eea-4c19-bc75-cec21354c6b6')
 var serviceBusSenderRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39')
 var serviceBusReceiverRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0')
+
+// Sending email through ACS with a Microsoft Entra ID / Managed Identity
+// credential requires only three control-plane actions on the Communication
+// Service resource, not the broad built-in Communication and Email Service
+// Owner role. Microsoft documents this minimal set for Entra-authenticated
+// email credentials:
+// https://learn.microsoft.com/azure/communication-services/quickstarts/email/send-email-smtp/smtp-authentication
+// The emails:send and operation-status calls authorize against the
+// Communication Service (not the Email Service), so the assignments below
+// keep that same scope. Earlier revisions assigned the built-in Owner role;
+// incremental deployments never delete role assignments, so those legacy
+// assignments must be removed manually after this role is verified.
+resource acsEmailSenderRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(resourceGroup().id, '${prefix}-acs-email-sender')
+  properties: {
+    roleName: '${prefix}-acs-email-sender'
+    description: 'Least-privilege email send and send-status read through Azure Communication Services with Microsoft Entra ID.'
+    type: 'CustomRole'
+    assignableScopes: [
+      resourceGroup().id
+    ]
+    permissions: [
+      {
+        actions: [
+          'Microsoft.Communication/CommunicationServices/Read'
+          'Microsoft.Communication/CommunicationServices/Write'
+          'Microsoft.Communication/EmailServices/write'
+        ]
+        notActions: []
+        dataActions: []
+        notDataActions: []
+      }
+    ]
+  }
+}
 
 resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSharedIdentityRbac) {
   name: guid(registry.id, identity.id, acrPullRole)
@@ -782,9 +882,14 @@ resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (mana
   }
 }
 
+// The shared runtime identity reads and writes only the private airco-tracker
+// container (alert state, the inventory snapshot, and the partner-feed cache
+// prefix). Keep the data-plane grant at that container instead of the whole
+// account so a compromised process cannot reach unrelated containers such as
+// the Event Grid dead-letter one.
 resource blobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSharedIdentityRbac) {
-  name: guid(storage.id, identity.id, blobContributorRole)
-  scope: storage
+  name: guid(stateContainer.id, identity.id, blobContributorRole)
+  scope: stateContainer
   properties: {
     principalId: identity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -897,22 +1002,22 @@ resource vaultReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (
 }
 
 resource communicationAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSharedIdentityRbac) {
-  name: guid(communicationService.id, identity.id, communicationOwnerRole)
+  name: guid(communicationService.id, identity.id, acsEmailSenderRole.id)
   scope: communicationService
   properties: {
     principalId: identity.properties.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: communicationOwnerRole
+    roleDefinitionId: acsEmailSenderRole.id
   }
 }
 
 resource emailCommunicationAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(communicationService.id, emailIdentity.id, communicationOwnerRole)
+  name: guid(communicationService.id, emailIdentity.id, acsEmailSenderRole.id)
   scope: communicationService
   properties: {
     principalId: emailIdentity.properties.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: communicationOwnerRole
+    roleDefinitionId: acsEmailSenderRole.id
   }
 }
 
