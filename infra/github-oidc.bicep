@@ -4,6 +4,9 @@ param githubRepository string = 'ProgrammerAsahi/airco-tracking'
 @description('Only this branch is allowed to deploy.')
 param githubBranch string = 'main'
 
+@description('GitHub environment whose approval is required before deploying. Jobs running with this environment get an environment-scoped OIDC subject instead of a ref-scoped one.')
+param githubEnvironment string = 'production'
+
 param identityName string = 'airco-github-deployer'
 
 @description('Create the resource-group role assignment. Set false when preserving an existing assignment with a legacy random ID.')
@@ -28,6 +31,21 @@ resource githubCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/fede
     ]
     issuer: 'https://token.actions.githubusercontent.com'
     subject: 'repo:${githubRepository}:ref:refs/heads/${githubBranch}'
+  }
+}
+
+// Jobs that declare `environment:` receive an environment-scoped OIDC
+// subject, so the approval-gated deploy needs its own credential in
+// addition to the ref-scoped one above.
+resource githubEnvironmentCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
+  parent: deployIdentity
+  name: 'github-${last(split(githubRepository, '/'))}-env-${githubEnvironment}'
+  properties: {
+    audiences: [
+      'api://AzureADTokenExchange'
+    ]
+    issuer: 'https://token.actions.githubusercontent.com'
+    subject: 'repo:${githubRepository}:environment:${githubEnvironment}'
   }
 }
 
