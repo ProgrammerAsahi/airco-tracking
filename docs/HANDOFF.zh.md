@@ -5,7 +5,7 @@
   <a href="./HANDOFF.md"><img alt="English" src="https://img.shields.io/badge/HANDOFF-English-0969da"></a>
 </p>
 
-最后更新：2026-07-17 UTC
+最后更新：2026-07-19 UTC
 
 必须同时更新本文件和 `HANDOFF.md`。不要记录 secrets、邮箱地址、access tokens、支付数据或不必要的个人信息。
 
@@ -28,8 +28,8 @@
 - Reconciler job：`airco-alert-reconciler-job`，`17 3 * * *` UTC
 - Production mail provider：Azure Communication Services Email
 - 已部署 backend image/commit：`e6d1f3a6d5c6ee782c4459b0eefe9ed7da3a86d9`
-- 已部署的兼容 frontend commit：`ceff82e63d88abde90b7b9e2164a42fb29294d5c`
-- 最新成功 backend workflow：`29611560636`；最新成功 frontend workflow：`29611600902`
+- 已部署的兼容 frontend commit：`e33b3826e5e1c77451688d3a8f738d134e3101a3`
+- 最新成功 backend workflow：`29611560636`；最新成功 frontend workflow：`29691574367`
 - 最新 foundation deployment：`airco-foundation`（2026-07-17 成功）
 - GitHub 加固：两个仓库的 `main` 分支都要求 `validate` status check，并禁止 force-push 和删除；两个部署 workflow 都通过带 required reviewer 的 `production` GitHub environment 门禁。
 - GitHub 生产暂停变量：`DEPLOYMENT_PAUSED=false`
@@ -127,7 +127,7 @@ Coordinator 最多 4 replicas，fan-out 最多 16。Service Bus Standard entitie
 Backend image/commit `e6d1f3a6d5c6ee782c4459b0eefe9ed7da3a86d9` 已部署并完成生产验证。Workflow `29611560636` 通过新的 `production` GitHub environment 门禁人工批准后部署。首次带门禁的 run `29610815334` 在 OIDC 登录失败，因为声明 `environment:` 的 job 会获得 environment-scoped 的 token subject；为 `airco-github-deployer` 身份添加 federated credentials `github-airco-tracking-env-production` 和 `github-airco-tracking-web-env-production` 后修复。
 
 - Backend：本地 355/355 unit tests 和 `compileall` 通过。真实 dry-run 覆盖 46/46 retailer、零失败，alert 与 inventory 路径的预售判定一致。
-- Frontend：workflow `29611600902`（同样经 `production` environment 批准）部署 commit `ceff82e63d88abde90b7b9e2164a42fb29294d5c`；生产服务 revision 为 `airco-tracking-web--0000058`。
+- Frontend：workflow `29691574367`（同样经 `production` environment 批准）部署 commit `e33b3826e5e1c77451688d3a8f738d134e3101a3`；生产服务 revision 为 `airco-tracking-web--0000065`。
 - 手工 scanner 执行 `airco-tracker-job-a822jhn` 在旧的宽泛 RBAC grant 删除之后成功，证明 container 级 blob 权限加 custom ACS sender role 已足够。
 - 部署验证执行 reconciler（suffix `o7b9y3p`）和 scanner（suffix `mu9osx3`）均成功；publisher 每分钟运行；三条 Service Bus queue 最终均为 0 active / 0 DLQ。
 - Foundation 重新部署 `airco-foundation` 成功，包含上文所述的 RBAC 收窄、Key Vault 诊断和 cost budget。Owner 的 CLI 身份没有任何 blob data-plane 权限，least privilege 得到确认。

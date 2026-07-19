@@ -5,7 +5,7 @@
   <a href="./HANDOFF.md"><img alt="English" src="https://img.shields.io/badge/HANDOFF-English-0969da"></a>
 </p>
 
-Last updated: 2026-07-17 UTC
+Last updated: 2026-07-19 UTC
 
 Update this English file and `HANDOFF.zh.md` together. Do not record secrets, email addresses, access tokens, payment data, or unnecessary personal information.
 
@@ -28,8 +28,8 @@ The released architecture replaces synchronous per-user sending with an Azure Se
 - Reconciler job: `airco-alert-reconciler-job`, `17 3 * * *` UTC
 - Production mail provider: Azure Communication Services Email
 - Deployed backend image/commit: `e6d1f3a6d5c6ee782c4459b0eefe9ed7da3a86d9`
-- Compatible deployed frontend commit: `ceff82e63d88abde90b7b9e2164a42fb29294d5c`
-- Latest successful backend workflow: `29611560636`; latest successful frontend workflow: `29611600902`
+- Compatible deployed frontend commit: `e33b3826e5e1c77451688d3a8f738d134e3101a3`
+- Latest successful backend workflow: `29611560636`; latest successful frontend workflow: `29691574367`
 - Latest foundation deployment: `airco-foundation` (succeeded 2026-07-17)
 - GitHub hardening: both repositories' `main` branches require the `validate` status check and block force-push and deletion. Both deploy workflows are gated on the `production` GitHub environment with a required reviewer.
 - GitHub production pause variable: `DEPLOYMENT_PAUSED=false`
@@ -127,7 +127,7 @@ Production uses the verified customer-managed ACS sender domain `airco-tracker.e
 Backend image/commit `e6d1f3a6d5c6ee782c4459b0eefe9ed7da3a86d9` is deployed and production-verified. Workflow `29611560636` was manually approved through the new `production` GitHub environment gate. The first gated run `29610815334` failed at OIDC login because jobs declaring `environment:` receive an environment-scoped token subject; adding the federated credentials `github-airco-tracking-env-production` and `github-airco-tracking-web-env-production` to the `airco-github-deployer` identity fixed it.
 
 - Backend: 355/355 unit tests and `compileall` passed locally. The live dry-run covered 46/46 retailers with zero failures, and the alert and inventory paths agreed on presale classification.
-- Frontend: workflow `29611600902`, also approved through the `production` environment, deployed commit `ceff82e63d88abde90b7b9e2164a42fb29294d5c`; production serves revision `airco-tracking-web--0000058`.
+- Frontend: workflow `29691574367`, also approved through the `production` environment, deployed commit `e33b3826e5e1c77451688d3a8f738d134e3101a3`; production serves revision `airco-tracking-web--0000065`.
 - Manual scanner execution `airco-tracker-job-a822jhn` succeeded after the legacy broad RBAC grants were deleted, proving container-scope blob access plus the custom ACS sender role suffice.
 - Deploy verification executions—reconciler suffix `o7b9y3p` and scanner suffix `mu9osx3`—succeeded; the publisher runs minutely, and all three Service Bus queues ended at zero active and zero dead-letter messages.
 - Foundation redeployment `airco-foundation` succeeded with the RBAC narrowing, Key Vault diagnostics, and cost budget described above. The owner's CLI identity has no blob data-plane access, confirming least privilege.
