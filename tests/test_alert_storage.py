@@ -1111,6 +1111,10 @@ class RetentionTests(unittest.TestCase):
         outbox.delete_entity.assert_called_once_with("o-aa", "a" * 64)
         deliveries.delete_entity.assert_called_once_with("u-1", "e-1")
         delivery_index.delete_entity.assert_called_once_with("m-aa", "message-1")
+        suppressions.query_entities.assert_called_once_with(
+            "",
+            select=["PartitionKey", "RowKey", "recipientId"],
+        )
 
     def test_cleanup_removes_suppressions_for_missing_or_inactive_accounts(self) -> None:
         outbox = MagicMock()

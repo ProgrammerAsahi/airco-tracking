@@ -141,6 +141,7 @@ def cleanup_alert_data(
             break
     removed_suppressions = 0
     for entity in suppressions.query_entities(
+        "",
         select=["PartitionKey", "RowKey", "recipientId"],
     ):
         recipient_id = str(entity.get("recipientId") or entity.get("RowKey") or "")
