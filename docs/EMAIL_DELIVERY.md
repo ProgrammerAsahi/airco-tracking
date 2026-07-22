@@ -7,6 +7,14 @@
 
 This document is the operational, privacy, and deliverability baseline for authentication and stock-alert email. It complements [ALERT_PIPELINE.md](./ALERT_PIPELINE.md). Do not treat a locally prepared control as operational until the handoff records its production deployment and verification.
 
+## Current production status (2026-07-22)
+
+- The customer-managed `airco-tracker.eu` ACS sender domain is linked and selected explicitly in both applications. Domain ownership, SPF, DKIM, and DKIM2 are verified; DMARC remains deliberately at `p=none` while reputation is observed.
+- Real authentication-email canaries reached both Gmail and Outlook inboxes. Original-message headers confirmed the branded sender domain, aligned SPF/DKIM, DMARC pass, and `Reply-To: support@airco-tracker.eu`. These canaries verify the production ACS sender path without exposing verification codes or recipient addresses in operational records.
+- The deployed stock-alert path uses topic `stock-events`, subscription `email-fanout`, and exactly three Service Bus queues: `email-fanout-jobs`, `email-jobs`, and the PII-bounded final-report queue `acs-email-delivery-events`. Active and dead-letter counts returned to zero after production checks.
+- No active, entitled alert recipient existed during the latest release verification, so the system correctly produced no stock-alert delivery. The full subscriber-targeted canary remains deferred until a real opted-in entitlement exists; direct ACS delivery, queue health, and fail-closed recipient reconciliation were verified independently.
+- The higher-quota request has been submitted and remains **Open/pending**. Its private case identifier stays outside this public repository. Production must stay at one email worker and a global 13-second minimum interval until Azure approves the request.
+
 ## Mail identities and inbound routing
 
 - Outbound identity: `Airco Tracker <DoNotReply@airco-tracker.eu>` through the verified customer-managed Azure Communication Services (ACS) domain.
@@ -66,6 +74,8 @@ email worker → ACS accepts deterministic operation ID
 
 The ledger first records `accepted`, then one of `delivered`, `expanded`, `bounced`, `provider_suppressed`, `quarantined`, `filtered_spam`, or `provider_failed`. The legacy `sent` state remains no-resend compatible.
 
+The three queues have deliberately separate responsibilities: `email-fanout-jobs` carries recipient-shard work, `email-jobs` carries opaque event/recipient delivery jobs, and `acs-email-delivery-events` carries short-lived provider reports. The `stock-events` entity is a topic, not a fourth queue.
+
 - The email worker binds the deterministic ACS message/operation ID to opaque event, recipient, and delivery IDs before sending, preventing a fast Event Grid report from racing an absent correlation row.
 - A recipient-scoped address fingerprint binds the report to the exact verified address without persisting the address in the index or suppression table. An old-address bounce therefore cannot suppress a newly verified address.
 - `bounced` and provider `suppressed` are hard-failure evidence and activate system suppression. The email worker checks suppression before and immediately before every send.
@@ -90,7 +100,7 @@ Any debugging export containing a raw Event Grid body is exceptional PII handlin
 Required signals are:
 
 - Event Grid `DeadLetteredCount`, `DroppedEventCount`, and repeated delivery-attempt failures.
-- Active count, oldest-message age, and DLQ count for `acs-email-delivery-events` and the existing stock/fan-out/email entities.
+- Active count, oldest-message age, and DLQ count for `email-fanout-jobs`, `email-jobs`, and `acs-email-delivery-events`, plus the `stock-events/email-fanout` subscription.
 - Acceptance-to-final-status latency; delivered, bounced, provider-suppressed, quarantined, spam-filtered, and provider-failed rates.
 - New system suppressions, unmatched/invalid reports, and the scheduled DLQ/privacy-cleanup result.
 - ACS send failures, `429`/quota responses, and the continued Gmail/Outlook inbox canaries.
@@ -100,7 +110,7 @@ Foundation alerts cover Event Grid dead-letter, dropped-event, and repeated deli
 
 ## Initial ACS quota request
 
-Submit the higher-quota request only after inbound routing, DMARC observation, Reply-To, user opt-out, one-click unsubscribe, final-delivery ingestion, hard-bounce suppression, privacy cleanup, and monitoring have been deployed and production-tested.
+The higher-quota request was submitted only after inbound routing, DMARC observation, Reply-To, user opt-out, one-click unsubscribe, final-delivery ingestion, hard-bounce suppression, privacy cleanup, and monitoring were deployed and production-tested. It remains **Open/pending**; submission is not approval and does not authorize a throughput increase. Keep the private case identifier outside this public repository.
 
 Use truthful planning values:
 
@@ -111,7 +121,8 @@ Use truthful planning values:
 | Email type | Transactional, user-requested stock-availability alerts; no unsolicited marketing |
 | Recipient source | Direct registration, email verification, paid alert entitlement, and user-controlled alert preference; no purchased/scraped/third-party lists |
 | Initial users | Up to 1,000 |
-| Peak rate | 100 messages/minute |
+| Requested portal tier | Tier `250`: provider ceiling of 1,000 messages/minute and 3,000 messages/hour |
+| Initial application cap | At most 100 messages/minute after approval and gradual warm-up |
 | Hourly volume | 3,000 messages/hour |
 | Daily volume | 10,000 messages/day |
 | Peak period | European daytime, especially hot afternoons and bursty retailer restocks |
@@ -128,4 +139,4 @@ Warm the new domain gradually for two to four weeks. Do not immediately use the 
 5. A successful ACS report changes `accepted` to `delivered`; a hard-bounce test creates suppression and prevents another send to the same address fingerprint.
 6. The dedicated queue and all dead-letter locations return to zero; the seven-day Blob lifecycle and daily DLQ cleanup job are enabled.
 7. Event Grid, Service Bus, ACS, and inbox-canary alerts reach the operations receiver.
-8. Only after all checks pass, submit the quota request and record the support-case ID without contact PII.
+8. The quota request is submitted and still pending. Keep the support-case ID free of contact PII, and do not raise sender concurrency until Azure records approval and the measured warm-up begins.

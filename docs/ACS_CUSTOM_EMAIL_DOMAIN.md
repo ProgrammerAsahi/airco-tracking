@@ -5,13 +5,13 @@
   <a href="./ACS_CUSTOM_EMAIL_DOMAIN.md"><img alt="English" src="https://img.shields.io/badge/ACS_DOMAIN-English-0969da"></a>
 </p>
 
-Last reviewed: 2026-07-10
+Last reviewed: 2026-07-22
 
 Update this file and `ACS_CUSTOM_EMAIL_DOMAIN.zh.md` together. Do not put contact addresses, recipient UUIDs, access tokens, subscription IDs, support-ticket attachments, or other personal data in either file.
 
 This runbook moves production mail from the low-volume Azure-managed sender to the customer-managed `airco-tracker.eu` domain without removing the Azure-managed fallback. Azure resource creation, verification, and linking can be performed with Azure CLI. DNS records still have to be published at the authoritative DNS provider, currently Dynadot, or through a separately authorized Dynadot API.
 
-Current production status (2026-07-10): Domain/SPF/DKIM/DKIM2 are `Verified`, the custom domain is linked alongside `AzureManagedDomain`, backend and frontend explicitly select it, and real Gmail/Outlook canaries reached both inboxes with aligned SPF/DKIM. DMARC, monitored inbound/aggregate-report routing, final-delivery/bounce suppression, and the higher-quota support request remain outstanding.
+Current production status (2026-07-22): Domain/SPF/DKIM/DKIM2 are `Verified`, the custom domain remains linked alongside `AzureManagedDomain`, and both backend and frontend explicitly select it. Real Gmail/Outlook canaries reached both inboxes; original headers showed aligned SPF, DKIM, and DMARC passing. The DMARC policy is deliberately still in observation mode (`p=none`). The monitored `support` Reply-To and `dmarc` aggregate-report aliases, their inbound MX route, recipient-level final-delivery ingestion, and hard-bounce suppression are live. An ACS send has progressed from `accepted` to `delivered` through the production Event Grid path. The higher-quota support request is submitted and remains pending, so the conservative sender rate is still mandatory.
 
 ## Safety rules
 
@@ -130,13 +130,15 @@ Use the existing targeted synthetic-event procedure in [ALERT_PIPELINE.md](./ALE
 For two previously authorized canary accounts, verify all of the following:
 
 1. The targeted publisher execution succeeds without putting an address in the command or event.
-2. The corresponding delivery-ledger rows reach `sent` and the email-worker log shows ACS acceptance without an ACS `429`.
+2. The corresponding delivery-ledger rows reach `accepted` and then a recipient-level final state such as `delivered`; the email-worker log shows ACS acceptance without an ACS `429`.
 3. Both inboxes actually receive the messages. Check inbox and spam/junk folders.
-4. In the received message's original headers, verify visible From is `airco-tracker.eu`, SPF passes, DKIM passes with an aligned domain, DMARC passes after publication, and Return-Path/MailFrom is aligned with the custom domain.
-5. Active, scheduled, transfer-dead-letter, and dead-letter counts return to zero for the stock subscription and both queues.
+4. In the received message's original headers, verify visible From is `airco-tracker.eu`, SPF passes, DKIM passes with an aligned domain, DMARC passes, and Return-Path/MailFrom is aligned with the custom domain.
+5. Active, scheduled, transfer-dead-letter, and dead-letter counts return to zero for the stock subscription and all three queues: `email-fanout-jobs`, `email-jobs`, and `acs-email-delivery-events`.
 6. Record inbox/spam placement only as a count/result, not with the recipient address. Microsoft infrastructure can legitimately remain visible in raw transport headers; the goal is to remove the Azure-generated domain from visible and envelope sender identities, not to obscure the delivery provider.
 
 Warm the domain gradually with legitimate opted-in traffic. A sudden jump in volume on a new domain can damage reputation even when the technical quota allows it.
+
+The latest production reconciliation found no active entitled alert recipients. In that state the full stock-alert synthetic test must safely skip instead of targeting an expired, deleted, or otherwise ineligible account. Direct production sender/authentication canaries and the accepted-to-delivered provider-report path can still be verified independently. Repeat the full targeted pipeline check only when an authorized active entitled recipient exists; the absence of one is not a pipeline failure.
 
 ## Sender identity, DMARC, MX, and Reply-To
 
@@ -150,12 +152,11 @@ az communication email domain sender-username create --resource-group airco-trac
 
 The current GitHub workflow does not expose a separate branded sender-username variable. Selecting `alerts@airco-tracker.eu` therefore requires a reviewed application/deployment change; do not hand-edit the running Container App.
 
-Recommended mail-domain controls:
+Current mail-domain controls:
 
-- Provide a real monitored mailbox or forwarding destination such as `support@airco-tracker.eu`, and use it as Reply-To. The application does not currently add Reply-To, so this is a tracked implementation gap rather than a DNS-only change.
-- Configure a real MX record through the chosen inbound-mail provider. ACS is outbound-only and does not supply an inbox. Microsoft recommends an MX record because a sender domain with no receiving path can be classified as lower reputation.
-- Provide a monitored aggregate-report mailbox such as `dmarc@airco-tracker.eu` before enabling DMARC reporting.
-- Start DMARC in monitoring mode:
+- `support@airco-tracker.eu` is a monitored inbound alias and both authentication and stock-alert mail set it through ACS's structured Reply-To field.
+- `dmarc@airco-tracker.eu` is a separate monitored aggregate-report alias. Public inbound MX records route both aliases without changing the ACS sender identity.
+- DMARC is published in observation mode:
 
   ```text
   Host:  _dmarc
@@ -163,7 +164,7 @@ Recommended mail-domain controls:
   Value: v=DMARC1; p=none; rua=mailto:dmarc@airco-tracker.eu; pct=100; adkim=s; aspf=s
   ```
 
-- Review reports and authentication alignment before moving gradually to `p=quarantine` and finally `p=reject`. Do not publish a strict reject policy before legitimate senders have been inventoried.
+- Continue reviewing aggregate reports and authentication alignment before moving gradually to `p=quarantine` and finally `p=reject`. Do not publish a strict reject policy before legitimate senders have been inventoried.
 - A dedicated sender subdomain such as `notify.airco-tracker.eu` is a valid future option when sender-reputation isolation from the website/root mailbox becomes valuable. It requires a separate ACS custom-domain resource and its own generated DNS records; never reuse the apex ownership token.
 
 ## Quota increase
@@ -172,18 +173,9 @@ The documented default custom-domain send limit is 30 messages per minute and 10
 
 Azure CLI can technically create a support ticket, but the request still needs private contact details, country/time zone, requested capacity, and the completed questionnaire. Keep those values out of this repository. Portal-guided submission is safer unless the operator supplies them at execution time. Select **Communication Services → Assistance with email → Quota Increase**, request only measured demand, and use the stricter operational target of less than one percent delivery failures.
 
-### Gaps to close before a large request
+### Current quota-request state
 
-The current pipeline has durable accepted-send tracking, subscription cancellation, and ACS's temporary managed hard-bounce suppression, but it does not yet have all high-volume controls:
-
-- no Event Grid `Microsoft.Communication.EmailDeliveryReportReceived` consumer for final `Delivered`, `Bounced`, `Suppressed`, `Quarantined`, `FilteredSpam`, or `Failed` outcomes;
-- no automatic application-level suppression of consistently hard-bounced recipients;
-- no immediate email-only opt-out independent of paid entitlement expiry;
-- no working unsubscribe link or standards-based one-click unsubscribe headers;
-- no application Reply-To field;
-- no ACS diagnostic setting and alerts for final delivery-failure spikes or ACS `429` responses.
-
-Do not claim these controls in a quota questionnaire until they exist. Either implement them first or describe the present manual/platform controls accurately. ACS acceptance is not a final inbox-delivery result.
+The production prerequisites for the initial request are now operational: Event Grid recipient-level final delivery, application hard-bounce suppression, an email-only alert preference, visible and RFC 8058 one-click unsubscribe paths, application Reply-To, privacy cleanup, and delivery-failure monitoring. The higher-quota request has been submitted but is still pending Azure approval. Until approval is explicit, keep `EMAIL_MIN_SEND_INTERVAL_SECONDS=13` and `EMAIL_MAX_REPLICAS=1`, warm the domain gradually, and treat ACS acceptance as an intermediate state rather than proof of inbox delivery.
 
 ## Rollback
 
@@ -191,12 +183,14 @@ The fastest rollback selects the still-linked Azure-managed domain and restores 
 
 ```bash
 gh variable set ACS_EMAIL_DOMAIN_NAME --repo ProgrammerAsahi/airco-tracking --body AzureManagedDomain
+gh variable set ACS_EMAIL_DOMAIN_NAME --repo ProgrammerAsahi/airco-tracking-web --body AzureManagedDomain
 gh variable set EMAIL_MIN_SEND_INTERVAL_SECONDS --repo ProgrammerAsahi/airco-tracking --body 13
 gh variable set EMAIL_MAX_REPLICAS --repo ProgrammerAsahi/airco-tracking --body 1
 gh workflow run deploy.yml --repo ProgrammerAsahi/airco-tracking --ref main
+gh workflow run deploy.yml --repo ProgrammerAsahi/airco-tracking-web --ref main
 ```
 
-Confirm the deployment and a targeted canary. Leave the custom domain linked while diagnosing; an unused linked domain does not force the application to send from it. Only disconnect it after the application is confirmed to use `AzureManagedDomain`:
+Confirm both deployments, then verify an authentication-mail canary and, when an active entitled recipient exists, a targeted stock-alert canary. Leave the custom domain linked while diagnosing; an unused linked domain does not force either application to send from it. Only disconnect it after both applications are confirmed to use `AzureManagedDomain`:
 
 ```bash
 MANAGED_DOMAIN_ID="$(az communication email domain show --resource-group airco-tracker-rg --email-service-name <discovered-email-service-name> --name AzureManagedDomain --query id --output tsv)"

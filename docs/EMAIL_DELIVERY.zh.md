@@ -7,6 +7,14 @@
 
 本文档是登录验证邮件和库存提醒邮件在运维、隐私与送达率方面的基准，并补充 [ALERT_PIPELINE.zh.md](./ALERT_PIPELINE.zh.md)。只有 handoff 已记录生产部署和验证的控制措施才能视为真正生效；仅在本地准备完成不等于已经投入生产。
 
+## 当前生产状态（2026-07-22）
+
+- Customer-managed ACS 发件域 `airco-tracker.eu` 已连接，并由两个应用明确选择。Domain ownership、SPF、DKIM 和 DKIM2 均已验证；DMARC 在观察信誉期间按计划保持 `p=none`。
+- 真实登录验证邮件 canary 已分别进入 Gmail 与 Outlook 收件箱。原始邮件头确认了品牌发件域、对齐并通过的 SPF/DKIM、通过的 DMARC，以及 `Reply-To: support@airco-tracker.eu`。这些 canary 验证了生产 ACS 发件链路，同时不会在运维记录中暴露验证码或收件地址。
+- 已部署的库存提醒链路使用 topic `stock-events`、subscription `email-fanout`，以及恰好三条 Service Bus queues：`email-fanout-jobs`、`email-jobs` 和限制 PII 范围的最终报告 queue `acs-email-delivery-events`。生产检查后，它们的 active 与 dead-letter count 均恢复为零。
+- 最近一次发布验证时没有仍有效且拥有提醒权益的收件人，因此系统按设计没有产生库存提醒投递。完整的 subscriber-targeted canary 延后到存在真实、主动同意且权益有效的用户时执行；本次已经分别验证 direct ACS delivery、queue health 和 fail-closed recipient reconciliation。
+- Higher-quota request 已提交，目前仍为 **Open/pending**；其私有 case identifier 不写入这个公开仓库。Azure 正式批准前，生产必须继续保持一个 email worker 和全局最短 13 秒发送间隔。
+
 ## 邮件身份与入站路由
 
 - 发件身份：通过已验证的 Azure Communication Services（ACS）customer-managed domain 使用 `Airco Tracker <DoNotReply@airco-tracker.eu>`。
@@ -66,6 +74,8 @@ email worker → ACS 接受确定性 operation ID
 
 Ledger 先记录 `accepted`，再记录 `delivered`、`expanded`、`bounced`、`provider_suppressed`、`quarantined`、`filtered_spam` 或 `provider_failed` 之一；旧的 `sent` 状态继续保持 no-resend 兼容。
 
+三条 queues 的职责被刻意分开：`email-fanout-jobs` 承载 recipient shard 工作，`email-jobs` 承载只含匿名 event/recipient 的投递任务，`acs-email-delivery-events` 承载短期 provider reports。`stock-events` 是 topic，不是第四条 queue。
+
 - Email worker 在发送前把确定性的 ACS message/operation ID 与匿名 event、recipient、delivery ID 绑定，避免快速到达的 Event Grid report 与尚未写入的 correlation row 发生 race。
 - Recipient-scoped address fingerprint 把报告绑定到准确的已验证邮箱，但 index 和 suppression table 不保存明文邮箱；因此旧邮箱的 bounce 不能 suppress 用户后来验证的新邮箱。
 - `bounced` 与 provider `suppressed` 属于 hard-failure evidence，会启用 system suppression。Email worker 在发送前以及临近实际发送前都检查 suppression。
@@ -90,7 +100,7 @@ Ledger 先记录 `accepted`，再记录 `delivered`、`expanded`、`bounced`、`
 必须监控：
 
 - Event Grid `DeadLetteredCount`、`DroppedEventCount` 和连续 delivery-attempt failures。
-- `acs-email-delivery-events` 与既有 stock/fan-out/email entities 的 active count、oldest-message age 和 DLQ count。
+- `email-fanout-jobs`、`email-jobs` 与 `acs-email-delivery-events` 的 active count、oldest-message age 和 DLQ count，以及 `stock-events/email-fanout` subscription。
 - Acceptance → final-status latency，以及 delivered、bounced、provider-suppressed、quarantined、spam-filtered、provider-failed rates。
 - 新增 system suppressions、unmatched/invalid reports、scheduled DLQ/privacy cleanup 结果。
 - ACS send failures、`429`/quota responses，以及持续运行的 Gmail/Outlook inbox canaries。
@@ -100,7 +110,7 @@ Ledger 先记录 `accepted`，再记录 `delivered`、`expanded`、`bounced`、`
 
 ## 初始 ACS quota 申请
 
-只有 inbound routing、DMARC observation、Reply-To、用户 opt-out、one-click unsubscribe、final-delivery ingestion、hard-bounce suppression、privacy cleanup 和 monitoring 全部部署并完成生产测试后，才能提交更高 quota 申请。
+Higher-quota request 已在 inbound routing、DMARC observation、Reply-To、用户 opt-out、one-click unsubscribe、final-delivery ingestion、hard-bounce suppression、privacy cleanup 和 monitoring 全部部署并完成生产测试后提交。目前仍为 **Open/pending**；提交不等于批准，也不授权提高吞吐。私有 case identifier 应保存在公开仓库之外。
 
 使用如实规划值：
 
@@ -111,7 +121,8 @@ Ledger 先记录 `accepted`，再记录 `delivered`、`expanded`、`bounced`、`
 | Email type | 用户主动请求的 transactional stock-availability alerts；不发送未经请求的营销邮件 |
 | Recipient source | 用户自行注册、验证邮箱、取得付费提醒权益并可自行控制提醒开关；不使用购买、抓取或第三方名单 |
 | Initial users | 最多 1,000 |
-| Peak rate | 100 封/分钟 |
+| 申请的 Portal tier | Tier `250`：provider ceiling 为 1,000 封/分钟、3,000 封/小时 |
+| 初始应用上限 | 批准并逐步 warm-up 后最多 100 封/分钟 |
 | Hourly volume | 3,000 封/小时 |
 | Daily volume | 10,000 封/天 |
 | Peak period | 欧洲白天，尤其炎热下午与零售商突发补货时段 |
@@ -128,4 +139,4 @@ Ledger 先记录 `accepted`，再记录 `delivered`、`expanded`、`bounced`、`
 5. 成功 ACS report 能把 `accepted` 更新为 `delivered`；hard-bounce test 会产生 suppression，并阻止同一 address fingerprint 再次发送。
 6. 专用 queue 和全部 dead-letter locations 恢复为零；七天 Blob lifecycle 与每日 DLQ cleanup job 均为 enabled。
 7. Event Grid、Service Bus、ACS 与 inbox-canary alerts 都能到达 operations receiver。
-8. 全部检查通过后才能提交 quota request，并且只记录 support-case ID，不记录 contact PII。
+8. Quota request 已提交但仍在等待审批。Support-case ID 的记录不得包含 contact PII；Azure 明确批准并开始受监控的 warm-up 前，不得提高 sender concurrency。

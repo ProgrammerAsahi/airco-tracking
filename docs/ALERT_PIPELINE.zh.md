@@ -116,13 +116,13 @@ Subscriber 数量不再影响 scanner 延迟。扫描对每个满足条件的商
 
 - Recipient rows 分散在 32 个 Azure Table partitions，并按每页 250 条流式读取；不会把所有订阅用户一次性载入内存。
 - Coordinator 最多扩到 4 replicas，fan-out workers 最多 16。应先观察 Table 和 Service Bus throttling 再继续上调。
-- Standard tier 的 topic 和两个 queues 都按 16 partitions 创建。提醒消息不需要全局顺序，因此 partitioning 可以移除单一 broker/entity 的吞吐瓶颈并提高可用性。每个 batch 只使用一个确定性的 partition key（stock bucket、event 或 recipient shard），既保留 duplicate detection，也不会在同一个 Service Bus batch 里混用 partition keys。Azure 无法在实体创建后原地修改这个开关；部署这项 foundation 变更前，应迁移或重建已经确认为空的实体。
+- Standard tier 的 topic 和全部三个 queues（`email-fanout-jobs`、`email-jobs` 与 `acs-email-delivery-events`）都按 16 partitions 创建。提醒消息不需要全局顺序，因此 partitioning 可以移除单一 broker/entity 的吞吐瓶颈并提高可用性。每个 batch 只使用一个确定性的 partition key（stock bucket、event、recipient shard 或 provider event），既保留 duplicate detection，也不会在同一个 Service Bus batch 里混用 partition keys。Azure 无法在实体创建后原地修改这个开关；部署这项 foundation 变更前，应迁移或重建已经确认为空的实体。
 - `enableServiceBusPartitioning` 是 foundation 创建/回滚参数；Azure 仍无法原地修改，因此切换时必须先删除或版本化已经确认为空的 entities。
 - Canonical `users` table 不会按每条库存事件扫描；每日 reconciler 只作为 repair job 流式读取，email worker 则对每次实际投递做常数时间 UUID 或 legacy-source-row point read。只有尚未回填 source pointer 的旧 projection 会暂时使用有界 `userId` query 兼容路径。当前提醒热路径不需要手工分表。
 - Service Bus 使用 Standard、partition-safe batching 和 duplicate detection。应持续监控 namespace throttling 与队列年龄；当 shared-tier 延迟或 Standard namespace 的 operation ceiling 成为实际瓶颈时，再迁移到 partitioned Premium namespace。
 - 生产使用已验证的 customer-managed ACS sender domain `airco-tracker.eu`。官方文档中的默认限制是每分钟 30 封、每小时 100 封。Final-delivery、bounce、suppression 和 alert monitoring 已投入运行；在 Open 的 higher-quota request 获批前，email worker 仍故意限制为一个 replica，并在两次发送之间等待 13 秒。生产发送时隙通过 optimistic ETag writes 保存在专用 `emailratelimit` Table 中，因此以后扩展到多个 replicas 后该间隔仍是全局限制；本地开发默认使用进程内 limiter。只要禁用 distributed backend，`infra/job.bicep` 就会 fail closed，将 replicas 强制限制为一个。当前端到端吞吐瓶颈仍是 provider quota，而不是 Service Bus 或 Table Storage。
 
-Domain/SPF/DKIM/DKIM2 验证、Communication Service 连接、`ACS_EMAIL_DOMAIN_NAME` 明确选择以及 Gmail/Outlook 真实收件箱 canary 均已完成。Foundation 会同时保留自定义域和 Azure-managed fallback，部署脚本按域名明确选择，不依赖 `linkedDomains` 数组顺序。Reply-To、用户提醒开关、RFC 8058 unsubscribe、recipient-level final-delivery ingestion、hard-bounce suppression、privacy cleanup 与相关 monitoring 已部署并完成生产验证。ACS quota case `06bfd9d3-65c22af0-6d841855-b8dc-4aea-8d93-d2364a875032` 当前为 Open，申请 tier `250`（1,000 封/分钟、3,000 封/小时）。Azure 批准前保持 `EMAIL_MIN_SEND_INTERVAL_SECONDS=13` 和 `EMAIL_MAX_REPLICAS=1`；不能先提高 replicas，否则只会产生 ACS `429` 和队列反复重试。DNS、consent、final-delivery、suppression、monitoring、quota 和 warm-up 详见 [EMAIL_DELIVERY.zh.md](./EMAIL_DELIVERY.zh.md)；自定义域 rollback 仍见 [ACS_CUSTOM_EMAIL_DOMAIN.zh.md](./ACS_CUSTOM_EMAIL_DOMAIN.zh.md)。
+Domain/SPF/DKIM/DKIM2 验证、Communication Service 连接、`ACS_EMAIL_DOMAIN_NAME` 明确选择以及 Gmail/Outlook 真实收件箱 canary 均已完成。Foundation 会同时保留自定义域和 Azure-managed fallback，部署脚本按域名明确选择，不依赖 `linkedDomains` 数组顺序。Reply-To、用户提醒开关、RFC 8058 unsubscribe、recipient-level final-delivery ingestion、hard-bounce suppression、privacy cleanup 与相关 monitoring 已部署并完成生产验证。ACS quota request 当前为 Open，申请 tier `250`（1,000 封/分钟、3,000 封/小时）；其私有 case identifier 保存在这个公开仓库之外。Azure 批准前保持 `EMAIL_MIN_SEND_INTERVAL_SECONDS=13` 和 `EMAIL_MAX_REPLICAS=1`；不能先提高 replicas，否则只会产生 ACS `429` 和队列反复重试。DNS、consent、final-delivery、suppression、monitoring、quota 和 warm-up 详见 [EMAIL_DELIVERY.zh.md](./EMAIL_DELIVERY.zh.md)；自定义域 rollback 仍见 [ACS_CUSTOM_EMAIL_DOMAIN.zh.md](./ACS_CUSTOM_EMAIL_DOMAIN.zh.md)。
 
 关键容量信号包括：全部 queues/subscriptions 的 active message count 与 oldest-message age、dead-letter count、Service Bus throttled requests/server errors、Event Grid delivery failures/drops/dead letters、accepted → final latency、final-status rates、outbox pending age，以及 ACS `429`/quota responses。Service Bus diagnostics 和 metrics 已写入 Log Analytics。生产有四条 namespace alerts（`aircontrack-servicebus-deadletter`、`aircontrack-servicebus-backlog`、`aircontrack-servicebus-throttled` 和 `aircontrack-servicebus-server-errors`），以及三条覆盖 delivery failure、dropped event 和 dead-lettered report 的 Event Grid alerts。另有两条 privacy-safe scheduled-query alerts，分别覆盖 accepted 超过两小时仍无 final report，以及 adverse provider outcomes。Enabled rules 绑定到 `aircontrack-operations-alerts` Action Group。Outbox-age、ACS-quota-spike alerts 和持续的端到端 inbox canaries 仍属于后续加固工作。
 
@@ -224,6 +224,7 @@ git diff --check
 ```bash
 RESOURCE_GROUP=airco-tracker-rg
 PUBLISHER_JOB=airco-alert-publisher-job
+PROJECT_DIR="$(pwd)"
 RECIPIENT_ID_1='<authorized-recipient-uuid-1>'
 RECIPIENT_ID_2='<authorized-recipient-uuid-2>'
 
@@ -234,12 +235,22 @@ echo "Reconciler execution: $RECONCILE_EXECUTION"
 # 继续前先等待该 execution 报告 Succeeded。
 
 command -v jq >/dev/null || { echo 'jq is required.' >&2; exit 1; }
+test -f "$PROJECT_DIR/scripts/render_job_execution_template.py" || {
+  echo '请从后端仓库根目录运行本命令。' >&2
+  exit 1
+}
 TEST_YAML="$(mktemp /tmp/airco-pipeline-test.XXXXXX.yaml)"
 chmod 600 "$TEST_YAML"
 trap 'rm -f "$TEST_YAML"' EXIT
 
+PUBLISHER_IMAGE="$(az containerapp job show \
+  -g "$RESOURCE_GROUP" -n "$PUBLISHER_JOB" \
+  --query 'properties.template.containers[0].image' -o tsv)"
+test -n "$PUBLISHER_IMAGE" || { echo 'Publisher image 为空。' >&2; exit 1; }
+
 az containerapp job show -g "$RESOURCE_GROUP" -n "$PUBLISHER_JOB" \
   --query properties.template -o json \
+  | python3 "$PROJECT_DIR/scripts/render_job_execution_template.py" "$PUBLISHER_IMAGE" \
   | jq --arg first "$RECIPIENT_ID_1" --arg second "$RECIPIENT_ID_2" '
       .containers[0].command = ["airco-tracker"]
       | .containers[0].args = [
@@ -262,6 +273,8 @@ az containerapp job logs show -g "$RESOURCE_GROUP" -n "$PUBLISHER_JOB" \
 ```
 
 保持正常 scanner 和 publisher schedules 不变。只读检查 worker logs 和 broker backlogs，不要 receive 或 purge messages；只记录 event/delivery IDs 和 counts，绝不能记录收件地址。成功标准是：定向 execution 成功、两个 delivery rows 都从 `accepted` 推进到 recipient-level final status、两个 inbox 都实际收到邮件，并且 subscription 与全部三条 queues 的 active/dead-letter counts 回到零；还要确认可见退订链接和 RFC 8058 one-click 路径都只暂停邮件、不改变付费权益。只有 ACS accepted 不代表 inbox 已投递。
+
+如果 reconciliation 没有返回 active entitled recipient，应在此停止并记录 safe skip。不能为了强行跑 canary 而替换为已过期、已注销或其他不符合权益的账户。直接登录验证/sender canary 仍可独立验证 ACS 自定义发件域；待存在获授权的 active entitled recipient 时再重跑完整 pipeline test。
 
 ## 运维
 

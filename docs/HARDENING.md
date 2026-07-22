@@ -5,7 +5,7 @@
   <a href="./HARDENING.md"><img alt="English" src="https://img.shields.io/badge/HARDENING-English-0969da"></a>
 </p>
 
-This runbook describes the additive inventory contract, outbound-URL boundary, bounded fetcher, state/alert retention, pending-outbox index, and the Owner-only runtime-identity migration introduced by the July 2026 hardening release. It is a pre-deployment document: do not describe these changes as production-verified until the deployment and checks below complete.
+This runbook describes the additive inventory contract, outbound-URL boundary, bounded fetcher, state/alert retention, pending-outbox index, and the Owner-only runtime-identity migration introduced by the July 2026 hardening release. The release and migration are production-verified; the procedure remains here as the authoritative rollback and future-environment runbook.
 
 ## Inventory freshness contract
 
@@ -43,7 +43,10 @@ Overlapping publisher executions are safe: deterministic event IDs and Service B
 - `${prefix}-scanner`: scanner only; Blob contributor, contributor on `alertoutbox` and `alertoutboxpending`, ACR pull, and secret-level reads only for `awin-publisher-api-token`, `aliexpress-app-key`, and `aliexpress-app-secret`.
 - `${prefix}-retention`: backend retention only; contributor on alert outbox/pending/delivery/index/suppression tables, reader on `alertrecipients`, and ACR pull.
 - `${prefix}-web-retention`: web-auth retention only; contributor on `users`/`authcodes`/`authsessions` and ACR pull, with no alert-pipeline, ACS, or Key Vault access.
+- `${prefix}-alert-publisher`: publisher only; reads and updates pending/archive outbox rows and sends only to the `stock-events` topic.
+- `${prefix}-alert-fanout`: reconciler/coordinator/fan-out only; reads the minimum recipient projection, consumes `email-fanout`, and sends opaque recipient jobs to the two fan-out queues.
 - `${prefix}-alert-email`: email worker only; its existing queue/table/ACS permissions plus a secret-level read only for `unsubscribe-signing-key`.
+- `${prefix}-alert-delivery-report`: ACS delivery-report worker and DLQ cleanup only; consumes the delivery-event queue and updates delivery/index/suppression state without stock-publish or email-send permission.
 
 No runtime has vault-wide secret-list/read access after migration. Secret values remain out of band. `manageSecretScopedKeyVaultRbac` is deliberately disabled in a bare Bicep invocation until all six named secrets exist; `deploy-azure.sh` checks secret metadata through the ARM control plane and enables the assignments automatically only when the set is complete. It never reads a secret value.
 
@@ -67,6 +70,15 @@ Rollback before cleanup by restoring the old job identity and its old grants. Af
 `deploy-application.sh` builds an immutable candidate and, when an earlier deployment exists, first runs the recipient reconciler once from a mode-`0600`, schema-filtered execution template. The template copies the deployed command, arguments, environment, and CPU/memory while replacing only the image; ambiguous multi-container or volume-backed templates fail closed. `job start --yaml` uses the deployed identity and dependencies without changing any production job definition. Only a successful canary proceeds to the Bicep update. The normal reconciler → scanner → publisher checks then run against the deployed image. An `EXIT` guard automatically redeploys every application workload with the captured previous image if the update or a post-deployment check fails, and re-verifies the reconciler.
 
 This automatic rollback restores executable code, not an arbitrary older infrastructure schema: it intentionally reapplies the current reviewed Bicep parameters with the previous immutable image. A release that intentionally changes incompatible resource configuration must retain the previous Git commit and use its template for a full configuration rollback. The web repository independently keeps the last healthy Container Apps revision at 100% traffic, verifies a zero-traffic candidate through its revision FQDN (including `/ready` dependency access), and shifts traffic only after success; any failure restores 100% traffic to the prior revision.
+
+## Production verification
+
+- Backend image/commit `1dd3017607ea0f2e6c72a223cd5aa0b6b5f5d24e` passed 413/413 unit tests and CI workflow `29963989458`; deploy workflow `29963989419` completed through the required production approval. The compatible frontend is commit `d097c75c9850946be024920677eba6761174ac48`, revision `airco-tracking-web--0000066`.
+- The Owner applied `migrate-runtime-identities.sh --apply` only after workload bindings and replacement grants were verified. A post-deployment dry-run is a clean no-op: every exact replacement remains present, no enumerated legacy broad grant remains, and Bicep redeployment did not recreate one.
+- Scanner, backend retention, web-auth cleanup, publisher, reconciler/coordinator/fan-out, email, and delivery-report workloads use the exact identities listed above. Health/readiness, localized legal content, anonymous inventory denial, Service Bus queue/subscription health, and production job executions passed.
+- The first production retention run revealed a real SDK contract that local mocks had hidden: `TableClient.query_entities` requires a positional `query_filter`. Commit `1dd3017` passes an explicit empty filter and adds a regression assertion. After redeployment, a real production retention execution succeeded.
+- Real ACS verification mail reached independent Outlook and Gmail providers. The custom-domain sender, support `Reply-To`, SPF, DKIM, and DMARC all verified. No active entitled alert recipient existed during the release window, so the full fan-out canary safely produced no delivery job; entitlement checks were not bypassed.
+- Remaining external gates are the open ACS quota increase and sender warm-up, completion and professional review of private legal/business facts, and Stripe live activation. Stripe stays in test mode and fails closed until those prerequisites are complete.
 
 ## Verification gate
 

@@ -116,13 +116,13 @@ The subscriber count is no longer part of scanner latency. A scan writes at most
 
 - Recipient rows are distributed across 32 Azure Table partitions and streamed in pages of 250. No in-memory list of all subscribers is built.
 - Coordinator replicas scale to 4 and fan-out workers to 16 from Service Bus backlog. These values can be raised after measuring Table and Service Bus throttling.
-- The Standard-tier topic and both queues are created as 16-partition entities. Alert messages have no global ordering requirement, so partitioning removes the single-broker/entity bottleneck and improves availability. Every batch has one deterministic partition key (stock bucket, event, or recipient shard), preserving duplicate detection without mixing partition keys in a Service Bus batch. Azure cannot change this flag in place after entity creation; migrate or recreate empty entities before deploying this foundation change.
+- The Standard-tier topic and all three queues (`email-fanout-jobs`, `email-jobs`, and `acs-email-delivery-events`) are created as 16-partition entities. Alert messages have no global ordering requirement, so partitioning removes the single-broker/entity bottleneck and improves availability. Every batch has one deterministic partition key (stock bucket, event, recipient shard, or provider event), preserving duplicate detection without mixing partition keys in a Service Bus batch. Azure cannot change this flag in place after entity creation; migrate or recreate empty entities before deploying this foundation change.
 - `enableServiceBusPartitioning` is a foundation creation/rollback parameter; changing it still requires deleting or versioning the empty entities first because Azure cannot update it in place.
 - The canonical `users` table is never scanned per stock event. The daily reconciler streams it only as a repair job, while the email worker performs a constant-time UUID or legacy-source-row point read per actual delivery. The bounded `userId` query remains only as temporary compatibility for projections not yet backfilled with a source pointer. Manual database/table splitting is not currently required for the alert hot path.
 - Service Bus is Standard with partition-safe batching and duplicate detection. Monitor namespace throttling and queue age; move to a partitioned Premium namespace when shared-tier latency or the Standard namespace operation ceiling becomes material.
 - Production uses the verified customer-managed ACS sender domain `airco-tracker.eu`. The documented default limit is 30 messages/minute and 100/hour. Final-delivery, bounce, suppression, and alert monitoring are operational; the email worker remains intentionally capped at one replica with a 13-second interval until the open higher-quota request is approved. Production reservations are stored in the dedicated `emailratelimit` Table with optimistic ETag writes, so the interval remains global when the worker is later scaled to multiple replicas. Local development defaults to an in-process limiter. `infra/job.bicep` fails closed by forcing one replica whenever the distributed backend is disabled. This provider quota, not Service Bus or Table Storage, is the current end-to-end throughput ceiling.
 
-Domain/SPF/DKIM/DKIM2 verification, Communication Service linking, explicit `ACS_EMAIL_DOMAIN_NAME` selection, and real Gmail/Outlook inbox canaries are complete. Foundation keeps the custom domain alongside the Azure-managed fallback, and deployment selects it by name rather than relying on `linkedDomains` array order. Reply-To, user alert preference, RFC 8058 unsubscribe, recipient-level final-delivery ingestion, hard-bounce suppression, privacy cleanup, and related monitoring are deployed and production-verified. ACS quota case `06bfd9d3-65c22af0-6d841855-b8dc-4aea-8d93-d2364a875032` is open for tier `250` (1,000/minute and 3,000/hour). Keep `EMAIL_MIN_SEND_INTERVAL_SECONDS=13` and `EMAIL_MAX_REPLICAS=1` until Azure approves it; raising replicas first would only produce ACS `429` responses and queue churn. DNS, consent, final-delivery, suppression, monitoring, quota, and warm-up procedures are in [EMAIL_DELIVERY.md](./EMAIL_DELIVERY.md); custom-domain rollback remains in [ACS_CUSTOM_EMAIL_DOMAIN.md](./ACS_CUSTOM_EMAIL_DOMAIN.md).
+Domain/SPF/DKIM/DKIM2 verification, Communication Service linking, explicit `ACS_EMAIL_DOMAIN_NAME` selection, and real Gmail/Outlook inbox canaries are complete. Foundation keeps the custom domain alongside the Azure-managed fallback, and deployment selects it by name rather than relying on `linkedDomains` array order. Reply-To, user alert preference, RFC 8058 unsubscribe, recipient-level final-delivery ingestion, hard-bounce suppression, privacy cleanup, and related monitoring are deployed and production-verified. The ACS quota request is open for tier `250` (1,000/minute and 3,000/hour), with its private case identifier kept outside this public repository. Keep `EMAIL_MIN_SEND_INTERVAL_SECONDS=13` and `EMAIL_MAX_REPLICAS=1` until Azure approves it; raising replicas first would only produce ACS `429` responses and queue churn. DNS, consent, final-delivery, suppression, monitoring, quota, and warm-up procedures are in [EMAIL_DELIVERY.md](./EMAIL_DELIVERY.md); custom-domain rollback remains in [ACS_CUSTOM_EMAIL_DOMAIN.md](./ACS_CUSTOM_EMAIL_DOMAIN.md).
 
 Useful capacity signals are active-message count and oldest-message age for all queues/subscriptions, dead-letter count, Service Bus throttled requests/server errors, Event Grid delivery failures/drops/dead letters, accepted-to-final latency, final-status rates, outbox pending age, and ACS `429`/quota responses. Diagnostic Service Bus logs and metrics are sent to Log Analytics. Production has four namespace alerts (`aircontrack-servicebus-deadletter`, `aircontrack-servicebus-backlog`, `aircontrack-servicebus-throttled`, and `aircontrack-servicebus-server-errors`) plus three Event Grid alerts for delivery failure, dropped events, and dead-lettered reports. Two privacy-safe scheduled-query alerts cover accepted deliveries missing a final report after two hours and adverse provider outcomes. Enabled rules bind to the `aircontrack-operations-alerts` Action Group. Outbox-age and ACS-quota-spike alerts, plus continuing end-to-end inbox canaries, remain future hardening work.
 
@@ -224,6 +224,7 @@ First run the Managed-Identity reconciler and confirm that execution succeeds. T
 ```bash
 RESOURCE_GROUP=airco-tracker-rg
 PUBLISHER_JOB=airco-alert-publisher-job
+PROJECT_DIR="$(pwd)"
 RECIPIENT_ID_1='<authorized-recipient-uuid-1>'
 RECIPIENT_ID_2='<authorized-recipient-uuid-2>'
 
@@ -234,12 +235,22 @@ echo "Reconciler execution: $RECONCILE_EXECUTION"
 # Wait for this execution to report Succeeded before continuing.
 
 command -v jq >/dev/null || { echo 'jq is required.' >&2; exit 1; }
+test -f "$PROJECT_DIR/scripts/render_job_execution_template.py" || {
+  echo 'Run this command from the backend repository root.' >&2
+  exit 1
+}
 TEST_YAML="$(mktemp /tmp/airco-pipeline-test.XXXXXX.yaml)"
 chmod 600 "$TEST_YAML"
 trap 'rm -f "$TEST_YAML"' EXIT
 
+PUBLISHER_IMAGE="$(az containerapp job show \
+  -g "$RESOURCE_GROUP" -n "$PUBLISHER_JOB" \
+  --query 'properties.template.containers[0].image' -o tsv)"
+test -n "$PUBLISHER_IMAGE" || { echo 'Publisher image was empty.' >&2; exit 1; }
+
 az containerapp job show -g "$RESOURCE_GROUP" -n "$PUBLISHER_JOB" \
   --query properties.template -o json \
+  | python3 "$PROJECT_DIR/scripts/render_job_execution_template.py" "$PUBLISHER_IMAGE" \
   | jq --arg first "$RECIPIENT_ID_1" --arg second "$RECIPIENT_ID_2" '
       .containers[0].command = ["airco-tracker"]
       | .containers[0].args = [
@@ -262,6 +273,8 @@ az containerapp job logs show -g "$RESOURCE_GROUP" -n "$PUBLISHER_JOB" \
 ```
 
 Keep the normal scanner and publisher schedules unchanged. Inspect worker logs and broker backlogs without receiving or purging messages; record only event/delivery IDs and counts, never recipient addresses. A successful test requires the targeted execution to succeed, both delivery rows to progress from `accepted` to a recipient-level final status, both inboxes to receive the message, and active/dead-letter counts on the subscription and all three queues to return to zero. Also verify the visible and RFC 8058 unsubscribe paths without changing the paid entitlement. ACS acceptance alone does not prove inbox delivery.
+
+If reconciliation returns no active entitled recipients, stop here and record a safe skip. Do not substitute an expired, deleted, or otherwise ineligible account merely to force the canary. Direct authentication/sender canaries can still verify the custom ACS sender independently; rerun this full pipeline test when an authorized active entitled recipient exists.
 
 ## Operations
 

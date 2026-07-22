@@ -5,7 +5,7 @@
   <a href="./HANDOFF.md"><img alt="English" src="https://img.shields.io/badge/HANDOFF-English-0969da"></a>
 </p>
 
-Last updated: 2026-07-19 UTC
+Last updated: 2026-07-22 UTC
 
 Update this English file and `HANDOFF.zh.md` together. Do not record secrets, email addresses, access tokens, payment data, or unnecessary personal information.
 
@@ -27,9 +27,9 @@ The released architecture replaces synchronous per-user sending with an Azure Se
 - Publisher job: `airco-alert-publisher-job`, `* * * * *` UTC
 - Reconciler job: `airco-alert-reconciler-job`, `17 3 * * *` UTC
 - Production mail provider: Azure Communication Services Email
-- Deployed backend image/commit: `e6d1f3a6d5c6ee782c4459b0eefe9ed7da3a86d9`
-- Compatible deployed frontend commit: `e33b3826e5e1c77451688d3a8f738d134e3101a3`
-- Latest successful backend workflow: `29611560636`; latest successful frontend workflow: `29691574367`
+- Deployed backend image/commit: `1dd3017607ea0f2e6c72a223cd5aa0b6b5f5d24e`
+- Compatible deployed frontend commit: `d097c75c9850946be024920677eba6761174ac48`
+- Latest successful backend CI/deploy workflows: `29963989458` / `29963989419`; production frontend revision: `airco-tracking-web--0000066`
 - Latest foundation deployment: `airco-foundation` (succeeded 2026-07-17)
 - GitHub hardening: both repositories' `main` branches require the `validate` status check and block force-push and deletion. Both deploy workflows are gated on the `production` GitHub environment with a required reviewer.
 - GitHub production pause variable: `DEPLOYMENT_PAUSED=false`
@@ -47,7 +47,7 @@ The email-delivery hardening release is deployed and production-tested:
 - Raw recipient data is confined to the provider-report path: one-day queue TTL, no expiry-to-DLQ, private Event Grid dead letters with seven-day lifecycle deletion, and a daily Service Bus delivery-report DLQ privacy-cleanup job.
 - Event Grid dead-letter/dropped/repeated-failure alerts, privacy-safe final-outcome queries, and ACS operation diagnostics are active. The first manual cleanup execution and a real Action Group notification both succeeded.
 
-ACS higher-quota case `06bfd9d3-65c22af0-6d841855-b8dc-4aea-8d93-d2364a875032` is **Open**. The requested portal tier is `250` (1,000 messages/minute and 3,000/hour), while the application will initially self-limit to at most 100/minute and 10,000/day for up to 1,000 initial users. Keep the deployed one-worker/13-second sender limit until Azure approves the request, then warm the domain gradually for two to four weeks.
+The ACS higher-quota request is **Open**; its private case identifier is kept outside this public repository. The requested portal tier is `250` (1,000 messages/minute and 3,000/hour), while the application will initially self-limit to at most 100/minute and 10,000/day for up to 1,000 initial users. Keep the deployed one-worker/13-second sender limit until Azure approves the request, then warm the domain gradually for two to four weeks.
 
 ## Asynchronous alert pipeline
 
@@ -86,7 +86,7 @@ The backend reconciler supports deterministic UUID backfill for legacy rows, rec
 ## Security and privacy
 
 - Production uses Entra ID/OAuth and user-assigned Managed Identity. Service Bus and ACS local authentication are disabled; Storage defaults to OAuth and the Blob container is private.
-- Scanner/shared web runtime, publisher, fan-out, email delivery, and delivery-report processing use separate identities. Pipeline permissions are entity/table-scoped wherever Azure RBAC permits. The pending hardening work also replaces vault-wide secret access with exact secret scopes: web gets unsubscribe/withdrawal/OTP-pepper only, scanner gets Awin/AliExpress credentials only, and email gets unsubscribe only. Event Grid alone has the storage-account-scoped Blob role required by Azure's managed-identity dead-letter validation; the delivery publisher has only table-level read access to `alertdeliveries`. GitHub deploys with OIDC and a custom least-privilege role; it cannot create role assignments or read application secrets. `infra/github-oidc.bicep` issues both ref-scoped and environment-scoped federated credentials (`github-airco-tracking-env-production`, `github-airco-tracking-web-env-production`) on `airco-github-deployer`, because jobs declaring `environment:` receive an environment-scoped token subject.
+- Web, scanner, retention, publisher, fan-out, email delivery, and delivery-report processing use separate identities. Production binds `aircontrack-identity` to the web app, `aircontrack-scanner` to the scanner job, `aircontrack-retention` to backend retention, `aircontrack-web-retention` to web-auth cleanup, `aircontrack-alert-publisher` to the publisher, `aircontrack-alert-fanout` to the reconciler/coordinator/fan-out workers, `aircontrack-alert-email` to the email worker, and `aircontrack-alert-delivery-report` to delivery processing and its DLQ cleanup. Pipeline permissions are entity/table-scoped wherever Azure RBAC permits. Vault-wide secret access has been replaced with exact secret scopes: web gets unsubscribe/withdrawal/OTP-pepper only, scanner gets Awin/AliExpress credentials only, and email gets unsubscribe only. Event Grid alone has the storage-account-scoped Blob role required by Azure's managed-identity dead-letter validation; the delivery publisher has only table-level read access to `alertdeliveries`. GitHub deploys with OIDC and a custom least-privilege role; it cannot create role assignments or read application secrets. `infra/github-oidc.bicep` issues both ref-scoped and environment-scoped federated credentials (`github-airco-tracking-env-production`, `github-airco-tracking-web-env-production`) on `airco-github-deployer`, because jobs declaring `environment:` receive an environment-scoped token subject.
 - The old storage-account-wide `Storage Table Data Contributor` assignment has been removed, and the shared identity's blob data-plane access is now narrowed to the `airco-tracker` container. A custom role `aircontrack-acs-email-sender` (three actions, per Microsoft Learn SMTP-authentication guidance) replaced `Communication and Email Service Owner` for both `aircontrack-identity` and `aircontrack-alert-email`. The legacy broad assignments were deleted manually after verification. Key Vault `AuditEvent` diagnostics flow to the operations Log Analytics workspace, and a monthly €50 cost budget notifies the operations action group at 80% and 100% of actual spend. Key Vault soft-delete retention remains 7 days: Azure fixes it at vault creation and rejects changes, as documented in the template comment.
 - Normal application queue messages never contain an email address, nickname, Stripe/customer/payment identifiers, card data, or the private canonical source-row pointer. The dedicated provider-report queue is the narrowly retained exception because ACS delivery events necessarily contain the recipient; its one-day TTL, private dead letter, and cleanup policy bound that exposure. `alertdeliveries`, `alertdeliveryindex`, and suppression rows retain only opaque IDs/fingerprints and normalized status.
 - Outside that bounded provider-report path, the email address exists only in canonical `users` and the minimal `alertrecipients` projection. The email worker resolves it immediately before sending and logs only a masked form.
@@ -120,23 +120,24 @@ Production uses the verified customer-managed ACS sender domain `airco-tracker.e
 ## External API status
 
 - Conrad storefront access is Cloudflare-blocked. Use only the official Price & Availability API after allowlist/approval; never restore anti-bot scraping.
-- AliExpress affiliate access was approved, but Open Platform application/key/official signing status must be reconfirmed before implementation. Read only catalog/affiliate scopes; do not collect buyer, order, payment, or other personal data.
+- AliExpress Affiliate Open Platform search and SKU-detail clients are implemented as country-specific diagnostics. Every request carries the actual delivery country, but the approved SKU contract exposes no documented stock/orderability field, so these adapters deliberately remain outside the production registry and cannot create inventory or alerts. Only catalog/affiliate scopes are used; buyer, order, payment, and other personal data are out of scope.
 
-## Pending hardening release (not production-verified yet)
+## Deployed hardening release
 
-The current worktree separates web, scanner, and retention identities; makes `alertoutboxpending` an authoritative full-payload enqueue journal with a complete continuation-page legacy migration and crash-safe archive repair; excludes stale retailer products from all live totals and scrubs their product payload after the 24-hour diagnostic window; routes all retailer and production partner-API traffic through one bounded, redirect-validated fetch boundary with endpoint-specific MIME/size limits and explicit read-only POST retries; validates canonical and affiliate URL hosts; compacts unavailable product state after 90 days and removes tombstones after 365 days; and removes the fixed 5,000-row retention ceiling. CI now validates pushes to `main` from the hash-locked dependency set.
+The deployed release separates web, scanner, and retention identities; makes `alertoutboxpending` an authoritative full-payload enqueue journal with a complete continuation-page legacy migration and crash-safe archive repair; excludes stale retailer products from all live totals and scrubs their product payload after the 24-hour diagnostic window; routes all retailer and production partner-API traffic through one bounded, redirect-validated fetch boundary with endpoint-specific MIME/size limits and explicit read-only POST retries; validates canonical and affiliate URL hosts; compacts unavailable product state after 90 days and removes tombstones after 365 days; and removes the fixed 5,000-row retention ceiling. CI validates pushes to `main` from the hash-locked dependency set.
 
-Deploy foundation and application with an Owner, verify all four workload identity bindings plus web/inventory/email smoke tests, then explicitly run `scripts/migrate-runtime-identities.sh --apply`. The script is dry-run by default, verifies every exact replacement grant before deletion, removes only its enumerated legacy grants (including the three vault-wide secret-reader grants), and verifies the result. GitHub deliberately cannot perform this RBAC cleanup. Full contract, rollback, and idempotency details are in [HARDENING.md](./HARDENING.md).
+The Owner-only `scripts/migrate-runtime-identities.sh --apply` migration was completed after workload and smoke verification. A subsequent dry-run was a clean no-op: it found every exact replacement grant and no enumerated legacy grant to remove. GitHub deliberately remains unable to perform RBAC cleanup. Full contract, rollback, idempotency, and production evidence are in [HARDENING.md](./HARDENING.md).
 
 ## Verification completed for this release
 
-Backend image/commit `e6d1f3a6d5c6ee782c4459b0eefe9ed7da3a86d9` is deployed and production-verified. Workflow `29611560636` was manually approved through the new `production` GitHub environment gate. The first gated run `29610815334` failed at OIDC login because jobs declaring `environment:` receive an environment-scoped token subject; adding the federated credentials `github-airco-tracking-env-production` and `github-airco-tracking-web-env-production` to the `airco-github-deployer` identity fixed it.
+Backend image/commit `1dd3017607ea0f2e6c72a223cd5aa0b6b5f5d24e` is deployed and production-verified. CI workflow `29963989458` passed and deploy workflow `29963989419` completed after the required `production` approval.
 
-- Backend: the previously deployed release passed 355/355 unit tests. The pending hardening worktree passes the full unit suite, `compileall`, shell syntax, all Bicep builds, and `git diff --check`; it has not yet been production-deployed. The last live dry-run covered 46/46 retailers with zero failures, and the alert and inventory paths agreed on presale classification.
-- Frontend: workflow `29691574367`, also approved through the `production` environment, deployed commit `e33b3826e5e1c77451688d3a8f738d134e3101a3`; production serves revision `airco-tracking-web--0000065`.
-- Manual scanner execution `airco-tracker-job-a822jhn` succeeded after the legacy broad RBAC grants were deleted, proving container-scope blob access plus the custom ACS sender role suffice.
-- Deploy verification executions—reconciler suffix `o7b9y3p` and scanner suffix `mu9osx3`—succeeded; the publisher runs minutely, and all three Service Bus queues ended at zero active and zero dead-letter messages.
-- Foundation redeployment `airco-foundation` succeeded with the RBAC narrowing, Key Vault diagnostics, and cost budget described above. The owner's CLI identity has no blob data-plane access, confirming least privilege.
+- Backend: 413/413 unit tests, `compileall`, shell syntax, all Bicep builds, locked-dependency audit, and `git diff --check` passed before release.
+- The first production retention execution exposed a real Azure SDK contract missed by local mocks: `TableClient.query_entities` requires a positional `query_filter`. Commit `1dd3017` now passes an explicit empty filter and asserts that call in regression coverage. The immutable image was redeployed and a real production retention rerun succeeded.
+- Frontend commit `d097c75c9850946be024920677eba6761174ac48` is production revision `airco-tracking-web--0000066`; `/health`, `/ready`, localized legal content, and anonymous inventory denial passed smoke checks.
+- Reconciler, scanner, publisher, retention, delivery cleanup, and all four backend apps run under their exact identities. All three Service Bus queues and the stock-event subscription ended at zero active and zero dead-letter messages.
+- The least-privilege migration removed the enumerated broad table, Blob, and vault-wide secret grants only after replacements were verified. Its post-deployment dry-run is idempotent and reports neither obsolete grants nor further changes.
+- Real production ACS verification messages were delivered to independent Outlook and Gmail recipients from the custom domain. SPF, DKIM, and DMARC passed, and the support `Reply-To` was present. There were no active entitled alert recipients at verification time, so the full fan-out canary correctly produced no delivery job rather than bypassing entitlement checks.
 - Production Table `i18n` was reseeded to 64 entries across the `email` and `web` scopes, adding `legal_privacy_link`, `legal_terms_link`, `legal_imprint_link`, and `legal_affiliate_link` and syncing `checking_subscription` to the Heatwave Pass wording. The temporary user-level table grant used for seeding was revoked afterwards.
 
 ## Deployment order
@@ -150,14 +151,14 @@ az login
 ./scripts/bootstrap-github-oidc.sh
 ```
 
-For normal application releases, pushing `main` runs tests and builds an immutable SHA-tagged image. An existing environment first runs a reconciler canary with that candidate image; only then are jobs/apps updated and reconciler → scanner → publisher verified. A failed update or verification automatically reapplies the captured previous image. The compatible frontend deploy keeps its previous revision at 100% traffic until the candidate revision passes direct smoke/readiness checks, and automatically restores prior traffic on failure. These controls are pending deployment verification. If fresh RBAC has not propagated, wait and rerun rather than broadening permissions.
+For normal application releases, pushing `main` runs tests and builds an immutable SHA-tagged image. An existing environment first runs a reconciler canary with that candidate image; only then are jobs/apps updated and reconciler → scanner → publisher verified. A failed update or verification automatically reapplies the captured previous image. The compatible frontend deploy keeps its previous revision at 100% traffic until the candidate revision passes direct smoke/readiness checks, and automatically restores prior traffic on failure. These controls are production-verified. If fresh RBAC has not propagated, wait and rerun rather than broadening permissions.
 
 ## Next concrete steps
 
-1. Continue monitoring ACS quota case `06bfd9d3-65c22af0-6d841855-b8dc-4aea-8d93-d2364a875032` (still **Open**) and answer Azure with the existing consent, authentication, unsubscribe, final-delivery, suppression, monitoring, and warm-up evidence. Keep one worker and the 13-second interval until Azure approves, then raise concurrency conservatively under the 100/minute and 10,000/day launch caps.
+1. Continue monitoring the ACS quota request (still **Open**) through its privately recorded case identifier, and answer Azure with the existing consent, authentication, unsubscribe, final-delivery, suppression, monitoring, and warm-up evidence. Keep one worker and the 13-second interval until Azure approves, then raise concurrency conservatively under the 100/minute and 10,000/day launch caps.
 2. Warm the custom domain over two to four weeks, then tighten DMARC from observation-only `p=none` to `quarantine` and finally `reject` while reviewing aggregate reports, provider complaints, bounce/suppression rates, and inbox placement; keep failures below 1%.
-3. Confirm one real OTP login email arrives — the first send under the new `aircontrack-acs-email-sender` custom role.
-4. Fill the legal pages' `[TODO]` placeholders (operator identity, VAT, refunds, governing law) and obtain legal review before leaving Stripe test mode.
+3. Repeat a full stock-event → fan-out → ACS → final-delivery canary when at least one explicitly consenting, actively entitled test recipient exists; do not create an entitlement solely to force the test.
+4. Complete the legal pages' private operator/VAT/refund/governing-law facts and obtain legal review. Stripe must remain in test mode and fail closed until the business and legal activation prerequisites are complete.
 5. Mid-term items: E.Leclerc product-URL identity migration, BTU enrichment cache, pagination coverage, PaaS public-endpoint tightening or documented risk acceptance, and a sanctioned GAMMA/KARWEI feed or written permission (any contract failure remains fail-closed).
 
 ## Updating this handoff
