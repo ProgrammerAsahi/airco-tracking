@@ -2007,8 +2007,14 @@ class ParserTests(unittest.TestCase):
           <sitemap><loc>https://www.hubo.nl/sitemap_products_1.xml</loc></sitemap>
         </sitemapindex>"""
         child = b"""<?xml version="1.0" encoding="UTF-8"?>
-        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-          <url><loc>https://www.hubo.nl/products/hamer</loc></url>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+                xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+          <url>
+            <loc>https://www.hubo.nl/products/hamer</loc>
+            <image:image>
+              <image:loc>https://cdn.shopify.com/s/files/hamer.jpg</image:loc>
+            </image:image>
+          </url>
           <url><loc>https://www.hubo.nl/products/schroevendraaier</loc></url>
         </urlset>"""
         pages = {

@@ -101,9 +101,16 @@ def _sitemap_locs(content: bytes) -> list[str]:
         root = ET.fromstring(content)
     except ET.ParseError as exc:
         raise RuntimeError("Hubo sitemap was invalid") from exc
+    root_name = root.tag.rsplit("}", 1)[-1]
+    if root_name == "sitemapindex":
+        nodes = root.findall("./sm:sitemap/sm:loc", _SITEMAP_NS)
+    elif root_name == "urlset":
+        nodes = root.findall("./sm:url/sm:loc", _SITEMAP_NS)
+    else:
+        raise RuntimeError("Hubo sitemap root was unsupported")
     return [
         (node.text or "").strip()
-        for node in root.findall(".//{*}loc")
+        for node in nodes
         if (node.text or "").strip()
     ]
 

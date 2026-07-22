@@ -25,6 +25,7 @@ elif [[ "$DEPLOYMENT_PAUSED" != "false" ]]; then
 fi
 
 command -v az >/dev/null || { echo "Azure CLI (az) is required." >&2; exit 1; }
+command -v python3 >/dev/null || { echo "Python 3 is required." >&2; exit 1; }
 az account show >/dev/null || { echo "Run 'az login' first." >&2; exit 1; }
 
 single_resource_name() {
@@ -190,11 +191,34 @@ start_and_verify_job() {
     --query name
     --output tsv
   )
+  local candidate_template=""
   if [[ -n "$override_image" ]]; then
-    start_args+=(--image "$override_image")
+    # Any inline override makes Azure construct a fresh execution container;
+    # omitted fields are not inherited. Render a complete, schema-filtered
+    # execution template so command, args, environment, and resources remain
+    # identical while only the immutable image changes.
+    candidate_template="$(mktemp "${TMPDIR:-/tmp}/airco-job-execution.XXXXXX")"
+    chmod 600 "$candidate_template"
+    if ! az containerapp job show \
+      --name "$job_name" \
+      --resource-group "$RESOURCE_GROUP" \
+      --query properties.template \
+      --output json \
+      | python3 "$PROJECT_DIR/scripts/render_job_execution_template.py" "$override_image" \
+        > "$candidate_template"; then
+      rm -f "$candidate_template"
+      echo "Could not render a safe candidate execution template for $job_name." >&2
+      return 1
+    fi
+    start_args+=(--yaml "$candidate_template")
   fi
   local execution_name
-  execution_name="$(az containerapp job start "${start_args[@]}")"
+  if ! execution_name="$(az containerapp job start "${start_args[@]}")"; then
+    [[ -z "$candidate_template" ]] || rm -f "$candidate_template"
+    echo "Failed to start verification execution for $job_name." >&2
+    return 1
+  fi
+  [[ -z "$candidate_template" ]] || rm -f "$candidate_template"
   if [[ -z "$execution_name" ]]; then
     echo "Failed to start verification execution for $job_name." >&2
     return 1
