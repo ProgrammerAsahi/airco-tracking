@@ -47,6 +47,12 @@ resource githubEnvironmentCredential 'Microsoft.ManagedIdentity/userAssignedIden
     issuer: 'https://token.actions.githubusercontent.com'
     subject: 'repo:${githubRepository}:environment:${githubEnvironment}'
   }
+  // Azure rejects concurrent federated-credential writes on one managed
+  // identity. Keep these resources explicitly serialized so repeatable OIDC
+  // bootstraps do not fail nondeterministically at the control plane.
+  dependsOn: [
+    githubCredential
+  ]
 }
 
 module deployRole 'github-deployer-role.bicep' = {

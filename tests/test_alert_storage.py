@@ -62,6 +62,76 @@ class _OutboxTable:
         self.entity.update(update)
 
 
+class _MemoryTable:
+    """Small deterministic Azure Table model with boundary fault hooks."""
+
+    def __init__(self) -> None:
+        self.entities: dict[tuple[str, str], dict] = {}
+        self.etags: dict[tuple[str, str], int] = {}
+        self.before_create = None
+        self.after_create = None
+        self.before_update = None
+        self.before_delete = None
+        self.delete_calls: list[tuple[str, str]] = []
+
+    def create_entity(self, entity) -> None:
+        value = dict(entity)
+        if self.before_create is not None:
+            self.before_create(value)
+        key = (str(value["PartitionKey"]), str(value["RowKey"]))
+        if key in self.entities:
+            raise ResourceExistsError("row already exists")
+        self.entities[key] = value
+        self.etags[key] = 1
+        if self.after_create is not None:
+            self.after_create(value)
+
+    def get_entity(self, partition, row):
+        key = (str(partition), str(row))
+        if key not in self.entities:
+            raise ResourceNotFoundError("row not found")
+        return _Entity(self.entities[key], f"etag-{self.etags[key]}")
+
+    def query_entities(self, query=None, **_kwargs):
+        values = list(self.entities.values())
+        if query == "PartitionKey eq 'pending'":
+            values = [item for item in values if item["PartitionKey"] == "pending"]
+        elif query == "status eq 'pending'":
+            values = [item for item in values if item.get("status") == "pending"]
+        return [
+            _Entity(
+                item,
+                f"etag-{self.etags[(item['PartitionKey'], item['RowKey'])]}",
+            )
+            for item in values
+        ]
+
+    def update_entity(self, update, **kwargs) -> None:
+        value = dict(update)
+        if self.before_update is not None:
+            self.before_update(value)
+        key = (str(value["PartitionKey"]), str(value["RowKey"]))
+        if key not in self.entities:
+            raise ResourceNotFoundError("row not found")
+        expected = f"etag-{self.etags[key]}"
+        if kwargs.get("etag") != expected:
+            from azure.core.exceptions import ResourceModifiedError
+
+            raise ResourceModifiedError("etag changed")
+        self.entities[key].update(value)
+        self.etags[key] += 1
+
+    def delete_entity(self, partition, row) -> None:
+        key = (str(partition), str(row))
+        self.delete_calls.append(key)
+        if self.before_delete is not None:
+            self.before_delete(key)
+        if key not in self.entities:
+            raise ResourceNotFoundError("row not found")
+        del self.entities[key]
+        self.etags.pop(key, None)
+
+
 def _job() -> EmailJob:
     return EmailJob.create("a" * 64, str(uuid.uuid4()))
 
@@ -227,6 +297,22 @@ class OutboxConditionalUpdateTests(unittest.TestCase):
         outbox._table = table
         return outbox, table, event
 
+    def _memory_outbox(self):
+        _outbox, _source, event = self._outbox()
+        table = _MemoryTable()
+        pending = _MemoryTable()
+        pending.create_entity(
+            {
+                "PartitionKey": "_meta",
+                "RowKey": "journal-v2",
+                "completedAt": "2026-07-22T00:00:00Z",
+            }
+        )
+        outbox = AzureTableOutbox.__new__(AzureTableOutbox)
+        outbox._table = table
+        outbox._pending = pending
+        return outbox, table, pending, event
+
     def test_mark_published_uses_the_current_entity_etag(self) -> None:
         from azure.core import MatchConditions
 
@@ -240,6 +326,340 @@ class OutboxConditionalUpdateTests(unittest.TestCase):
         self.assertEqual(update["attempts"], 1)
         self.assertEqual(kwargs["etag"], "etag-outbox-1")
         self.assertEqual(kwargs["match_condition"], MatchConditions.IfNotModified)
+
+    def test_pending_reads_hot_partition_and_cleans_published_index(self) -> None:
+        pending_outbox, _table, pending_event = self._outbox()
+        published_outbox, published_table, published_event = self._outbox(status="published")
+        # Give the second event a distinct row while preserving a valid payload.
+        pending_index = MagicMock()
+        pending_index.get_entity.return_value = {"completedAt": "2026-07-22T00:00:00Z"}
+        pending_index.query_entities.return_value = [
+            _Entity({
+                "PartitionKey": "pending",
+                "RowKey": AzureTableOutbox.pending_row_key(pending_event),
+                "eventId": pending_event.event_id,
+            }, "etag-pending"),
+            _Entity({
+                "PartitionKey": "pending",
+                "RowKey": AzureTableOutbox.pending_row_key(published_event) + "-published",
+                "eventId": published_event.event_id,
+            }, "etag-published"),
+        ]
+        table = MagicMock()
+        table.query_entities.return_value = []
+        table.get_entity.side_effect = [
+            _Entity(pending_outbox._table.entity, "etag-1"),
+            _Entity(published_table.entity, "etag-2"),
+        ]
+        outbox = AzureTableOutbox.__new__(AzureTableOutbox)
+        outbox._table = table
+        outbox._pending = pending_index
+
+        records = outbox.pending(limit=10)
+
+        self.assertEqual([record.status for record in records], ["pending"])
+        pending_index.query_entities.assert_called_once_with("PartitionKey eq 'pending'")
+        pending_index.delete_entity.assert_called_once()
+
+    def test_legacy_backfill_drains_every_page_before_marking_complete(self) -> None:
+        outbox, source_table, event = self._outbox()
+        table = MagicMock()
+        table.query_entities.return_value = iter(
+            [_Entity(source_table.entity, f"etag-{index}") for index in range(1_205)]
+        )
+        pending_index = MagicMock()
+        pending_index.get_entity.side_effect = ResourceNotFoundError("not migrated")
+        outbox._table = table
+        outbox._pending = pending_index
+
+        outbox._backfill_legacy_pending()
+
+        self.assertEqual(pending_index.create_entity.call_count, 1_206)
+        marker = pending_index.create_entity.call_args_list[-1].args[0]
+        self.assertEqual(marker["PartitionKey"], "_meta")
+        self.assertEqual(marker["RowKey"], "journal-v2")
+
+    def test_concurrent_orphan_cleanup_is_idempotent(self) -> None:
+        outbox, _table, pending_event = self._outbox(status="published")
+        pending_index = MagicMock()
+        pending_index.get_entity.return_value = {"completedAt": "2026-07-22T00:00:00Z"}
+        pending_index.query_entities.return_value = [
+            {
+                "PartitionKey": "pending",
+                "RowKey": AzureTableOutbox.pending_row_key(pending_event),
+                "eventId": pending_event.event_id,
+            }
+        ]
+        pending_index.delete_entity.side_effect = ResourceNotFoundError(
+            "another publisher already cleaned it"
+        )
+        outbox._pending = pending_index
+
+        self.assertEqual(outbox.pending(limit=10), [])
+
+    def test_journal_create_failure_never_commits_an_archive(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        pending.before_create = lambda _entity: (_ for _ in ()).throw(
+            RuntimeError("journal unavailable")
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "journal unavailable"):
+            outbox.create_if_absent(event)
+
+        self.assertNotIn(
+            (AzureTableOutbox.partition_key(event.event_id), event.event_id),
+            table.entities,
+        )
+
+    def test_archive_failure_after_journal_commit_remains_publishable(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        table.before_create = lambda _entity: (_ for _ in ()).throw(
+            RuntimeError("ambiguous archive timeout")
+        )
+
+        self.assertTrue(outbox.create_if_absent(event))
+
+        journal_key = ("pending", event.event_id)
+        self.assertIn(journal_key, pending.entities)
+        self.assertEqual(
+            [record.event.event_id for record in outbox.pending(limit=10)],
+            [event.event_id],
+        )
+        self.assertIn(journal_key, pending.entities)
+
+    def test_publisher_can_read_the_journal_during_archive_write_gap(self) -> None:
+        outbox, _table, pending, event = self._memory_outbox()
+        observed: list[str] = []
+
+        def publish_between_writes(entity) -> None:
+            if entity.get("PartitionKey") == "pending":
+                observed.extend(
+                    record.event.event_id for record in outbox.pending(limit=10)
+                )
+
+        pending.after_create = publish_between_writes
+
+        self.assertTrue(outbox.create_if_absent(event))
+        self.assertEqual(observed, [event.event_id])
+
+    def test_overlapping_publishers_cannot_hold_the_same_unexpired_claim(self) -> None:
+        first, _table, pending, event = self._memory_outbox()
+        self.assertTrue(first.create_if_absent(event))
+        second = AzureTableOutbox.__new__(AzureTableOutbox)
+        second._table = first._table
+        second._pending = pending
+
+        first_page = first.pending(limit=10)
+        second_page = second.pending(limit=10)
+
+        self.assertEqual([item.event.event_id for item in first_page], [event.event_id])
+        self.assertTrue(first_page[0].claim_owner)
+        self.assertEqual(second_page, [])
+
+    def test_expired_publisher_claim_is_recovered(self) -> None:
+        first, _table, pending, event = self._memory_outbox()
+        self.assertTrue(first.create_if_absent(event))
+        first_claim = first.pending(limit=10)[0]
+        pending.entities[("pending", event.event_id)]["leaseExpiresAt"] = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
+        ).isoformat()
+        pending.etags[("pending", event.event_id)] += 1
+        second = AzureTableOutbox.__new__(AzureTableOutbox)
+        second._table = first._table
+        second._pending = pending
+
+        recovered = second.pending(limit=10)
+
+        self.assertEqual([item.event.event_id for item in recovered], [event.event_id])
+        self.assertNotEqual(recovered[0].claim_owner, first_claim.claim_owner)
+
+    def test_conditional_claim_conflict_loses_without_duplicate_publish(self) -> None:
+        outbox, _table, pending, event = self._memory_outbox()
+        self.assertTrue(outbox.create_if_absent(event))
+        conflict_once = True
+
+        def conflict(_update) -> None:
+            nonlocal conflict_once
+            if conflict_once:
+                conflict_once = False
+                from azure.core.exceptions import ResourceModifiedError
+
+                raise ResourceModifiedError("another publisher won")
+
+        pending.before_update = conflict
+
+        self.assertEqual(outbox.pending(limit=10), [])
+        self.assertEqual(
+            [item.event.event_id for item in outbox.pending(limit=10)],
+            [event.event_id],
+        )
+
+    def test_mark_published_repairs_missing_archive_before_acknowledging_journal(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        outbox._create_pending_journal(event)
+
+        outbox.mark_published([event.event_id])
+
+        archive = table.entities[
+            (AzureTableOutbox.partition_key(event.event_id), event.event_id)
+        ]
+        self.assertEqual(archive["status"], "published")
+        self.assertEqual(archive["attempts"], 1)
+        self.assertNotIn(("pending", event.event_id), pending.entities)
+
+    def test_mark_published_handles_concurrent_pending_archive_creator(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        outbox._create_pending_journal(event)
+        injected = False
+
+        def inject_pending_archive(entity) -> None:
+            nonlocal injected
+            if injected or entity.get("status") != "published":
+                return
+            injected = True
+            value = outbox._main_entity(event, status="pending")
+            key = (str(value["PartitionKey"]), str(value["RowKey"]))
+            table.entities[key] = value
+            table.etags[key] = 1
+
+        table.before_create = inject_pending_archive
+
+        outbox.mark_published([event.event_id])
+
+        archive = table.entities[
+            (AzureTableOutbox.partition_key(event.event_id), event.event_id)
+        ]
+        self.assertEqual(archive["status"], "published")
+        self.assertNotIn(("pending", event.event_id), pending.entities)
+
+    def test_journal_payload_wins_a_rolling_writer_archive_race(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        stale_archive_event = StockAvailableEvent(
+            event_id=event.event_id,
+            product=event.product,
+            delivery_coverage=event.delivery_coverage,
+            availability_generation=event.availability_generation,
+            created_at="2026-07-22T12:34:56+00:00",
+        )
+        outbox._create_pending_journal(event)
+        table.create_entity(outbox._main_entity(stale_archive_event, status="pending"))
+
+        outbox.mark_published([event.event_id])
+
+        archive = table.entities[
+            (AzureTableOutbox.partition_key(event.event_id), event.event_id)
+        ]
+        archived_event = StockAvailableEvent.from_json(archive["payloadJson"])
+        self.assertEqual(archived_event.created_at, event.created_at)
+        self.assertEqual(archive["createdAt"], event.created_at)
+
+    def test_crash_after_archive_publish_before_journal_delete_is_recoverable(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        self.assertTrue(outbox.create_if_absent(event))
+        fail_once = True
+
+        def fail_first_delete(_key) -> None:
+            nonlocal fail_once
+            if fail_once:
+                fail_once = False
+                raise RuntimeError("process stopped before journal acknowledgement")
+
+        pending.before_delete = fail_first_delete
+        with self.assertRaisesRegex(RuntimeError, "before journal acknowledgement"):
+            outbox.mark_published([event.event_id])
+
+        archive = table.entities[
+            (AzureTableOutbox.partition_key(event.event_id), event.event_id)
+        ]
+        self.assertEqual(archive["status"], "published")
+        self.assertIn(("pending", event.event_id), pending.entities)
+
+        self.assertEqual(outbox.pending(limit=10), [])
+        self.assertNotIn(("pending", event.event_id), pending.entities)
+
+    def test_failed_publish_repairs_missing_archive_and_keeps_journal(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        outbox._create_pending_journal(event)
+
+        outbox.mark_attempt_failed([event.event_id], "ServiceBusError")
+
+        archive = table.entities[
+            (AzureTableOutbox.partition_key(event.event_id), event.event_id)
+        ]
+        self.assertEqual(archive["status"], "pending")
+        self.assertEqual(archive["attempts"], 1)
+        self.assertEqual(archive["lastErrorCode"], "ServiceBusError")
+        self.assertIn(("pending", event.event_id), pending.entities)
+
+    def test_producer_tolerates_publisher_ack_between_journal_create_and_read(self) -> None:
+        _seed, _seed_table, _seed_pending, event = self._memory_outbox()
+        published = _seed._main_entity(event, status="published", attempts=1)
+        table = MagicMock()
+        table.get_entity.side_effect = [
+            ResourceNotFoundError("not archived yet"),
+            _Entity(published, "etag-published"),
+        ]
+        pending = MagicMock()
+        pending.create_entity.side_effect = ResourceExistsError("journal won elsewhere")
+        pending.get_entity.side_effect = ResourceNotFoundError(
+            "publisher already acknowledged journal"
+        )
+        outbox = AzureTableOutbox.__new__(AzureTableOutbox)
+        outbox._table = table
+        outbox._pending = pending
+
+        self.assertFalse(outbox.create_if_absent(event))
+        table.create_entity.assert_not_called()
+
+    def test_pointer_only_legacy_orphan_is_not_deleted_during_writer_race(self) -> None:
+        outbox, _table, pending, event = self._memory_outbox()
+        legacy_key = f"20260722T000000000000Z-{event.event_id}"
+        pending.create_entity(
+            {
+                "PartitionKey": "pending",
+                "RowKey": legacy_key,
+                "eventId": event.event_id,
+                "createdAt": event.created_at,
+            }
+        )
+
+        self.assertEqual(outbox.pending(limit=10), [])
+        self.assertIn(("pending", legacy_key), pending.entities)
+
+    def test_duplicate_event_keeps_one_canonical_journal(self) -> None:
+        outbox, table, pending, canonical_event = self._memory_outbox()
+        duplicate = StockAvailableEvent(
+            event_id=canonical_event.event_id,
+            product=canonical_event.product,
+            delivery_coverage=canonical_event.delivery_coverage,
+            availability_generation=canonical_event.availability_generation,
+            created_at="2026-07-22T12:34:56+00:00",
+        )
+        self.assertTrue(outbox.create_if_absent(canonical_event))
+        self.assertFalse(outbox.create_if_absent(duplicate))
+        journal = pending.entities[("pending", canonical_event.event_id)]
+        self.assertEqual(
+            StockAvailableEvent.from_json(journal["payloadJson"]).created_at,
+            canonical_event.created_at,
+        )
+        self.assertEqual(len([key for key in pending.entities if key[0] == "pending"]), 1)
+        self.assertEqual(len(table.entities), 1)
+
+    def test_existing_pending_archive_repairs_a_missing_journal(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        table.create_entity(outbox._main_entity(event, status="pending"))
+
+        self.assertFalse(outbox.create_if_absent(event))
+
+        self.assertIn(("pending", event.event_id), pending.entities)
+
+    def test_existing_published_archive_cannot_be_reenqueued(self) -> None:
+        outbox, table, pending, event = self._memory_outbox()
+        table.create_entity(outbox._main_entity(event, status="published"))
+
+        self.assertFalse(outbox.create_if_absent(event))
+
+        self.assertNotIn(("pending", event.event_id), pending.entities)
 
     def test_mark_attempt_failed_uses_the_current_entity_etag(self) -> None:
         from azure.core import MatchConditions
@@ -633,6 +1053,21 @@ class RecipientProjectionTests(unittest.TestCase):
 
 
 class RetentionTests(unittest.TestCase):
+    @staticmethod
+    def _config() -> SimpleNamespace:
+        return SimpleNamespace(
+            azure_storage_account_url="https://example.blob.core.windows.net",
+            alert_outbox_table="alertoutbox",
+            alert_deliveries_table="alertdeliveries",
+            alert_delivery_index_table="alertdeliveryindex",
+            alert_suppressions_table="alertsuppression",
+            auth_users_table="users",
+            alert_recipients_table="alertrecipients",
+            recipient_shard_count=32,
+            alert_outbox_retention_days=30,
+            alert_delivery_retention_days=90,
+        )
+
     def test_cleanup_deletes_only_expired_terminal_metadata(self) -> None:
         outbox = MagicMock()
         deliveries = MagicMock()
@@ -654,18 +1089,7 @@ class RetentionTests(unittest.TestCase):
             {"PartitionKey": "m-aa", "RowKey": "message-1"},
         ]
         suppressions.query_entities.return_value = []
-        config = SimpleNamespace(
-            azure_storage_account_url="https://example.blob.core.windows.net",
-            alert_outbox_table="alertoutbox",
-            alert_deliveries_table="alertdeliveries",
-            alert_delivery_index_table="alertdeliveryindex",
-            alert_suppressions_table="alertsuppression",
-            auth_users_table="users",
-            alert_recipients_table="alertrecipients",
-            recipient_shard_count=32,
-            alert_outbox_retention_days=30,
-            alert_delivery_retention_days=90,
-        )
+        config = self._config()
 
         with (
             patch(
@@ -722,18 +1146,7 @@ class RetentionTests(unittest.TestCase):
         recipients.get_entity.side_effect = ResourceNotFoundError(
             "missing recipient projection"
         )
-        config = SimpleNamespace(
-            azure_storage_account_url="https://example.blob.core.windows.net",
-            alert_outbox_table="alertoutbox",
-            alert_deliveries_table="alertdeliveries",
-            alert_delivery_index_table="alertdeliveryindex",
-            alert_suppressions_table="alertsuppression",
-            auth_users_table="users",
-            alert_recipients_table="alertrecipients",
-            recipient_shard_count=32,
-            alert_outbox_retention_days=30,
-            alert_delivery_retention_days=90,
-        )
+        config = self._config()
 
         with (
             patch(
@@ -756,6 +1169,79 @@ class RetentionTests(unittest.TestCase):
             suppressions.delete_entity.call_args_list,
             [call("s-1", inactive_id), call("s-3", missing_id)],
         )
+
+    def test_cleanup_default_drains_more_than_the_legacy_5000_row_cap(self) -> None:
+        outbox = MagicMock()
+        deliveries = MagicMock()
+        delivery_index = MagicMock()
+        suppressions = MagicMock()
+        users = MagicMock()
+        recipients = MagicMock()
+        outbox.query_entities.return_value = (
+            {
+                "PartitionKey": f"o-{index % 256:02x}",
+                "RowKey": f"{index:064x}",
+            }
+            for index in range(5_101)
+        )
+        deliveries.query_entities.side_effect = [[], []]
+        delivery_index.query_entities.return_value = []
+        suppressions.query_entities.return_value = []
+
+        with (
+            patch(
+                "azure.data.tables.TableClient",
+                side_effect=[
+                    outbox,
+                    deliveries,
+                    delivery_index,
+                    suppressions,
+                    users,
+                    recipients,
+                ],
+            ),
+            patch("airco_tracker.retention.default_azure_credential", return_value="credential"),
+        ):
+            removed = cleanup_alert_data(self._config())
+
+        self.assertEqual(removed, (5_101, 0, 0, 0))
+        self.assertEqual(outbox.delete_entity.call_count, 5_101)
+
+    def test_explicit_row_cap_reports_that_backlog_may_remain(self) -> None:
+        outbox = MagicMock()
+        deliveries = MagicMock()
+        delivery_index = MagicMock()
+        suppressions = MagicMock()
+        users = MagicMock()
+        recipients = MagicMock()
+        outbox.query_entities.return_value = [
+            {"PartitionKey": "o-aa", "RowKey": "a" * 64},
+            {"PartitionKey": "o-bb", "RowKey": "b" * 64},
+            {"PartitionKey": "o-cc", "RowKey": "c" * 64},
+        ]
+        deliveries.query_entities.side_effect = [[], []]
+        delivery_index.query_entities.return_value = []
+        suppressions.query_entities.return_value = []
+
+        with (
+            patch(
+                "azure.data.tables.TableClient",
+                side_effect=[
+                    outbox,
+                    deliveries,
+                    delivery_index,
+                    suppressions,
+                    users,
+                    recipients,
+                ],
+            ),
+            patch("airco_tracker.retention.default_azure_credential", return_value="credential"),
+            self.assertLogs("airco_tracker.retention", level="WARNING") as logs,
+        ):
+            removed = cleanup_alert_data(self._config(), limit=2)
+
+        self.assertEqual(removed, (2, 0, 0, 0))
+        self.assertIn("backlog may remain", "\n".join(logs.output))
 
 
 class MailerIdempotencyTests(unittest.TestCase):

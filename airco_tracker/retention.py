@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from .alert_events import recipient_shard
@@ -25,8 +26,22 @@ _TERMINAL_DELIVERY_STATUSES = {
 LOG = logging.getLogger(__name__)
 
 
-def cleanup_alert_data(config: Config, *, limit: int = 5000) -> tuple[int, int, int, int]:
-    """Delete terminal pipeline metadata after its documented retention period."""
+def cleanup_alert_data(
+    config: Config,
+    *,
+    limit: int = 0,
+    max_runtime_seconds: int = 0,
+) -> tuple[int, int, int, int]:
+    """Delete terminal pipeline metadata after its retention period.
+
+    Azure Table iterators page transparently. ``limit=0`` drains every page,
+    which avoids a permanent 5,000-row ceiling; operators may still impose a
+    one-off cap or runtime budget, both of which emit an explicit backlog
+    warning so the next scheduled run can continue safely.
+    """
+    if limit < 0 or max_runtime_seconds < 0:
+        raise ValueError("Retention limit and runtime must be non-negative")
+    deadline = time.monotonic() + max_runtime_seconds if max_runtime_seconds else None
     try:
         from azure.data.tables import TableClient
     except ImportError as exc:
@@ -91,7 +106,9 @@ def cleanup_alert_data(config: Config, *, limit: int = 5000) -> tuple[int, int, 
     for entity in entities:
         outbox.delete_entity(str(entity["PartitionKey"]), str(entity["RowKey"]))
         removed_outbox += 1
-        if removed_outbox >= limit:
+        if _retention_budget_exhausted(
+            table="alert outbox", count=removed_outbox, limit=limit, deadline=deadline
+        ):
             break
 
     removed_deliveries = 0
@@ -105,7 +122,9 @@ def cleanup_alert_data(config: Config, *, limit: int = 5000) -> tuple[int, int, 
             continue
         deliveries.delete_entity(str(entity["PartitionKey"]), str(entity["RowKey"]))
         removed_deliveries += 1
-        if removed_deliveries >= limit:
+        if _retention_budget_exhausted(
+            table="alert deliveries", count=removed_deliveries, limit=limit, deadline=deadline
+        ):
             break
     removed_index = 0
     entities = delivery_index.query_entities(
@@ -116,7 +135,9 @@ def cleanup_alert_data(config: Config, *, limit: int = 5000) -> tuple[int, int, 
     for entity in entities:
         delivery_index.delete_entity(str(entity["PartitionKey"]), str(entity["RowKey"]))
         removed_index += 1
-        if removed_index >= limit:
+        if _retention_budget_exhausted(
+            table="delivery index", count=removed_index, limit=limit, deadline=deadline
+        ):
             break
     removed_suppressions = 0
     for entity in suppressions.query_entities(
@@ -135,9 +156,30 @@ def cleanup_alert_data(config: Config, *, limit: int = 5000) -> tuple[int, int, 
             str(entity["RowKey"]),
         )
         removed_suppressions += 1
-        if removed_suppressions >= limit:
+        if _retention_budget_exhausted(
+            table="suppressions", count=removed_suppressions, limit=limit, deadline=deadline
+        ):
             break
     return removed_outbox, removed_deliveries, removed_index, removed_suppressions
+
+
+def _retention_budget_exhausted(
+    *, table: str, count: int, limit: int, deadline: float | None
+) -> bool:
+    reason = ""
+    if limit and count >= limit:
+        reason = f"configured row cap {limit}"
+    elif deadline is not None and time.monotonic() >= deadline:
+        reason = "runtime budget"
+    if not reason:
+        return False
+    LOG.warning(
+        "Retention stopped %s after %d %s row(s); backlog may remain and will be retried",
+        reason,
+        count,
+        table,
+    )
+    return True
 
 
 def _canonical_profile_is_active(users, recipients, recipient_id: str, *, shard_count: int) -> bool:

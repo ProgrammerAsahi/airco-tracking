@@ -20,20 +20,34 @@ class WehkampAdapter(Adapter):
         # restock will reappear as a first-seen available product.
         page_url = self.urls[0]
         soup = BeautifulSoup(self.fetcher.get(page_url), "html.parser")
-        return enrich_available_btu(self.fetcher, self.parse(soup, page_url))
+        data = _initial_data(soup)
+        products = _products_from_initial_data(data, page_url)
+        if products:
+            return enrich_available_btu(self.fetcher, products)
+        if data.get("products") == [] and data.get("total") == 0:
+            return self.verified_empty(
+                source="category_initial_data",
+                signal="validated products=[] and total=0",
+            )
+        raise RuntimeError(
+            "Wehkamp category contained products but no supported portable air conditioners"
+        )
 
     def parse(self, soup: BeautifulSoup, page_url: str) -> list[Product]:
-        data = _initial_data(soup)
-        items = data.get("products")
-        total = data.get("total")
-        if not isinstance(items, list) or not isinstance(total, int):
-            raise RuntimeError("Wehkamp category did not contain a product result")
-        products: dict[str, Product] = {}
-        for item in items:
-            product = _parse_product(item, page_url)
-            if product is not None:
-                products[product.url] = product
-        return list(products.values())
+        return _products_from_initial_data(_initial_data(soup), page_url)
+
+
+def _products_from_initial_data(data: dict[str, Any], page_url: str) -> list[Product]:
+    items = data.get("products")
+    total = data.get("total")
+    if not isinstance(items, list) or not isinstance(total, int):
+        raise RuntimeError("Wehkamp category did not contain a product result")
+    products: dict[str, Product] = {}
+    for item in items:
+        product = _parse_product(item, page_url)
+        if product is not None:
+            products[product.url] = product
+    return list(products.values())
 
 
 def _initial_data(soup: BeautifulSoup) -> dict[str, Any]:

@@ -1,4 +1,5 @@
 .env
+.venv
 .venv/
 CLAUDE.local.md
 __pycache__/

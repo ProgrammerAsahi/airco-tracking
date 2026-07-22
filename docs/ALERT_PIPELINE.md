@@ -50,6 +50,7 @@ The frontend/auth service is the primary writer of `alertrecipients`. Registrati
 - `email-jobs` queue: one opaque `eventId` + `recipientId` delivery job.
 - `acs-email-delivery-events` queue: dedicated transient ACS recipient reports; unlike the normal queues, its provider-defined body necessarily contains the recipient address.
 - `alertoutbox`: durable event payload and publish state, partitioned by event hash prefix.
+- `alertoutboxpending`: authoritative enqueue journal in one hot pending partition. Each v2 row contains the complete immutable event and an ETag-guarded recoverable publisher lease; the publisher repairs the archive before acknowledging it. Pointer-only legacy rows are never deleted while their archive may still be racing into existence.
 - `alertrecipients`: minimal mail read model in 32 partitions, `r-00` through `r-1f`.
 - `alertdeliveries`: idempotency, lease, attempt, terminal status, and ACS operation metadata.
 - `alertdeliveryindex`: ACS message ID to opaque delivery binding plus an address fingerprint; no plaintext address.
@@ -78,7 +79,7 @@ No distributed system can promise mathematical exactly-once delivery across an e
 ## Security and privacy
 
 - Production uses Entra ID and user-assigned Managed Identities. Storage, Service Bus, and ACS local/shared-key authentication is disabled where supported; no connection string or ACS key is stored in the image or GitHub.
-- Scanner/shared web runtime, outbox publisher, fan-out, and email delivery use separate identities. New pipeline access is scoped to its specific Service Bus entity or Table wherever Azure RBAC permits; do not merge the workers into one broad Contributor identity.
+- Web, scanner, retention, outbox publisher, fan-out, and email delivery use responsibility-separated identities. New access is scoped to its specific Blob container, Service Bus entity, or Table wherever Azure RBAC permits.
 - `stock-events` contains product and delivery-coverage data, but no subscriber data.
 - Service Bus fan-out and email messages contain only stable opaque recipient UUIDs. They never contain an email address, nickname, Stripe customer/payment ID, payment method, or card data.
 - The separate ACS delivery-report queue is the one narrow PII exception: the Microsoft event schema necessarily contains the recipient address. Its one-day TTL, private seven-day Event Grid dead-letter container, daily Service Bus DLQ purge, dedicated least-privilege identity, and no-body logging bound that exposure. Azure Event Grid validates dead-letter authorization at storage-account scope, so its managed identity has `Storage Blob Data Contributor` on the state account even though the configured endpoint is the dedicated private container; it has no reader role on application tables and no application uses that identity. Never copy a raw provider report into a ticket, normal log, or another queue.
@@ -99,13 +100,14 @@ No distributed system can promise mathematical exactly-once delivery across an e
 - `alertdeliveryindex` correlation rows: 90 days with delivery metadata.
 - `alertsuppression` is bounded to one row per recipient/address state. The daily job removes rows whose canonical profile is missing or non-active; it preserves an inconclusive legacy row until reconciliation supplies a canonical source pointer.
 - Pending outbox or non-terminal delivery rows are not age-deleted; they must remain available for recovery/investigation.
+- The publisher discovers complete events through the single `alertoutboxpending` partition without scanning the sharded archive table. Its legacy migration drains all continuation pages before recording completion. Retention defaults to no row cap with a 240-second runtime budget and warns when backlog remains.
 - Log Analytics workspace: 30 days.
 - `alertrecipients` follows account lifecycle and is removed when the user deletes the account. The daily reconciler removes stale projection rows only after a complete canonical-user scan.
 
 Change `ALERT_OUTBOX_RETENTION_DAYS` or `ALERT_DELIVERY_RETENTION_DAYS` only after reviewing incident-response and privacy requirements. Run cleanup manually with:
 
 ```bash
-.venv/bin/python -m airco_tracker cleanup-alert-data --limit 5000
+.venv/bin/python -m airco_tracker cleanup-alert-data --limit 0
 ```
 
 ## Capacity and scaling
@@ -118,7 +120,7 @@ The subscriber count is no longer part of scanner latency. A scan writes at most
 - `enableServiceBusPartitioning` is a foundation creation/rollback parameter; changing it still requires deleting or versioning the empty entities first because Azure cannot update it in place.
 - The canonical `users` table is never scanned per stock event. The daily reconciler streams it only as a repair job, while the email worker performs a constant-time UUID or legacy-source-row point read per actual delivery. The bounded `userId` query remains only as temporary compatibility for projections not yet backfilled with a source pointer. Manual database/table splitting is not currently required for the alert hot path.
 - Service Bus is Standard with partition-safe batching and duplicate detection. Monitor namespace throttling and queue age; move to a partitioned Premium namespace when shared-tier latency or the Standard namespace operation ceiling becomes material.
-- Production uses the verified customer-managed ACS sender domain `airco-tracker.eu`. The documented default limit is 30 messages/minute and 100/hour. Final-delivery, bounce, suppression, and alert monitoring are operational; the email worker remains intentionally capped at one replica with a 13-second process-local interval until the open higher-quota request is approved. This provider quota, not Service Bus or Table Storage, is the current end-to-end throughput ceiling.
+- Production uses the verified customer-managed ACS sender domain `airco-tracker.eu`. The documented default limit is 30 messages/minute and 100/hour. Final-delivery, bounce, suppression, and alert monitoring are operational; the email worker remains intentionally capped at one replica with a 13-second interval until the open higher-quota request is approved. Production reservations are stored in the dedicated `emailratelimit` Table with optimistic ETag writes, so the interval remains global when the worker is later scaled to multiple replicas. Local development defaults to an in-process limiter. `infra/job.bicep` fails closed by forcing one replica whenever the distributed backend is disabled. This provider quota, not Service Bus or Table Storage, is the current end-to-end throughput ceiling.
 
 Domain/SPF/DKIM/DKIM2 verification, Communication Service linking, explicit `ACS_EMAIL_DOMAIN_NAME` selection, and real Gmail/Outlook inbox canaries are complete. Foundation keeps the custom domain alongside the Azure-managed fallback, and deployment selects it by name rather than relying on `linkedDomains` array order. Reply-To, user alert preference, RFC 8058 unsubscribe, recipient-level final-delivery ingestion, hard-bounce suppression, privacy cleanup, and related monitoring are deployed and production-verified. ACS quota case `06bfd9d3-65c22af0-6d841855-b8dc-4aea-8d93-d2364a875032` is open for tier `250` (1,000/minute and 3,000/hour). Keep `EMAIL_MIN_SEND_INTERVAL_SECONDS=13` and `EMAIL_MAX_REPLICAS=1` until Azure approves it; raising replicas first would only produce ACS `429` responses and queue churn. DNS, consent, final-delivery, suppression, monitoring, quota, and warm-up procedures are in [EMAIL_DELIVERY.md](./EMAIL_DELIVERY.md); custom-domain rollback remains in [ACS_CUSTOM_EMAIL_DOMAIN.md](./ACS_CUSTOM_EMAIL_DOMAIN.md).
 
@@ -138,6 +140,7 @@ EMAIL_JOBS_QUEUE=email-jobs
 ACS_DELIVERY_EVENTS_QUEUE=acs-email-delivery-events
 AUTH_USERS_TABLE=users
 ALERT_OUTBOX_TABLE=alertoutbox
+ALERT_OUTBOX_PENDING_TABLE=alertoutboxpending
 ALERT_RECIPIENTS_TABLE=alertrecipients
 ALERT_DELIVERIES_TABLE=alertdeliveries
 ALERT_DELIVERY_INDEX_TABLE=alertdeliveryindex
@@ -147,8 +150,12 @@ ALERT_RECIPIENT_PAGE_SIZE=250
 ALERT_EVENT_MAX_AGE_SECONDS=21600
 ALERT_OUTBOX_RETENTION_DAYS=30
 ALERT_DELIVERY_RETENTION_DAYS=90
+STATE_COMPACT_AFTER_DAYS=90
+STATE_TOMBSTONE_RETENTION_DAYS=365
 SCANNER_LEASE_SECONDS=480
 EMAIL_MIN_SEND_INTERVAL_SECONDS=13
+EMAIL_RATE_LIMIT_BACKEND=azure_table
+EMAIL_RATE_LIMIT_TABLE=emailratelimit
 EMAIL_MAX_REPLICAS=1
 ACS_EMAIL_DOMAIN_NAME=airco-tracker.eu
 EMAIL_REPLY_TO=support@airco-tracker.eu
@@ -156,7 +163,7 @@ APP_BASE_URL=https://airco-tracker.eu
 EMAIL_UNSUBSCRIBE_SIGNING_KEY=<Key Vault secret reference; never a literal production value>
 ```
 
-`AZURE_STORAGE_ACCOUNT_URL`, `AZURE_CLIENT_ID`, `ACS_ENDPOINT`, `EMAIL_FROM`, and the normal scanner settings are also supplied by Bicep. `EMAIL_TO` is a local/direct-mode setting and is not a production subscriber source.
+`AZURE_STORAGE_ACCOUNT_URL`, `AZURE_CLIENT_ID`, `ACS_ENDPOINT`, `EMAIL_FROM`, and the normal scanner settings are also supplied by Bicep. `EMAIL_TO` is a local/direct-mode setting and is not a production subscriber source. A local or single-replica worker may keep `EMAIL_RATE_LIMIT_BACKEND=local`; any multi-replica deployment must use `azure_table`.
 
 `operationsAlertEmail` is a secure foundation parameter, not an application environment variable. For initial foundation setup, provide it locally through `AZURE_OPERATIONS_ALERT_EMAIL`; never commit the mailbox or store it as a GitHub Actions variable. On later `deploy-azure.sh` runs, leaving the variable unset makes the script read and preserve the existing `primary-operations-mailbox` receiver from `aircontrack-operations-alerts`. If no receiver has ever been configured, the four metric alerts remain dashboard-visible and enabled but have no email action until the secure parameter is supplied.
 
@@ -164,16 +171,25 @@ EMAIL_UNSUBSCRIBE_SIGNING_KEY=<Key Vault secret reference; never a literal produ
 
 Foundation deployment creates resources and RBAC, so it must be run by an Azure principal allowed to create role assignments. The GitHub deployer intentionally cannot do that.
 
-For a new environment or a foundation/RBAC change:
+For a coordinated foundation/RBAC change shared by the backend and web repositories:
 
 ```bash
 cd ~/airco-tracking
 az login
-./scripts/deploy-azure.sh
+AZURE_FOUNDATION_ONLY=true ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
+
+cd ~/airco-tracking-web
+./scripts/deploy.sh
+
+cd ~/airco-tracking
+./scripts/deploy-application.sh
+./scripts/migrate-runtime-identities.sh
+# Only after both smoke tests pass:
+./scripts/migrate-runtime-identities.sh --apply
 ```
 
-`deploy-azure.sh` registers providers, deploys `infra/foundation.bicep`, builds the image, deploys `infra/job.bicep`, and starts dependency-order verification jobs. Wait several minutes and retry the application deployment if a newly created role has not propagated yet.
+Foundation-only mode creates resources, identities, RBAC, and the updated least-privilege GitHub role without moving a production workload. The web deploy then creates and immediately verifies its cleanup job before switching traffic. The backend application deploy verifies its candidate and dependency-order jobs. Identity migration is first a read-only audit and never deletes legacy grants automatically; an Owner may use `--apply` only after both smoke tests pass. A full `deploy-azure.sh` remains valid for an already-complete environment; on greenfield bootstrap it explicitly defers the migration audit until the web cleanup job exists. See [runtime hardening and migration](./HARDENING.md). Wait several minutes and retry an application deployment if a newly created role has not propagated yet.
 
 For the first operations receiver configuration, set `AZURE_OPERATIONS_ALERT_EMAIL` only in the local environment that runs `deploy-azure.sh`, then unset it after deployment. ARM treats the mapped `operationsAlertEmail` parameter as secure, and subsequent runs preserve the existing receiver without requiring the address again.
 

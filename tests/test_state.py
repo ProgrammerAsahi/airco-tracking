@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from airco_tracker.models import Product
 from airco_tracker.state import select_alerts, updated_state
@@ -90,6 +91,62 @@ class StateTests(unittest.TestCase):
         }
         state = updated_state(old, [], checked_sites={"Alternate.nl"})
         self.assertFalse(state["products"]["https://alternate.test/airco"]["available"])
+
+    def test_long_unavailable_records_become_small_tombstones_then_expire(self) -> None:
+        now = datetime(2026, 7, 22, tzinfo=timezone.utc)
+        key = "nl:https://shop.test/retired"
+        old = {
+            "products": {
+                key: {
+                    "site": "Shop",
+                    "site_id": "nl:Shop",
+                    "country": "nl",
+                    "name": "Retired model",
+                    "url": "https://shop.test/retired",
+                    "available": False,
+                    "presale": False,
+                    "price_eur": 499,
+                    "delivery": "sold out",
+                    "last_seen": (now - timedelta(days=100)).isoformat(),
+                    "unavailable_since": (now - timedelta(days=100)).isoformat(),
+                    "availability_generation": 2,
+                }
+            }
+        }
+
+        state = updated_state(old, [], now=now, compact_after_days=90, tombstone_retention_days=365)
+
+        record = state["products"][key]
+        self.assertTrue(record["tombstone"])
+        self.assertNotIn("price_eur", record)
+        self.assertEqual(record["availability_generation"], 2)
+
+        expired = updated_state(
+            old,
+            [],
+            now=now + timedelta(days=300),
+            compact_after_days=90,
+            tombstone_retention_days=365,
+        )
+        self.assertNotIn(key, expired["products"])
+
+    def test_repeated_missing_scan_preserves_unavailable_since(self) -> None:
+        now = datetime(2026, 7, 22, tzinfo=timezone.utc)
+        unavailable_since = (now - timedelta(days=5)).isoformat()
+        old = {
+            "products": {
+                "nl:https://shop.test/1": {
+                    **self.product.to_dict(),
+                    "available": False,
+                    "unavailable_since": unavailable_since,
+                    "last_seen": unavailable_since,
+                }
+            }
+        }
+
+        state = updated_state(old, [], checked_sites={"nl:Shop"}, now=now)
+
+        self.assertEqual(state["products"]["nl:https://shop.test/1"]["unavailable_since"], unavailable_since)
 
 
 if __name__ == "__main__":

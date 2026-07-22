@@ -7,7 +7,7 @@
 
 ## Mission
 
-Maintain a reliable, low-cost stock tracker for real portable compressor air conditioners that can be delivered to a Dutch address. Notify only when a product is newly available or changes from unavailable to available, and publish a trustworthy private inventory snapshot for the public read-only dashboard.
+Maintain a reliable, scalable stock tracker for genuine portable compressor air conditioners deliverable to supported countries, currently France and the Netherlands. Notify entitled subscribers only when a product is newly available or changes from unavailable to available, and publish a trustworthy private inventory snapshot for the authenticated web experience.
 
 ## Read first
 
@@ -23,7 +23,7 @@ Maintain a reliable, low-cost stock tracker for real portable compressor air con
 - Third-party credentials belong in Azure Key Vault and are read through Managed Identity.
 - Prefer official APIs. Otherwise use public server-rendered pages or robots-advertised sitemaps. Respect robots.txt and terms; never bypass CAPTCHA, 403 protections, login barriers, or anti-bot controls.
 - Track genuine compressor air conditioners. Exclude air coolers, evaporative coolers, fans, hoses, window kits, remotes, filters, and other accessories.
-- `available=True` means currently orderable for delivery to a Netherlands address. Store-only stock, pickup-only stock, expired deals, presales, and multi-week lead times must not trigger alerts.
+- `available=True` means currently orderable for delivery to the requested supported country. Store-only stock, pickup-only stock, expired deals, presales, and multi-week lead times must not trigger alerts.
 - One retailer failure must not stop the remaining retailers. Do not turn a failed check into an out-of-stock transition.
 - Tests and dry-runs must not send email or update production state.
 - Keep alert state and live inventory separate. Alert filters must not remove otherwise in-scope available products from `inventory.json`.
@@ -45,9 +45,9 @@ Maintain a reliable, low-cost stock tracker for real portable compressor air con
 - Azure infrastructure: `infra/`
 - Deployment scripts: `scripts/`
 - Tests: `tests/`
-- Production: Azure Container Apps scheduled job, private Blob Storage alert state/inventory, Communication Services Email, Key Vault, and Managed Identity.
+- Production: isolated Azure Container Apps jobs for scanning, reconciliation, publication, fanout, email delivery, delivery reports, and retention; private Blob/Table Storage; partitioned Azure Service Bus; Communication Services Email; Key Vault; and dedicated least-privilege Managed Identities.
 - CI/CD: a push to `main` runs tests, builds an immutable image tagged with the commit SHA, deploys it, and starts one verification execution.
-- Consumer: `~/airco-tracking-web` serves the public dashboard and reads the private snapshot through `/api/inventory` using the shared runtime identity.
+- Consumer: `~/airco-tracking-web` serves the authenticated inventory experience and reads the private snapshot through its same-origin `/api/inventory` endpoint using its own runtime identity.
 
 ## Standard verification
 

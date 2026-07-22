@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from copy import copy
 from dataclasses import is_dataclass, replace
@@ -18,6 +17,7 @@ from .delivery_reports import (
     address_fingerprint,
     parse_delivery_report,
 )
+from .email_rate_limit import EmailRateLimiter, build_email_rate_limiter
 from .mailer import PermanentEmailError, build_message, message_fingerprint, send_message
 from .outbox import AzureTableOutbox, build_outbox
 from .recipient_projection import ProjectedRecipient, RecipientProjection
@@ -26,8 +26,6 @@ from .unsubscribe import sign_unsubscribe_token
 
 
 LOG = logging.getLogger(__name__)
-_EMAIL_RATE_LOCK = threading.Lock()
-_LAST_EMAIL_SEND_MONOTONIC = 0.0
 
 
 class OutboxPublisher:
@@ -40,8 +38,7 @@ class OutboxPublisher:
         if not records:
             LOG.info("Alert outbox is empty")
             return 0
-        event_ids = [record.event.event_id for record in records]
-        # Group the bounded oldest-first page by its deterministic partition
+        # Group the bounded journal page by its deterministic partition
         # bucket so partition-safe Service Bus batching still reduces network
         # round trips. This does not change business ordering: stock events are
         # generation-addressed and consumers are idempotent.
@@ -64,12 +61,12 @@ class OutboxPublisher:
                             for record in partition_ordered
                         ),
                     )
-            self.outbox.mark_published(event_ids)
+            self.outbox.mark_published(records)
             LOG.info("Published %d stock event(s) from the outbox", count)
             return count
         except Exception as exc:
             try:
-                self.outbox.mark_attempt_failed(event_ids, type(exc).__name__)
+                self.outbox.mark_attempt_failed(records, type(exc).__name__)
             except Exception:
                 LOG.exception("Could not record failed outbox publish attempt")
             raise
@@ -189,6 +186,7 @@ class EmailWorker:
         ledger: DeliveryLedger | None = None,
         message_index: DeliveryMessageIndex | None = None,
         suppressions: SystemSuppressionStore | None = None,
+        rate_limiter: EmailRateLimiter | None = None,
     ) -> None:
         self.config = config
         self.outbox = outbox or build_outbox(config)
@@ -196,6 +194,7 @@ class EmailWorker:
         self.ledger = ledger or DeliveryLedger(config)
         self.message_index = message_index or DeliveryMessageIndex(config)
         self.suppressions = suppressions or SystemSuppressionStore(config)
+        self.rate_limiter = rate_limiter or build_email_rate_limiter(config)
 
     def handle(self, job: EmailJob) -> None:
         self.ledger.create_if_absent(job)
@@ -232,7 +231,7 @@ class EmailWorker:
         # read above. The first read avoids spending scarce sender quota slots
         # on obviously ineligible deliveries; this second read is the
         # authoritative send-time check.
-        _wait_for_email_rate_limit(
+        self.rate_limiter.wait(
             getattr(self.config, "email_min_send_interval_seconds", 0)
         )
         recipient = self.recipients.get_authoritative(job.recipient_id)
@@ -692,18 +691,6 @@ def _retry_after_seconds(exc: Exception) -> int | None:
     return None
 
 
-def _wait_for_email_rate_limit(interval_seconds: float) -> None:
-    if interval_seconds <= 0:
-        return
-    global _LAST_EMAIL_SEND_MONOTONIC
-    with _EMAIL_RATE_LOCK:
-        now = time.monotonic()
-        remaining = interval_seconds - (now - _LAST_EMAIL_SEND_MONOTONIC)
-        if remaining > 0:
-            time.sleep(remaining)
-        _LAST_EMAIL_SEND_MONOTONIC = time.monotonic()
-
-
 def _validate_email_worker_runtime(config: Config) -> None:
     secret = str(getattr(config, "email_unsubscribe_signing_key", ""))
     if len(secret.encode("utf-8")) < 32:
@@ -713,3 +700,17 @@ def _validate_email_worker_runtime(config: Config) -> None:
     app_base_url = str(getattr(config, "app_base_url", "")).strip()
     if not app_base_url.startswith("https://"):
         raise ValueError("APP_BASE_URL must be an HTTPS origin for unsubscribe links")
+    rate_limit_backend = str(
+        getattr(config, "email_rate_limit_backend", "local")
+    ).strip().lower()
+    if rate_limit_backend not in {"local", "azure_table"}:
+        raise ValueError("EMAIL_RATE_LIMIT_BACKEND must be local or azure_table")
+    if rate_limit_backend == "azure_table":
+        if not str(getattr(config, "azure_storage_account_url", "")).strip():
+            raise ValueError(
+                "AZURE_STORAGE_ACCOUNT_URL is required for azure_table rate limiting"
+            )
+        if not str(getattr(config, "email_rate_limit_table", "")).strip():
+            raise ValueError(
+                "EMAIL_RATE_LIMIT_TABLE is required for azure_table rate limiting"
+            )

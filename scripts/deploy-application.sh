@@ -71,19 +71,38 @@ require_value() {
   fi
 }
 
+single_job_identity_name() {
+  local job_name="$1"
+  local identity_ids identity_count identity_id
+  identity_ids="$(
+    az containerapp job show \
+      --name "$job_name" \
+      --resource-group "$RESOURCE_GROUP" \
+      --query 'identity.userAssignedIdentities | keys(@)' \
+      --output tsv
+  )"
+  identity_count="$(printf '%s\n' "$identity_ids" | awk '{ for (i = 1; i <= NF; i++) n++ } END { print n + 0 }')"
+  if [[ "$identity_count" != "1" ]]; then
+    echo "Expected exactly one user-assigned identity on $job_name; found $identity_count." >&2
+    return 1
+  fi
+  identity_id="$(printf '%s\n' "$identity_ids" | awk 'NF { print $1; exit }')"
+  printf '%s\n' "${identity_id##*/}"
+}
+
 ACR_NAME="$(single_resource_name ACR_NAME Microsoft.ContainerRegistry/registries)"
 require_value ACR_NAME "$ACR_NAME"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query loginServer --output tsv)}"
 require_value ACR_LOGIN_SERVER "$ACR_LOGIN_SERVER"
 ENVIRONMENT_NAME="$(single_resource_name CONTAINER_ENVIRONMENT_NAME Microsoft.App/managedEnvironments)"
 require_value CONTAINER_ENVIRONMENT_NAME "$ENVIRONMENT_NAME"
-IDENTITY_NAME="${IDENTITY_NAME:-${PREFIX}-identity}"
-require_value IDENTITY_NAME "$IDENTITY_NAME"
+SCANNER_IDENTITY_NAME="${SCANNER_IDENTITY_NAME:-${PREFIX}-scanner}"
+RETENTION_IDENTITY_NAME="${RETENTION_IDENTITY_NAME:-${PREFIX}-retention}"
 PUBLISHER_IDENTITY_NAME="${PUBLISHER_IDENTITY_NAME:-${PREFIX}-alert-publisher}"
 FANOUT_IDENTITY_NAME="${FANOUT_IDENTITY_NAME:-${PREFIX}-alert-fanout}"
 EMAIL_IDENTITY_NAME="${EMAIL_IDENTITY_NAME:-${PREFIX}-alert-email}"
 DELIVERY_REPORT_IDENTITY_NAME="${DELIVERY_REPORT_IDENTITY_NAME:-${PREFIX}-alert-delivery-report}"
-for identity_name in "$IDENTITY_NAME" "$PUBLISHER_IDENTITY_NAME" "$FANOUT_IDENTITY_NAME" "$EMAIL_IDENTITY_NAME" "$DELIVERY_REPORT_IDENTITY_NAME"; do
+for identity_name in "$SCANNER_IDENTITY_NAME" "$RETENTION_IDENTITY_NAME" "$PUBLISHER_IDENTITY_NAME" "$FANOUT_IDENTITY_NAME" "$EMAIL_IDENTITY_NAME" "$DELIVERY_REPORT_IDENTITY_NAME"; do
   az identity show --name "$identity_name" --resource-group "$RESOURCE_GROUP" --output none
 done
 STORAGE_NAME="$(single_resource_name STORAGE_ACCOUNT_NAME Microsoft.Storage/storageAccounts)"
@@ -108,77 +127,144 @@ require_value FROM_SENDER_DOMAIN "$FROM_SENDER_DOMAIN"
 EMAIL_FROM="${EMAIL_FROM:-DoNotReply@$FROM_SENDER_DOMAIN}"
 IMAGE="$ACR_LOGIN_SERVER/airco-tracker:$IMAGE_TAG"
 
-az acr build \
-  --registry "$ACR_NAME" \
-  --image "airco-tracker:$IMAGE_TAG" \
-  "$PROJECT_DIR"
+PREVIOUS_IMAGE=""
+PREVIOUS_SCANNER_IDENTITY_NAME="$SCANNER_IDENTITY_NAME"
+PREVIOUS_RETENTION_IDENTITY_NAME="$RETENTION_IDENTITY_NAME"
+if az containerapp job show --name airco-tracker-job --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+  PREVIOUS_IMAGE="$(
+    az containerapp job show \
+      --name airco-tracker-job \
+      --resource-group "$RESOURCE_GROUP" \
+      --query 'properties.template.containers[0].image' \
+      --output tsv
+  )"
+  require_value PREVIOUS_IMAGE "$PREVIOUS_IMAGE"
+  PREVIOUS_SCANNER_IDENTITY_NAME="$(single_job_identity_name airco-tracker-job)"
+fi
+if az containerapp job show --name airco-alert-retention-job --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+  PREVIOUS_RETENTION_IDENTITY_NAME="$(single_job_identity_name airco-alert-retention-job)"
+fi
 
-az deployment group create \
-  --name "airco-job-${IMAGE_TAG:0:12}" \
-  --resource-group "$RESOURCE_GROUP" \
-  --template-file "$PROJECT_DIR/infra/job.bicep" \
-  --parameters \
-    containerImage="$IMAGE" \
-    containerEnvironmentName="$ENVIRONMENT_NAME" \
-    acrName="$ACR_NAME" \
-    identityName="$IDENTITY_NAME" \
-    publisherIdentityName="$PUBLISHER_IDENTITY_NAME" \
-    fanoutIdentityName="$FANOUT_IDENTITY_NAME" \
-    emailIdentityName="$EMAIL_IDENTITY_NAME" \
-    deliveryReportIdentityName="$DELIVERY_REPORT_IDENTITY_NAME" \
-    storageAccountName="$STORAGE_NAME" \
-    serviceBusNamespaceName="$SERVICE_BUS_NAMESPACE_NAME" \
-    communicationServiceName="$ACS_NAME" \
-    keyVaultUrl="$KEY_VAULT_URL" \
-    emailFrom="$EMAIL_FROM" \
-    emailReplyTo="$EMAIL_REPLY_TO" \
-    appBaseUrl="$APP_BASE_URL" \
-    emailLang="$EMAIL_LANG" \
-    emailMinSendIntervalSeconds="$EMAIL_MIN_SEND_INTERVAL_SECONDS" \
-    emailMaxReplicas="$EMAIL_MAX_REPLICAS" \
-    countries="$COUNTRIES" \
-    scannerCronExpression="$SCANNER_CRON_EXPRESSION" \
-    publisherCronExpression="$PUBLISHER_CRON_EXPRESSION" \
-  --output none
+deploy_template() {
+  local image="$1"
+  local deployment_name="$2"
+  local scanner_identity_name="${3:-$SCANNER_IDENTITY_NAME}"
+  local retention_identity_name="${4:-$RETENTION_IDENTITY_NAME}"
+  az deployment group create \
+    --name "$deployment_name" \
+    --resource-group "$RESOURCE_GROUP" \
+    --template-file "$PROJECT_DIR/infra/job.bicep" \
+    --parameters \
+      containerImage="$image" \
+      containerEnvironmentName="$ENVIRONMENT_NAME" \
+      acrName="$ACR_NAME" \
+      scannerIdentityName="$scanner_identity_name" \
+      retentionIdentityName="$retention_identity_name" \
+      publisherIdentityName="$PUBLISHER_IDENTITY_NAME" \
+      fanoutIdentityName="$FANOUT_IDENTITY_NAME" \
+      emailIdentityName="$EMAIL_IDENTITY_NAME" \
+      deliveryReportIdentityName="$DELIVERY_REPORT_IDENTITY_NAME" \
+      storageAccountName="$STORAGE_NAME" \
+      serviceBusNamespaceName="$SERVICE_BUS_NAMESPACE_NAME" \
+      communicationServiceName="$ACS_NAME" \
+      keyVaultUrl="$KEY_VAULT_URL" \
+      emailFrom="$EMAIL_FROM" \
+      emailReplyTo="$EMAIL_REPLY_TO" \
+      appBaseUrl="$APP_BASE_URL" \
+      emailLang="$EMAIL_LANG" \
+      emailMinSendIntervalSeconds="$EMAIL_MIN_SEND_INTERVAL_SECONDS" \
+      emailMaxReplicas="$EMAIL_MAX_REPLICAS" \
+      countries="$COUNTRIES" \
+      scannerCronExpression="$SCANNER_CRON_EXPRESSION" \
+      publisherCronExpression="$PUBLISHER_CRON_EXPRESSION" \
+    --output none
+}
 
-verify_job() {
+start_and_verify_job() {
   local job_name="$1"
   local timeout_seconds="$2"
+  local override_image="${3:-}"
+  local start_args=(
+    --name "$job_name"
+    --resource-group "$RESOURCE_GROUP"
+    --query name
+    --output tsv
+  )
+  if [[ -n "$override_image" ]]; then
+    start_args+=(--image "$override_image")
+  fi
   local execution_name
-  execution_name="$(az containerapp job start --name "$job_name" --resource-group "$RESOURCE_GROUP" --query name --output tsv)"
-  if [ -z "$execution_name" ]; then
+  execution_name="$(az containerapp job start "${start_args[@]}")"
+  if [[ -z "$execution_name" ]]; then
     echo "Failed to start verification execution for $job_name." >&2
-    exit 1
+    return 1
   fi
   echo "Verification execution: $job_name / $execution_name"
   local deadline=$(( $(date +%s) + timeout_seconds ))
   while true; do
     local status
     status="$(az containerapp job execution show --name "$job_name" --resource-group "$RESOURCE_GROUP" --job-execution-name "$execution_name" --query properties.status --output tsv 2>/dev/null || true)"
-    if [ "$status" = "Succeeded" ]; then
+    if [[ "$status" == "Succeeded" ]]; then
       echo "$job_name verification succeeded."
-      break
+      return 0
     fi
-    if [ "$status" = "Failed" ]; then
+    if [[ "$status" == "Failed" ]]; then
       echo "$job_name verification failed. View logs with az containerapp job logs show." >&2
-      exit 1
+      return 1
     fi
-    if [ "$(date +%s)" -ge "$deadline" ]; then
+    if [[ "$(date +%s)" -ge "$deadline" ]]; then
       echo "$job_name verification timed out (status: ${status:-unknown})." >&2
-      exit 1
+      return 1
     fi
     sleep 10
   done
 }
 
+DEPLOYMENT_STARTED=false
+rollback_application() {
+  local exit_code=$?
+  trap - EXIT
+  set +e
+  if [[ "$DEPLOYMENT_STARTED" == "true" && -n "$PREVIOUS_IMAGE" ]]; then
+    echo "Deployment failed; restoring all application workloads to $PREVIOUS_IMAGE and their previous scanner/retention identities." >&2
+    deploy_template \
+      "$PREVIOUS_IMAGE" \
+      "airco-job-rollback-$(date -u +%Y%m%d%H%M%S)" \
+      "$PREVIOUS_SCANNER_IDENTITY_NAME" \
+      "$PREVIOUS_RETENTION_IDENTITY_NAME"
+    start_and_verify_job airco-alert-reconciler-job 420
+  fi
+  exit "$exit_code"
+}
+trap rollback_application EXIT
+
+az acr build \
+  --registry "$ACR_NAME" \
+  --image "airco-tracker:$IMAGE_TAG" \
+  "$PROJECT_DIR"
+
+# A one-off reconciler execution uses the candidate image but the currently
+# deployed identity, secrets, and environment. It is read/reconcile-only and
+# catches image/runtime incompatibility before any production definition moves.
+if [[ -n "$PREVIOUS_IMAGE" ]]; then
+  start_and_verify_job airco-alert-reconciler-job 420 "$IMAGE"
+fi
+
+DEPLOYMENT_STARTED=true
+deploy_template "$IMAGE" "airco-job-${IMAGE_TAG:0:12}"
+
 # Verify the data path in dependency order. Worker apps are validated by the
 # targeted synthetic pipeline test after deployment.
-verify_job airco-alert-reconciler-job 420
+start_and_verify_job airco-alert-reconciler-job 420
 if [[ "$DEPLOYMENT_PAUSED" == "true" ]]; then
   echo "Scanner and publisher verification skipped while DEPLOYMENT_PAUSED=true."
 else
-  verify_job airco-tracker-job 480
-  verify_job airco-alert-publisher-job 300
+  start_and_verify_job airco-tracker-job 480
+  start_and_verify_job airco-alert-publisher-job 300
 fi
 
+trap - EXIT
 echo "Deployed $IMAGE"
+if [[ -n "$PREVIOUS_IMAGE" && "$PREVIOUS_IMAGE" != "$IMAGE" ]]; then
+  echo "Rollback image: $PREVIOUS_IMAGE"
+fi

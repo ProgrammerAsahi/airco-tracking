@@ -43,7 +43,10 @@ class EcoFlowFranceAdapter(Adapter):
         # stale forever. A nonempty collection whose WAVE schema disappears
         # still fails closed below.
         if not raw_products:
-            return []
+            return self.verified_empty(
+                source="shopify_collection",
+                signal="validated products=[]",
+            )
 
         products: dict[str, Product] = {}
         for raw_product in raw_products:
@@ -133,33 +136,20 @@ def _is_wave_air_conditioner(product: dict[str, Any]) -> bool:
 
 
 def _collection_payload(fetcher: Any) -> Any:
-    """Read the JSON endpoint while allowing Shopify's valid tiny empty body.
+    """Read Shopify JSON while accepting its valid tiny empty collection."""
 
-    The generic HTML fetcher rejects responses below 10 KiB, which is useful
-    for detecting anti-bot shells but would also reject Shopify's legitimate
-    ``{"products": []}`` off-season response. Production Fetcher instances
-    expose their requests session, so use it with explicit JSON/content limits.
-    Lightweight parser-test fetchers retain the ordinary ``get`` fallback.
-    """
-    session = getattr(fetcher, "session", None)
-    if session is None:
-        raw = fetcher.get(_COLLECTION_URL)
-    else:
-        response = session.get(
+    request_json = getattr(fetcher, "request_json", None)
+    if callable(request_json):
+        payload = request_json(
+            "GET",
             _COLLECTION_URL,
             headers={"Accept": "application/json"},
-            timeout=fetcher.timeout,
+            minimum_response_bytes=1,
+            maximum_response_bytes=_MAX_COLLECTION_BYTES,
         )
-        response.raise_for_status()
-        content_type = str(response.headers.get("Content-Type") or "").casefold()
-        if "application/json" not in content_type:
-            raise RuntimeError("EcoFlow France: collection response is not JSON")
-        if len(response.content) > _MAX_COLLECTION_BYTES:
-            raise RuntimeError("EcoFlow France: collection response is unexpectedly large")
-        try:
-            raw = response.content.decode(response.encoding or "utf-8")
-        except UnicodeDecodeError as exc:
-            raise RuntimeError("EcoFlow France: invalid collection response") from exc
+        return payload
+    else:  # Lightweight parser-test fetchers keep the ordinary text fallback.
+        raw = fetcher.get(_COLLECTION_URL)
     try:
         return json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:

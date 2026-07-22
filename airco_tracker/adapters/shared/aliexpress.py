@@ -295,6 +295,8 @@ class AliExpressAffiliateAdapter(Adapter):
         self._cache = cache
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic or time.monotonic
+        self._last_candidate_count: int | None = None
+        self._last_discovery_complete = False
         _validate_adapter_configuration(self)
 
     def fetch_products(self) -> list[Product]:
@@ -308,7 +310,15 @@ class AliExpressAffiliateAdapter(Adapter):
 
         offers = self.inspect_offers()
         if not offers:
-            return []
+            if self._last_candidate_count == 0 and self._last_discovery_complete:
+                return self.verified_empty(
+                    source="affiliate_product_discovery_api",
+                    signal="validated complete discovery returned zero relevant candidates",
+                )
+            raise AliExpressAvailabilityUnknown(
+                f"{self.site} {self.destination_country}: discovery or SKU inspection "
+                "returned no offers without proving an empty catalogue"
+            )
 
         by_product: dict[str, list[AliExpressOffer]] = {}
         for offer in offers:
@@ -350,6 +360,8 @@ class AliExpressAffiliateAdapter(Adapter):
 
         deadline = self._monotonic() + _API_BUDGET_SECONDS
         client = self._client or _client_from_environment(self.fetcher)
+        self._last_candidate_count = None
+        self._last_discovery_complete = False
         candidates = self._known_candidates(_utc(self._now()), client, deadline)
         offers: list[AliExpressOffer] = []
         for candidate in candidates:
@@ -416,6 +428,7 @@ class AliExpressAffiliateAdapter(Adapter):
                 )
         namespace = f"aliexpress-{self.destination_country.lower()}-discovery-v1"
         stale: list[_Candidate] | None = None
+        stale_complete = False
         if cache is not None:
             try:
                 payload = cache.load(namespace, _CACHE_KEY)
@@ -423,6 +436,7 @@ class AliExpressAffiliateAdapter(Adapter):
                     stale, imported, discovery_complete = _cached_candidates(
                         payload, now
                     )
+                    stale_complete = discovery_complete
                     if (
                         self.verified_stock_field is not None
                         and not discovery_complete
@@ -433,6 +447,8 @@ class AliExpressAffiliateAdapter(Adapter):
                         # it as a stale fallback either.
                         stale = None
                     elif now - imported <= _DISCOVERY_TTL:
+                        self._last_candidate_count = len(stale)
+                        self._last_discovery_complete = discovery_complete
                         return stale
             except Exception:
                 LOG.warning(
@@ -453,6 +469,8 @@ class AliExpressAffiliateAdapter(Adapter):
                     self.destination_country,
                     exc_info=True,
                 )
+                self._last_candidate_count = len(stale)
+                self._last_discovery_complete = stale_complete
                 return stale
             raise
 
@@ -484,6 +502,8 @@ class AliExpressAffiliateAdapter(Adapter):
                     self.destination_country,
                     exc_info=True,
                 )
+        self._last_candidate_count = len(discovered)
+        self._last_discovery_complete = discovery_complete
         return discovered
 
     def _discover_candidates(
@@ -584,7 +604,7 @@ def _client_from_environment(fetcher: Any) -> AliExpressClient:
     if not app_key or not app_secret:
         raise RuntimeError("AliExpress API credentials are not configured")
     return AliExpressClient(
-        session=fetcher.session,
+        fetcher=fetcher,
         app_key=app_key,
         app_secret=app_secret,
         timeout=min(float(fetcher.timeout), 8.0),

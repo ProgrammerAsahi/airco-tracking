@@ -99,7 +99,7 @@ Scanner Job (every 10 minutes)
 
 The scanner only fetches retailers, updates private `state.json`/`inventory.json`, and persists deterministic stock events. It never enumerates users or waits for mail. Container Apps workers scale independently from Azure Service Bus Standard backlog; the recipient projection is spread across 32 Azure Table partitions and streamed page by page, so subscriber growth does not slow inventory scans.
 
-Production uses separate Managed Identities for the scanner/shared web runtime, outbox publisher, fan-out, and email delivery; new pipeline access is narrowed to the relevant entity/table wherever possible. Service Bus messages carry opaque user UUIDs rather than email, nickname, Stripe/payment, or card data. The email worker reloads the current email, language, delivery country, and entitlement immediately before sending. `EMAIL_TO` belongs only to local direct/SMTP mode and is not a production subscriber source.
+The Azure design uses responsibility-separated Managed Identities for web, scanner, backend retention, web-auth retention, outbox publisher, fan-out, and email delivery; new pipeline access is narrowed to the relevant container/entity/table wherever possible. Service Bus messages carry opaque user UUIDs rather than email, nickname, Stripe/payment, or card data. The email worker reloads the current email, language, delivery country, and entitlement immediately before sending. A dedicated Azure Table provides a cross-replica ACS send-rate reservation; local development uses an in-process limiter, and Bicep forces a single replica if the distributed backend is disabled. `EMAIL_TO` belongs only to local direct/SMTP mode and is not a production subscriber source.
 
 Azure Monitor has four enabled Service Bus metric alerts for dead-lettered messages, sustained backlog, throttled requests, and server errors. In production they notify the `aircontrack-operations-alerts` Action Group. The receiver address is supplied only as the secure foundation parameter `operationsAlertEmail`, normally through local `AZURE_OPERATIONS_ALERT_EMAIL`; it is never committed or stored as a GitHub Actions variable. Repeat foundation deployments preserve the Action Group's existing receiver when the environment variable is omitted.
 
@@ -176,23 +176,32 @@ Requirements:
 - Azure CLI with `az login` completed.
 - Permission to create resource groups, role assignments, and the required Azure resources.
 
-Deploy with:
+For a coordinated foundation/RBAC change shared by both repositories, deploy in this order:
 
 ```bash
 cd ~/airco-tracking
-./scripts/deploy-azure.sh
+AZURE_FOUNDATION_ONLY=true ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
+
+cd ~/airco-tracking-web
+./scripts/deploy.sh
+
+cd ~/airco-tracking
+./scripts/deploy-application.sh
+./scripts/migrate-runtime-identities.sh
+# Only after both smoke tests pass:
+./scripts/migrate-runtime-identities.sh --apply
 ```
 
 The script:
 
 1. Registers required Azure resource providers and creates ACR, Storage, Key Vault, a Container Apps Environment, Service Bus Standard, ACS Email, and responsibility-separated Managed Identities.
-2. Creates the `alertoutbox`, `alertrecipients`, and `alertdeliveries` Tables, topic/subscription, two queues, four Service Bus metric alerts, and the configured operations Action Group.
-3. Builds the image remotely in ACR, so Docker is not required locally.
-4. Deploys scanner/publisher/reconciler/retention jobs and three backlog-scaled worker apps.
-5. Verifies recipient reconciliation, scanner, and outbox publisher in dependency order. Real mail is verified separately with a targeted `pipeline-test`; deployment never broadcasts a test to all users.
+2. Creates the alert outbox/recipient/delivery Tables plus the dedicated `emailratelimit` Table, topic/subscription, two queues, four Service Bus metric alerts, and the configured operations Action Group.
+3. In foundation-only mode, stops before moving workloads so the web repository can deploy and verify its cleanup job with the new identity.
+4. The web and backend application scripts build immutable images remotely in ACR, deploy their workloads, and verify them before completing. Existing backend environments first execute the candidate image as a reconciler canary; failure leaves production definitions unchanged.
+5. The final identity-migration command first performs a read-only audit. `--apply` removes only the verified obsolete grants and is deliberately postponed until both repositories pass smoke tests. Real mail is verified separately with a targeted `pipeline-test`; deployment never broadcasts a test to all users.
 
-The foundation creates RBAC and must be run by a local Azure principal allowed to create role assignments. The GitHub deployer deliberately lacks this permission and deploys only the application layer. New RBAC assignments can take a few minutes to propagate. If the first application execution gets an ACR, Storage, Service Bus, or ACS 403, wait and redeploy the application:
+The foundation creates RBAC and must be run by a local Azure principal allowed to create role assignments. Runtime Key Vault access is secret-scoped: web gets only unsubscribe/withdrawal/OTP pepper, scanner only Awin/AliExpress, and the email worker only unsubscribe. The web cleanup Job uses the dedicated `${prefix}-web-retention` identity, which can pull its image and write only `users`/`authcodes`/`authsessions`; the backend retention identity cannot access those auth tables. The GitHub deployer deliberately lacks role-assignment permission and deploys only the application layer. New RBAC assignments can take a few minutes to propagate. If the first application execution gets an ACR, Storage, Service Bus, or ACS 403, wait and redeploy the application:
 
 ```bash
 AZURE_RESOURCE_GROUP=airco-tracker-rg ./scripts/deploy-application.sh
@@ -305,11 +314,11 @@ Configure filters in `.env`:
 
 Every production check writes a separate `inventory.json` grouped by retailer, containing all currently online-purchasable portable compressor air conditioners. Price, BTU, and brand alert filters do not apply to this snapshot; adapter-level exclusions for air coolers, fans, accessories, and fixed split systems still apply. Email remains limited to first-seen or restocked products that pass the alert filters above.
 
-A successful retailer check fully replaces that retailer's inventory, including with zero products. A failed check retains the last successful inventory and marks the retailer `stale: true` with `status: error`. Local mode writes `inventory.json` in the project directory; Azure writes the same blob name to the existing `airco-tracker` container, without new cloud resources. `--dry-run` writes neither inventory nor alert state.
+A successful retailer check fully replaces that retailer's inventory, including with zero products. A failed check retains the last successful inventory only as short-lived diagnostic context and marks it `stale: true`, `status: error`, and `counts_toward_totals: false`; stale products never increase the live totals. The producer scrubs the retained product list after the 24-hour diagnostic cutoff (or when no trustworthy success timestamp exists) while preserving retailer health metadata. Additive freshness fields expose verified-site count, confidence, stale age, and that cutoff without changing schema version `1`. Local mode writes `inventory.json` in the project directory; Azure writes the same blob name to the existing `airco-tracker` container, without new cloud resources. `--dry-run` writes neither inventory nor alert state.
 
 ## Maintenance and adding retailers
 
-Each retailer has an independent adapter under `airco_tracker/adapters/<country>/`. Add a retailer by implementing an adapter, registering it in that country's `ADAPTERS` list and `adapters/registry.py`, and maintaining conservative `delivery_coverage` metadata for the site (ISO-2 country codes or the `eu`/`eea`/`nordics`/`benelux`/`dach` region aliases). If a page structure changes and no products can be parsed, the application reports `parser found no products` instead of silently pretending that everything is out of stock.
+Each retailer has an independent adapter under `airco_tracker/adapters/<country>/`. Add a retailer by implementing an adapter, registering it in that country's `ADAPTERS` list and `adapters/registry.py`, maintaining conservative `delivery_coverage` metadata, and adding its canonical hosts to `MERCHANT_HOSTS_BY_SITE_ID`. Unknown merchant and affiliate hosts fail closed. The complete security, retention, pending-index, and Owner-only identity-migration procedure is in [runtime hardening and migration](./docs/HARDENING.md). If a page structure changes and no products can be parsed, the application reports `parser found no products` instead of silently pretending that everything is out of stock.
 
 Keep the polling interval at ten minutes or longer. Product pages remain the final authority for stock, price, and delivery information.
 

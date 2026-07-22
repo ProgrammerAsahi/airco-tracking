@@ -16,14 +16,25 @@ from .models import Product, DEFAULT_COUNTRY, normalize_country, site_id_for
 # cannot briefly break production.
 INVENTORY_SCHEMA_VERSION = 1
 
+# Stale retailer snapshots remain available as diagnostic context, but are
+# never counted as purchasable stock.  Consumers may use this age threshold to
+# hide very old diagnostic product lists while still showing that the retailer
+# check is unhealthy.
+STALE_DIAGNOSTIC_MAX_AGE_SECONDS = 24 * 60 * 60
+
 
 EMPTY_INVENTORY: dict[str, Any] = {
     "version": INVENTORY_SCHEMA_VERSION,
     "updated_at": None,
     "refresh_interval_seconds": 600,
     "site_count": 0,
+    "verified_site_count": 0,
     "stale_site_count": 0,
     "available_product_count": 0,
+    "immediate_product_count": 0,
+    "presale_product_count": 0,
+    "inventory_confidence": "unavailable",
+    "stale_diagnostic_max_age_seconds": STALE_DIAGNOSTIC_MAX_AGE_SECONDS,
     "sites": {},
 }
 
@@ -46,7 +57,8 @@ def updated_inventory(
     an empty list. A failed site retains its last successful product list and is
     explicitly marked stale.
     """
-    timestamp = (now or datetime.now(timezone.utc)).isoformat()
+    current_time = now or datetime.now(timezone.utc)
+    timestamp = current_time.isoformat()
     old_sites = old_inventory.get("sites", {})
     if not isinstance(old_sites, dict):
         old_sites = {}
@@ -78,6 +90,10 @@ def updated_inventory(
             sites[site_id] = {
                 "status": "ok",
                 "stale": False,
+                "freshness": "verified",
+                "counts_toward_totals": True,
+                "stale_age_seconds": 0,
+                "stale_too_old": False,
                 "country": site_identity["country"],
                 "site": site_identity["site"],
                 "site_id": site_id,
@@ -98,6 +114,8 @@ def updated_inventory(
             previous = old_sites.get(site_identity["site"], {})
         if not isinstance(previous, dict):
             previous = {}
+        stale_age_seconds = _age_seconds(previous.get("last_success_at"), now=current_time)
+        stale_too_old = stale_age_seconds is None or stale_age_seconds > STALE_DIAGNOSTIC_MAX_AGE_SECONDS
         retained_products = previous.get("products", [])
         if not isinstance(retained_products, list):
             retained_products = []
@@ -106,11 +124,21 @@ def updated_inventory(
             for product in deepcopy(retained_products)
             if isinstance(product, dict)
         ]
+        # A stale snapshot is useful for short-lived diagnostics, but old
+        # product links and prices must not remain in the paid API forever.
+        # Keep the retailer health/timestamps while scrubbing the commercial
+        # payload after the documented diagnostic window.
+        if stale_too_old:
+            retained_products = []
         immediate_count = _immediate_count(retained_products)
         presale_count = _presale_count(retained_products)
         sites[site_id] = {
             "status": "error",
             "stale": True,
+            "freshness": "stale",
+            "counts_toward_totals": False,
+            "stale_age_seconds": stale_age_seconds,
+            "stale_too_old": stale_too_old,
             "country": site_identity["country"],
             "site": site_identity["site"],
             "site_id": site_id,
@@ -123,18 +151,29 @@ def updated_inventory(
             "products": retained_products,
         }
 
-    available_product_count = sum(int(item["available_product_count"]) for item in sites.values())
-    immediate_product_count = sum(int(item["immediate_product_count"]) for item in sites.values())
-    presale_product_count = sum(int(item["presale_product_count"]) for item in sites.values())
+    verified_sites = [item for item in sites.values() if bool(item["counts_toward_totals"])]
+    available_product_count = sum(int(item["available_product_count"]) for item in verified_sites)
+    immediate_product_count = sum(int(item["immediate_product_count"]) for item in verified_sites)
+    presale_product_count = sum(int(item["presale_product_count"]) for item in verified_sites)
+    stale_site_count = sum(bool(item["stale"]) for item in sites.values())
+    if not verified_sites:
+        confidence = "unavailable"
+    elif stale_site_count:
+        confidence = "partial"
+    else:
+        confidence = "verified"
     return {
         "version": INVENTORY_SCHEMA_VERSION,
         "updated_at": timestamp,
         "refresh_interval_seconds": 600,
         "site_count": len(sites),
-        "stale_site_count": sum(bool(item["stale"]) for item in sites.values()),
+        "verified_site_count": len(verified_sites),
+        "stale_site_count": stale_site_count,
         "available_product_count": available_product_count,
         "immediate_product_count": immediate_product_count,
         "presale_product_count": presale_product_count,
+        "inventory_confidence": confidence,
+        "stale_diagnostic_max_age_seconds": STALE_DIAGNOSTIC_MAX_AGE_SECONDS,
         "sites": sites,
     }
 
@@ -217,3 +256,15 @@ def _immediate_count(products: Iterable[Mapping[str, Any]]) -> int:
 
 def _presale_count(products: Iterable[Mapping[str, Any]]) -> int:
     return sum(1 for product in products if bool(product.get("presale", False)))
+
+
+def _age_seconds(value: Any, *, now: datetime) -> int | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0, int((now.astimezone(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()))

@@ -69,34 +69,41 @@ class _LiveApi(Protocol):
 
 
 class _ELeclercLiveApiClient:
-    def __init__(self, session: Any, timeout: int) -> None:
-        self._session = session
+    def __init__(self, fetcher: Any, timeout: int) -> None:
+        self._fetcher = fetcher
         self._timeout = timeout
 
     def search(self, query: str, page: int, size: int) -> Any:
-        response = self._session.post(
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        body = {
+            "text": query,
+            "page": page,
+            "size": size,
+            "filters": {"type_de_produit": {"value": ["Climatiseur"]}},
+        }
+        return self._fetcher.request_json(
+            "POST",
             _SEARCH_URL,
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            json={
-                "text": query,
-                "page": page,
-                "size": size,
-                "filters": {"type_de_produit": {"value": ["Climatiseur"]}},
-            },
+            headers=headers,
+            json_body=body,
             timeout=self._timeout,
+            minimum_response_bytes=1,
+            maximum_response_bytes=4 * 1024 * 1024,
+            # Search has no side effects and can be retried safely.
+            retry_read_only_post=True,
         )
-        response.raise_for_status()
-        return _response_json(response, "search")
 
     def product_details(self, skus: Sequence[str]) -> Any:
-        response = self._session.get(
+        params = [("skus", sku) for sku in skus]
+        return self._fetcher.request_json(
+            "GET",
             _BULK_URL,
             headers={"Accept": "application/json"},
-            params=[("skus", sku) for sku in skus],
+            params=params,
             timeout=self._timeout,
+            minimum_response_bytes=1,
+            maximum_response_bytes=8 * 1024 * 1024,
         )
-        response.raise_for_status()
-        return _response_json(response, "product details")
 
 
 class ELeclercFranceAdapter(Adapter):
@@ -117,21 +124,15 @@ class ELeclercFranceAdapter(Adapter):
         *,
         cache: PartnerFeedCache | None = None,
         client: _LiveApi | None = None,
-        session: Any | None = None,
         now: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         super().__init__(fetcher)
-        if client is not None and session is not None:
-            raise ValueError("Pass either an E.Leclerc client or a session, not both")
         self._cache = cache
         self._client = (
             client
             if client is not None
-            else _ELeclercLiveApiClient(
-                session if session is not None else fetcher.session,
-                int(fetcher.timeout),
-            )
+            else _ELeclercLiveApiClient(fetcher, int(fetcher.timeout))
         )
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._sleep = sleep
@@ -140,7 +141,10 @@ class ELeclercFranceAdapter(Adapter):
         now = _utc(self._now())
         skus = self._known_skus(now)
         if not skus:
-            return []
+            return self.verified_empty(
+                source="first_party_search_api",
+                signal="validated complete discovery returned zero climatiseur SKUs",
+            )
 
         details: dict[str, dict[str, Any]] = {}
         for batch in _chunks(skus, _BULK_BATCH_SIZE):
@@ -240,13 +244,6 @@ class ELeclercFranceAdapter(Adapter):
         if not discovered and source_total != 0:
             raise RuntimeError("E.Leclerc France: discovery found no mobile air conditioners")
         return sorted(discovered)
-
-
-def _response_json(response: Any, label: str) -> Any:
-    try:
-        return response.json()
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError(f"E.Leclerc France: invalid {label} JSON") from exc
 
 
 def _validated_search(
@@ -384,7 +381,8 @@ def _product_from_item(
     return Product(
         site="E.Leclerc France",
         name=name,
-        url=_awin_deep_link(merchant_url),
+        url=merchant_url,
+        affiliate_url=_awin_deep_link(merchant_url),
         available=chosen is not None,
         price_eur=chosen.price if chosen else None,
         delivery=(

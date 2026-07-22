@@ -117,6 +117,15 @@ class CatalogFetcher:
     def get(self, url):
         return self.page
 
+    def request_json(self, method, url, **kwargs):
+        response = self.session.post(
+            url,
+            headers=kwargs.get("headers"),
+            json=kwargs.get("json_body"),
+            timeout=self.timeout,
+        )
+        return response.json()
+
 
 class BinaryResponse:
     def __init__(self, content):
@@ -142,6 +151,9 @@ class SitemapFetcher:
 
     def get(self, url):
         return self.pages[url]
+
+    def get_bytes(self, url, **kwargs):
+        return self.session.content
 
 
 class StatusResponse:
@@ -172,6 +184,9 @@ class MappingFetcher:
     def get(self, url):
         return self.pages[url]
 
+    def get_bytes(self, url, **kwargs):
+        return self.pages[url]
+
 
 class RateLimitedDiyFetcher:
     def __init__(self, sitemap, catalog_payload=None):
@@ -183,6 +198,15 @@ class RateLimitedDiyFetcher:
         if url.startswith("https://sitemap."):
             return self.sitemap
         raise requests.exceptions.RetryError("too many 429 error responses")
+
+    def request_json(self, method, url, **kwargs):
+        response = self.session.post(
+            url,
+            headers=kwargs.get("headers"),
+            json=kwargs.get("json_body"),
+            timeout=self.timeout,
+        )
+        return response.json()
 
 
 def diy_product_sitemap(host, *extra_slugs):
@@ -1721,6 +1745,15 @@ class ParserTests(unittest.TestCase):
             def get(self, url):
                 return page
 
+            def request_json(self, method, url, **kwargs):
+                response = self.session.post(
+                    url,
+                    headers=kwargs.get("headers"),
+                    json=kwargs.get("json_body"),
+                    timeout=self.timeout,
+                )
+                return response.json()
+
         fetcher = _NostoFetcher(hits)
         products = EvolarshopAdapter(fetcher).fetch_products()
         self.assertEqual(len(products), 1)
@@ -1768,6 +1801,15 @@ class ParserTests(unittest.TestCase):
                 if requested_url == url:
                     return detail
                 return page
+
+            def request_json(self, method, requested_url, **kwargs):
+                response = self.session.post(
+                    requested_url,
+                    headers=kwargs.get("headers"),
+                    json=kwargs.get("json_body"),
+                    timeout=self.timeout,
+                )
+                return response.json()
 
         products = EvolarshopAdapter(_NostoFetcher()).fetch_products()
         self.assertEqual(len(products), 1)
@@ -1983,6 +2025,15 @@ class ParserTests(unittest.TestCase):
         </sitemapindex>"""
         pages = {"https://www.hubo.nl/sitemap.xml": index}
         with self.assertRaises(RuntimeError):
+            HuboAdapter(MappingFetcher(pages)).fetch_products()
+
+    def test_hubo_rejects_cross_merchant_url_from_malicious_sitemap(self) -> None:
+        index = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <sitemap><loc>https://evil.example/sitemap_products_1.xml</loc></sitemap>
+        </sitemapindex>"""
+        pages = {"https://www.hubo.nl/sitemap.xml": index}
+        with self.assertRaisesRegex(ValueError, "not allowed for Hubo"):
             HuboAdapter(MappingFetcher(pages)).fetch_products()
 
     # --- Vrijbuiter ---

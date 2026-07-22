@@ -3,6 +3,7 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 
 from ...models import Product
+from ...url_security import validate_discovered_merchant_url
 from ..base import canonical_url, clean_text, parse_btu
 from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
@@ -21,7 +22,10 @@ class SolagoAdapter:
     def fetch_products(self) -> list[Product]:
         page = self.fetcher.get(self.collection_url)
         soup = BeautifulSoup(page, "html.parser")
-        urls = _product_urls(soup, self.collection_url)
+        urls = {
+            validate_discovered_merchant_url(url, site=self.site)
+            for url in _product_urls(soup, self.collection_url)
+        }
         if not urls:
             raise RuntimeError("Solago collection did not contain product links")
         products: dict[str, Product] = {}

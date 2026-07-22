@@ -31,7 +31,10 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(snapshot["available_product_count"], 2)
         self.assertEqual(snapshot["immediate_product_count"], 2)
         self.assertEqual(snapshot["presale_product_count"], 0)
+        self.assertEqual(snapshot["inventory_confidence"], "verified")
+        self.assertEqual(snapshot["verified_site_count"], 1)
         self.assertFalse(snapshot["sites"]["nl:Shop"]["stale"])
+        self.assertTrue(snapshot["sites"]["nl:Shop"]["counts_toward_totals"])
         self.assertEqual(snapshot["sites"]["nl:Shop"]["delivery_coverage"], ["nl"])
 
     def test_successful_empty_result_clears_previous_inventory(self) -> None:
@@ -71,6 +74,53 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(never_succeeded["products"], [])
         self.assertIsNone(never_succeeded["last_success_at"])
         self.assertEqual(snapshot["stale_site_count"], 2)
+        # Retained stale products are diagnostic only: they must not create a
+        # false positive in the public headline or purchasable-stock totals.
+        self.assertEqual(snapshot["available_product_count"], 0)
+        self.assertEqual(snapshot["immediate_product_count"], 0)
+        self.assertEqual(snapshot["presale_product_count"], 0)
+        self.assertEqual(snapshot["verified_site_count"], 0)
+        self.assertEqual(snapshot["inventory_confidence"], "unavailable")
+        self.assertFalse(retained["counts_toward_totals"])
+        self.assertEqual(retained["freshness"], "stale")
+        self.assertEqual(retained["stale_age_seconds"], 3600)
+        self.assertFalse(retained["stale_too_old"])
+
+    def test_failed_site_scrubs_products_after_diagnostic_window(self) -> None:
+        old = self._old_inventory()
+        old["sites"]["Shop"]["last_success_at"] = "2026-07-01T09:00:00+00:00"
+
+        snapshot = updated_inventory(
+            old,
+            [],
+            all_sites={"Shop"},
+            checked_sites=set(),
+            now=NOW,
+        )
+
+        retained = snapshot["sites"]["nl:Shop"]
+        self.assertTrue(retained["stale_too_old"])
+        self.assertGreater(retained["stale_age_seconds"], 24 * 60 * 60)
+        self.assertEqual(retained["products"], [])
+        self.assertEqual(retained["available_product_count"], 0)
+        self.assertEqual(retained["immediate_product_count"], 0)
+        self.assertEqual(retained["presale_product_count"], 0)
+
+    def test_never_successful_site_never_exposes_products_from_malformed_snapshot(self) -> None:
+        old = self._old_inventory()
+        old["sites"]["Shop"]["last_success_at"] = None
+
+        snapshot = updated_inventory(
+            old,
+            [],
+            all_sites={"Shop"},
+            checked_sites=set(),
+            now=NOW,
+        )
+
+        retained = snapshot["sites"]["nl:Shop"]
+        self.assertTrue(retained["stale_too_old"])
+        self.assertEqual(retained["products"], [])
 
     def test_retired_site_is_removed_instead_of_retained_as_stale(self) -> None:
         old = {

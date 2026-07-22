@@ -8,7 +8,14 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
-from ..base import canonical_url, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
+from ...url_security import validate_discovered_merchant_url
+from ..base import (
+    canonical_url,
+    parse_btu,
+    parse_cooling_watts_btu,
+    parse_product_page_btu,
+    verified_empty,
+)
 from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
 
@@ -31,13 +38,22 @@ class LidlSitemapAdapter:
         self.fetcher = fetcher
 
     def fetch_products(self) -> list[Product]:
-        response = self.fetcher.session.get(self.sitemap_url, timeout=self.fetcher.timeout)
-        response.raise_for_status()
         urls = product_urls_from_sitemap(
-            response.content,
+            self.fetcher.get_bytes(
+                self.sitemap_url,
+                allowed_content_types=(
+                    "application/gzip",
+                    "application/octet-stream",
+                    "application/xml",
+                    "application/x-gzip",
+                    "text/xml",
+                ),
+                maximum_response_bytes=16 * 1024 * 1024,
+            ),
             include_terms=self.include_url_terms,
             exclude_terms=self.exclude_url_terms,
             invalid_message=self.invalid_sitemap_message,
+            site=self.site,
         )
         # Lidl removes seasonal aircos from the export. A healthy sitemap
         # without airco candidates is a legitimate empty snapshot: a restock
@@ -60,6 +76,12 @@ class LidlSitemapAdapter:
             products[product.url] = product
         if urls and not products:
             raise RuntimeError(self.parse_failure_message + ": " + "; ".join(failures))
+        if not urls:
+            return verified_empty(
+                self,
+                source="official_product_sitemap",
+                signal="healthy sitemap contained zero portable-airco candidates",
+            )
         return list(products.values())
 
 
@@ -69,6 +91,7 @@ def product_urls_from_sitemap(
     include_terms: tuple[str, ...],
     exclude_terms: tuple[str, ...],
     invalid_message: str,
+    site: str,
 ) -> list[str]:
     try:
         raw = gzip.decompress(content) if content.startswith(b"\x1f\x8b") else content
@@ -81,6 +104,7 @@ def product_urls_from_sitemap(
         url = (node.text or "").strip()
         if not url:
             continue
+        url = validate_discovered_merchant_url(url, site=site)
         total += 1
         lower = url.casefold()
         if not any(term in lower for term in include_terms):
@@ -130,4 +154,3 @@ def parse_lidl_product_page(
             or parse_product_page_btu(page)
         ),
     )
-

@@ -8,7 +8,8 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
-from ..base import canonical_url, clean_text, parse_btu
+from ...url_security import validate_discovered_merchant_url
+from ..base import canonical_url, clean_text, parse_btu, verified_empty
 from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
 
@@ -49,22 +50,40 @@ class HuboAdapter:
                 products[product.url] = product
         if product_urls and not products:
             raise RuntimeError("Hubo product pages could not be parsed: " + "; ".join(failures))
+        if not product_urls:
+            return verified_empty(
+                self,
+                source="official_product_sitemaps",
+                signal="healthy product sitemaps contained zero portable-airco candidates",
+            )
         return list(products.values())
 
     def _discover_airco_urls(self) -> set[str]:
-        index = self.fetcher.session.get(self.sitemap_index_url, timeout=self.fetcher.timeout)
-        index.raise_for_status()
-        sitemap_urls = _sitemap_locs(index.content)
+        sitemap_urls = [
+            validate_discovered_merchant_url(url, site=self.site)
+            for url in _sitemap_locs(
+                self.fetcher.get_bytes(
+                    self.sitemap_index_url,
+                    allowed_content_types=("application/xml", "text/xml", "text/plain"),
+                    maximum_response_bytes=4 * 1024 * 1024,
+                )
+            )
+        ]
         product_sitemaps = [u for u in sitemap_urls if "sitemap_products_" in u]
         if not product_sitemaps:
             raise RuntimeError("Hubo sitemap index listed no product sitemaps")
         airco_urls: set[str] = set()
         product_url_count = 0
         for sitemap_url in product_sitemaps:
-            resp = self.fetcher.session.get(sitemap_url, timeout=self.fetcher.timeout)
-            if resp.status_code != 200:
-                continue
-            locs = _sitemap_locs(resp.content)
+            content = self.fetcher.get_bytes(
+                sitemap_url,
+                allowed_content_types=("application/xml", "text/xml", "text/plain"),
+                maximum_response_bytes=16 * 1024 * 1024,
+            )
+            locs = [
+                validate_discovered_merchant_url(url, site=self.site)
+                for url in _sitemap_locs(content)
+            ]
             product_url_count += len(locs)
             for loc in locs:
                 if _is_airco_url(loc):

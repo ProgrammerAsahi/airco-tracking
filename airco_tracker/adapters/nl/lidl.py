@@ -23,6 +23,7 @@ def _product_urls(content: bytes) -> list[str]:
         include_terms=LidlAdapter.include_url_terms,
         exclude_terms=LidlAdapter.exclude_url_terms,
         invalid_message=LidlAdapter.invalid_sitemap_message,
+        site=LidlAdapter.site,
     )
 
 

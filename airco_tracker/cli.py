@@ -7,7 +7,7 @@ import sys
 from copy import copy
 from dataclasses import is_dataclass, replace
 
-from .adapters.base import with_detected_presale
+from .adapters.base import fetch_adapter_result, with_detected_presale
 from .adapters.registry import load_adapter_specs
 from .alert_events import EmailJob, StockAvailableEvent
 from .alert_pipeline import (
@@ -61,7 +61,18 @@ def _parser() -> argparse.ArgumentParser:
     cleanup = subparsers.add_parser(
         "cleanup-alert-data", help="Apply outbox and delivery retention policy"
     )
-    cleanup.add_argument("--limit", type=int, default=5000)
+    cleanup.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Optional per-table row cap; 0 drains every Azure Table page",
+    )
+    cleanup.add_argument(
+        "--max-runtime-seconds",
+        type=int,
+        default=0,
+        help="Optional runtime budget; 0 has no application-level deadline",
+    )
     delivery_dlq_cleanup = subparsers.add_parser(
         "purge-delivery-report-dlq",
         help="Delete raw ACS delivery reports retained by the Service Bus DLQ",
@@ -123,7 +134,8 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         adapter_site_id = spec.site_id
         try:
             adapter = spec.adapter_class(fetcher)
-            found = adapter.fetch_products()
+            result = fetch_adapter_result(adapter)
+            found = list(result.products)
             found = [
                 replace(product, site=spec.site, country=country)
                 for product in found
@@ -131,6 +143,14 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
             products.extend(found)
             successful_sites.add(adapter_site_id)
             available = sum(product.available for product in found)
+            if result.empty_evidence is not None:
+                LOG.info(
+                    "%s/%s: verified empty catalogue (%s: %s)",
+                    country,
+                    spec.site,
+                    result.empty_evidence.source,
+                    result.empty_evidence.signal,
+                )
             LOG.info("%s/%s: %d products, %d available", country, spec.site, len(found), available)
         except Exception as exc:  # Keep other retailers running.
             failures.append(f"{country}/{spec.site}: {exc}")
@@ -195,7 +215,13 @@ def check(config: Config, *, dry_run: bool, show_all: bool) -> int:
         )
         return 0
 
-    new_state = updated_state(old_state, products, checked_sites=successful_sites)
+    new_state = updated_state(
+        old_state,
+        products,
+        checked_sites=successful_sites,
+        compact_after_days=getattr(config, "state_compact_after_days", 90),
+        tombstone_retention_days=getattr(config, "state_tombstone_retention_days", 365),
+    )
     dispatch_backend = getattr(config, "alert_dispatch_backend", "direct")
     if dispatch_backend == "service_bus":
         config.validate_alert_pipeline()
@@ -373,7 +399,11 @@ def main(argv: list[str] | None = None) -> int:
                 removed_deliveries,
                 removed_delivery_index,
                 removed_suppressions,
-            ) = cleanup_alert_data(config, limit=args.limit)
+            ) = cleanup_alert_data(
+                config,
+                limit=args.limit,
+                max_runtime_seconds=args.max_runtime_seconds,
+            )
             print(
                 json.dumps(
                     {

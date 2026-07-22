@@ -5,7 +5,7 @@ import re
 from typing import Any
 from urllib.parse import urlencode
 
-from ..base import enrich_available_btu, parse_btu, parse_cooling_watts_btu
+from ..base import enrich_available_btu, parse_btu, parse_cooling_watts_btu, verified_empty
 from ...fetch import Fetcher
 from ...models import Product
 
@@ -45,14 +45,15 @@ class ElectroWorldAdapter:
                 ),
             }
         )
-        response = self.fetcher.session.post(
+        payload = self.fetcher.request_json(
+            "POST",
             self.query_url.format(app_id=app_id.lower()),
             headers={
                 "Content-Type": "application/json",
                 "X-Algolia-Application-Id": app_id,
                 "X-Algolia-API-Key": api_key,
             },
-            json={
+            json_body={
                 "requests": [
                     {
                         "indexName": f"{base_index}_products",
@@ -60,18 +61,28 @@ class ElectroWorldAdapter:
                     }
                 ]
             },
-            timeout=self.fetcher.timeout,
+            # Algolia queries are read-only despite using POST.
+            retry_read_only_post=True,
+            maximum_response_bytes=4 * 1024 * 1024,
         )
-        response.raise_for_status()
-        payload = response.json()
         results = payload.get("results")
         if not isinstance(results, list) or not results or not isinstance(results[0], dict):
             raise RuntimeError("Electro World search returned an invalid response")
         hits = results[0].get("hits")
         if not isinstance(hits, list):
             raise RuntimeError("Electro World search response did not contain products")
+        if not hits:
+            return verified_empty(
+                self,
+                source="public_algolia_category",
+                signal="validated category response contained hits=[]",
+            )
         products = [product for hit in hits if (product := _parse_hit(hit)) is not None]
         unique = list({product.url: product for product in products}.values())
+        if not unique:
+            raise RuntimeError(
+                "Electro World search returned products but none matched the supported schema"
+            )
         return enrich_available_btu(self.fetcher, unique)
 
 

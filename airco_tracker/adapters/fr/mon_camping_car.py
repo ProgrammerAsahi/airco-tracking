@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
+from ...url_security import validate_discovered_merchant_url
 from ..base import canonical_url, clean_text, is_presale_delivery, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
 from ..schema import first_offer, offer_price, product_json_ld
 from .common import is_real_air_conditioner_fr
@@ -25,7 +26,12 @@ class MonCampingCarAdapter:
         self.fetcher = fetcher
 
     def fetch_products(self) -> list[Product]:
-        urls = _category_product_urls(self.fetcher.get(self.category_url), self.category_url)
+        urls = [
+            validate_discovered_merchant_url(url, site=self.site)
+            for url in _category_product_urls(
+                self.fetcher.get(self.category_url), self.category_url
+            )
+        ]
         if not urls:
             raise RuntimeError(f"{self.site}: category contained no portable air conditioners")
 

@@ -37,7 +37,11 @@ class _ProductionFetcher:
     timeout = 25
 
     def __init__(self) -> None:
-        self.session = _Session()
+        self.call = None
+
+    def request_json(self, method, url, **kwargs):
+        self.call = (method, url, kwargs)
+        return {"products": []}
 
     def get(self, url: str) -> str:
         raise AssertionError("the generic HTML minimum-size check must not be used")
@@ -150,8 +154,10 @@ class EcoFlowFranceAdapterTests(unittest.TestCase):
         fetcher = _ProductionFetcher()
         adapter = EcoFlowFranceAdapter(fetcher)
         self.assertEqual(adapter.fetch_products(), [])
-        self.assertEqual(fetcher.session.call[0], COLLECTION_URL)
-        self.assertEqual(fetcher.session.call[1]["headers"], {"Accept": "application/json"})
+        self.assertEqual(fetcher.call[0], "GET")
+        self.assertEqual(fetcher.call[1], COLLECTION_URL)
+        self.assertEqual(fetcher.call[2]["headers"], {"Accept": "application/json"})
+        self.assertEqual(fetcher.call[2]["minimum_response_bytes"], 1)
 
     def test_relevant_product_with_broken_variant_schema_fails_closed(self) -> None:
         collection = {

@@ -432,7 +432,7 @@ class EmailWorkerTests(unittest.TestCase):
         job = EmailJob.create(event.event_id, before_wait.recipient_id)
 
         with (
-            patch("airco_tracker.alert_pipeline._wait_for_email_rate_limit") as wait,
+            patch.object(worker.rate_limiter, "wait") as wait,
             patch(
                 "airco_tracker.alert_pipeline.build_message",
                 return_value=_test_email_message(),
@@ -662,6 +662,16 @@ class EmailWorkerTests(unittest.TestCase):
                 SimpleNamespace(
                     email_unsubscribe_signing_key="x" * 32,
                     app_base_url="http://airco-tracker.eu",
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "AZURE_STORAGE_ACCOUNT_URL"):
+            _validate_email_worker_runtime(
+                SimpleNamespace(
+                    email_unsubscribe_signing_key="x" * 32,
+                    app_base_url="https://airco-tracker.eu",
+                    email_rate_limit_backend="azure_table",
+                    azure_storage_account_url="",
+                    email_rate_limit_table="emailratelimit",
                 )
             )
 

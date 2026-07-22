@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
+from ...url_security import validate_discovered_merchant_url
 from ..base import parse_btu, parse_cooling_watts_btu, parse_product_page_btu
 from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
@@ -36,7 +37,10 @@ class ObelinkAdapter:
     def fetch_products(self) -> list[Product]:
         urls = set(self.known_urls)
         for category_url in self.category_urls:
-            urls.update(_category_product_urls(self.fetcher.get(category_url)))
+            urls.update(
+                validate_discovered_merchant_url(url, site=self.site)
+                for url in _category_product_urls(self.fetcher.get(category_url))
+            )
         products: dict[str, Product] = {}
         failures: list[str] = []
         for url in sorted(urls):

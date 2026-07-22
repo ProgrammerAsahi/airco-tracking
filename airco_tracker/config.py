@@ -109,6 +109,11 @@ class Config:
     alert_event_max_age_seconds: int
     alert_outbox_retention_days: int
     alert_delivery_retention_days: int
+    state_compact_after_days: int = 90
+    state_tombstone_retention_days: int = 365
+    alert_outbox_pending_table: str = "alertoutboxpending"
+    email_rate_limit_backend: str = "local"
+    email_rate_limit_table: str = "emailratelimit"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -180,6 +185,19 @@ class Config:
             alert_delivery_retention_days=int(
                 os.getenv("ALERT_DELIVERY_RETENTION_DAYS", "90")
             ),
+            state_compact_after_days=int(os.getenv("STATE_COMPACT_AFTER_DAYS", "90")),
+            state_tombstone_retention_days=int(
+                os.getenv("STATE_TOMBSTONE_RETENTION_DAYS", "365")
+            ),
+            alert_outbox_pending_table=os.getenv(
+                "ALERT_OUTBOX_PENDING_TABLE", "alertoutboxpending"
+            ).strip() or "alertoutboxpending",
+            email_rate_limit_backend=os.getenv(
+                "EMAIL_RATE_LIMIT_BACKEND", "local"
+            ).strip().lower(),
+            email_rate_limit_table=os.getenv(
+                "EMAIL_RATE_LIMIT_TABLE", "emailratelimit"
+            ).strip() or "emailratelimit",
         )
 
     def validate_email(self) -> None:
@@ -243,6 +261,7 @@ class Config:
                 "FANOUT_JOBS_QUEUE": self.fanout_jobs_queue,
                 "EMAIL_JOBS_QUEUE": self.email_jobs_queue,
                 "ACS_DELIVERY_EVENTS_QUEUE": self.delivery_events_queue,
+                "ALERT_OUTBOX_PENDING_TABLE": self.alert_outbox_pending_table,
                 "ALERT_DELIVERY_INDEX_TABLE": self.alert_delivery_index_table,
                 "ALERT_SUPPRESSIONS_TABLE": self.alert_suppressions_table,
             }.items()
@@ -250,6 +269,17 @@ class Config:
         ]
         if missing:
             raise ValueError("Missing alert-pipeline configuration: " + ", ".join(missing))
+        if self.email_rate_limit_backend not in {"local", "azure_table"}:
+            raise ValueError(
+                "EMAIL_RATE_LIMIT_BACKEND must be local or azure_table"
+            )
+        if (
+            self.email_rate_limit_backend == "azure_table"
+            and not self.email_rate_limit_table
+        ):
+            raise ValueError(
+                "EMAIL_RATE_LIMIT_TABLE is required for azure_table rate limiting"
+            )
         if self.recipient_shard_count != 32:
             raise ValueError(
                 "ALERT_RECIPIENT_SHARDS must be 32 to match the web projection contract"
@@ -266,6 +296,12 @@ class Config:
             raise ValueError("ALERT_OUTBOX_RETENTION_DAYS must be positive")
         if self.alert_delivery_retention_days <= 0:
             raise ValueError("ALERT_DELIVERY_RETENTION_DAYS must be positive")
+        if self.state_compact_after_days <= 0:
+            raise ValueError("STATE_COMPACT_AFTER_DAYS must be positive")
+        if self.state_tombstone_retention_days <= self.state_compact_after_days:
+            raise ValueError(
+                "STATE_TOMBSTONE_RETENTION_DAYS must exceed STATE_COMPACT_AFTER_DAYS"
+            )
 
 def _load_key_vault_secrets() -> None:
     """Optionally hydrate named environment variables from Key Vault.

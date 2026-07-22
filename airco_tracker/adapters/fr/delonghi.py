@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
+from ...url_security import validate_discovered_merchant_url
 from ..shared.delonghi import parse_delonghi_product_page
 
 
@@ -21,7 +22,10 @@ class DelonghiFranceAdapter:
         self.fetcher = fetcher
 
     def fetch_products(self) -> list[Product]:
-        urls = _product_urls(self.fetcher.get(self.search_url), self.search_url)
+        urls = [
+            validate_discovered_merchant_url(url, site=self.site)
+            for url in _product_urls(self.fetcher.get(self.search_url), self.search_url)
+        ]
         if not urls:
             raise RuntimeError("De'Longhi France search contained no portable air conditioners")
         products: dict[str, Product] = {}

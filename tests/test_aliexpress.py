@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import unittest
+from types import SimpleNamespace
 
 import requests
 
@@ -81,6 +82,21 @@ class _SequenceSession:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
+
+
+class _FetcherTransport:
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls = []
+
+    def request(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        return SimpleNamespace(
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+            content=json.dumps(self.payload).encode("utf-8"),
+            url=url,
+        )
 
 
 def _wrapped(method, *, resp_code=200, result=None):
@@ -376,6 +392,25 @@ class AliExpressClientTests(unittest.TestCase):
         data = session.calls[0][1]["data"]
         self.assertEqual(data["flag"], "true")
         self.assertEqual(data["other_flag"], "false")
+
+    def test_production_fetcher_path_is_bounded_and_explicitly_read_only(self):
+        fetcher = _FetcherTransport(_wrapped(PRODUCT_QUERY_METHOD))
+        client = AliExpressClient(
+            fetcher=fetcher,
+            app_key=APP_KEY,
+            app_secret=APP_SECRET,
+            now_ms=lambda: TIMESTAMP,
+        )
+
+        result = client.product_query({"keywords": "portable air conditioner"})
+
+        self.assertTrue(result["result"]["ok"])
+        method, url, request = fetcher.calls[0]
+        self.assertEqual((method, url), ("POST", PRODUCTION_ENDPOINT))
+        self.assertTrue(request["retry_read_only_post"])
+        self.assertFalse(request["raise_for_status"])
+        self.assertEqual(request["maximum_response_bytes"], 5_000_000)
+        self.assertEqual(request["form_data"]["method"], PRODUCT_QUERY_METHOD)
 
     def test_http_405_is_sanitized_and_does_not_parse_remote_body(self):
         response = _Response(

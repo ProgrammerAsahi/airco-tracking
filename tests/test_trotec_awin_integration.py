@@ -74,6 +74,16 @@ class _Fetcher:
             '"apiKey":"public-key","baseIndexName":"fr"};'
         )
 
+    def request_json(self, method, url, **kwargs):
+        self.request_call = (method, url, kwargs)
+        response = self.session.post(
+            url,
+            headers=kwargs.get("headers"),
+            json=kwargs.get("json_body"),
+            timeout=self.timeout,
+        )
+        return response.json()
+
 
 class _LinkClient:
     def __init__(self, links=None, error=None):
@@ -178,7 +188,7 @@ class TrotecAwinIntegrationTests(unittest.TestCase):
         self.assertEqual(kwargs["advertiser_id"], "62319")
         self.assertEqual(kwargs["bearer_token"], "token")
         self.assertEqual(kwargs["timeout"], 10)
-        self.assertIsNot(kwargs["session"], fetcher.session)
+        self.assertIs(kwargs["fetcher"], fetcher)
 
     def test_unknown_sold_out_signal_fails_closed_for_every_relevant_product(self):
         for value in (None, "", "unknown", object()):

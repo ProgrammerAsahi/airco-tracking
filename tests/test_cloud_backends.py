@@ -176,8 +176,12 @@ class CloudBackendTests(unittest.TestCase):
         product = Product(
             "E.Leclerc France",
             "Climatiseur 9000 BTU",
-            "https://www.awin1.com/cread.php?awinmid=15135&awinaffid=2981827",
+            "https://www.e.leclerc/fp/123456789",
             True,
+            country="fr",
+            affiliate_url=(
+                "https://www.awin1.com/cread.php?awinmid=15135&awinaffid=2981827"
+            ),
         )
 
         message = build_message(config, [product])
@@ -185,7 +189,7 @@ class CloudBackendTests(unittest.TestCase):
         html_body = message.get_body(preferencelist=("html",)).get_content()
         self.assertIn("affiliate links", plain)
         self.assertIn("affiliate links", html_body)
-        self.assertLess(plain.index("affiliate links"), plain.index(product.url))
+        self.assertLess(plain.index("affiliate links"), plain.index(product.purchase_url))
 
     def test_alert_message_localizes_destination_and_price_for_french(self) -> None:
         config = SimpleNamespace(

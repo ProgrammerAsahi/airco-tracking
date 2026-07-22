@@ -21,7 +21,8 @@ param emailAppName string = 'airco-alert-email-worker'
 param deliveryReportAppName string = 'airco-alert-delivery-worker'
 param containerEnvironmentName string
 param acrName string
-param identityName string
+param scannerIdentityName string
+param retentionIdentityName string
 param publisherIdentityName string
 param fanoutIdentityName string
 param emailIdentityName string
@@ -51,9 +52,15 @@ param minBtu string = '7000'
 param maxPriceEur string = '1500'
 param recipientShardCount string = '32'
 param recipientPageSize string = '250'
-@description('Minimum seconds between ACS sends within one email-worker replica.')
+@description('Minimum seconds between ACS sends across all email-worker replicas.')
 param emailMinSendIntervalSeconds string = '13'
-@description('Email worker replica ceiling. Keep at 1 for the Azure-managed sender domain.')
+@allowed([
+  'local'
+  'azure_table'
+])
+@description('Rate-limit coordination backend. Multiple replicas require azure_table.')
+param emailRateLimitBackend string = 'azure_table'
+@description('Email worker replica ceiling. Raise only after ACS sender quota is increased.')
 @minValue(1)
 @maxValue(100)
 param emailMaxReplicas int = 1
@@ -67,7 +74,11 @@ resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing =
 }
 
 resource scannerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
-  name: identityName
+  name: scannerIdentityName
+}
+
+resource retentionIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: retentionIdentityName
 }
 
 resource publisherIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
@@ -88,6 +99,9 @@ resource deliveryReportIdentity 'Microsoft.ManagedIdentity/userAssignedIdentitie
 
 var storageUrl = 'https://${storageAccountName}.blob.${environment().suffixes.storage}'
 var serviceBusNamespace = '${serviceBusNamespaceName}.servicebus.windows.net'
+// Fail closed: a process-local limiter can never coordinate more than one
+// replica, even if a caller accidentally supplies a larger replica ceiling.
+var safeEmailMaxReplicas = emailRateLimitBackend == 'azure_table' ? emailMaxReplicas : 1
 var pipelineNamesEnv = [
   { name: 'APP_ENV', value: 'azure' }
   { name: 'ALERT_DISPATCH_BACKEND', value: 'service_bus' }
@@ -100,6 +114,7 @@ var pipelineNamesEnv = [
   { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storageUrl }
   { name: 'AUTH_USERS_TABLE', value: 'users' }
   { name: 'ALERT_OUTBOX_TABLE', value: 'alertoutbox' }
+  { name: 'ALERT_OUTBOX_PENDING_TABLE', value: 'alertoutboxpending' }
   { name: 'ALERT_RECIPIENTS_TABLE', value: 'alertrecipients' }
   { name: 'ALERT_DELIVERIES_TABLE', value: 'alertdeliveries' }
   { name: 'ALERT_DELIVERY_INDEX_TABLE', value: 'alertdeliveryindex' }
@@ -157,6 +172,8 @@ resource scannerJob 'Microsoft.App/jobs@2025-01-01' = {
             { name: 'ALERT_ON_FIRST_SEEN', value: 'true' }
             { name: 'REQUEST_TIMEOUT_SECONDS', value: '25' }
             { name: 'SCANNER_LEASE_SECONDS', value: '480' }
+            { name: 'STATE_COMPACT_AFTER_DAYS', value: '90' }
+            { name: 'STATE_TOMBSTONE_RETENTION_DAYS', value: '365' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVaultUrl }
             { name: 'KEY_VAULT_SECRET_MAP', value: 'AWIN_PUBLISHER_API_TOKEN=awin-publisher-api-token,ALIEXPRESS_APP_KEY=aliexpress-app-key,ALIEXPRESS_APP_SECRET=aliexpress-app-secret' }
           ])
@@ -255,14 +272,14 @@ resource cleanupJob 'Microsoft.App/jobs@2025-01-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${scannerIdentity.id}': {}
+      '${retentionIdentity.id}': {}
     }
   }
   properties: {
     environmentId: containerEnvironment.id
     configuration: {
       registries: [
-        { identity: scannerIdentity.id, server: registry.properties.loginServer }
+        { identity: retentionIdentity.id, server: registry.properties.loginServer }
       ]
       replicaRetryLimit: 2
       replicaTimeout: 300
@@ -279,9 +296,9 @@ resource cleanupJob 'Microsoft.App/jobs@2025-01-01' = {
           name: 'alert-retention'
           image: containerImage
           command: [ 'airco-tracker' ]
-          args: [ 'cleanup-alert-data', '--limit', '5000' ]
+          args: [ 'cleanup-alert-data', '--max-runtime-seconds', '240' ]
           env: concat(pipelineNamesEnv, [
-            { name: 'AZURE_CLIENT_ID', value: scannerIdentity.properties.clientId }
+            { name: 'AZURE_CLIENT_ID', value: retentionIdentity.properties.clientId }
           ])
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
         }
@@ -475,15 +492,17 @@ resource emailApp 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'KEY_VAULT_SECRET_MAP', value: 'EMAIL_UNSUBSCRIBE_SIGNING_KEY=unsubscribe-signing-key' }
             { name: 'ACS_ENDPOINT', value: 'https://${communicationServiceName}.communication.azure.com' }
             { name: 'EMAIL_MIN_SEND_INTERVAL_SECONDS', value: emailMinSendIntervalSeconds }
+            { name: 'EMAIL_RATE_LIMIT_BACKEND', value: emailRateLimitBackend }
+            { name: 'EMAIL_RATE_LIMIT_TABLE', value: 'emailratelimit' }
           ])
           resources: { cpu: json('0.5'), memory: '1Gi' }
         }
       ]
       scale: {
         minReplicas: 0
-        // Azure-managed sender domains are capped at 5/min and 10/hour.
-        // Raise this only after airco-tracker.eu is verified and ACS quota is increased.
-        maxReplicas: emailMaxReplicas
+        // The distributed Table limiter preserves the configured aggregate
+        // send interval. Raise this only after ACS sender quota is increased.
+        maxReplicas: safeEmailMaxReplicas
         pollingInterval: 15
         cooldownPeriod: 300
         rules: [

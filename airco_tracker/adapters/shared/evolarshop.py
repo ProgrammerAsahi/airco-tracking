@@ -62,16 +62,17 @@ class NostoCategoryAdapter:
                 "variationId": "NOT LOGGED IN",
             }
         }
-        response = self.fetcher.session.post(
+        payload = self.fetcher.request_json(
+            "POST",
             self.search_url,
-            json={"query": query, "variables": variables},
-            timeout=self.fetcher.timeout,
+            json_body={"query": query, "variables": variables},
             headers={"Content-Type": "application/json", "Accept": "application/json"},
+            # Nosto search is a logically read-only GraphQL query, so a
+            # bounded retry is safe even though its transport method is POST.
+            retry_read_only_post=True,
+            maximum_response_bytes=2 * 1024 * 1024,
         )
-        response.raise_for_status()
-        payload = response.json()
         try:
             return payload["data"]["search"]["products"]["hits"]
         except (KeyError, TypeError):
             raise RuntimeError(f"{self.site} Nosto search returned an invalid response")
-

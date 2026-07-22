@@ -6,7 +6,13 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
-from ..base import canonical_url, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
+from ..base import (
+    canonical_url,
+    parse_btu,
+    parse_cooling_watts_btu,
+    parse_product_page_btu,
+    verified_empty,
+)
 from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 from ..sitemap import sitemap_locations
 
@@ -22,9 +28,14 @@ class FlinqAdapter:
         self.fetcher = fetcher
 
     def fetch_products(self) -> list[Product]:
-        response = self.fetcher.session.get(self.sitemap_url, timeout=self.fetcher.timeout)
-        response.raise_for_status()
-        locations = sitemap_locations(response.content)
+        locations = sitemap_locations(
+            self.fetcher.get_bytes(
+                self.sitemap_url,
+                allowed_content_types=("application/xml", "text/xml", "text/plain"),
+                maximum_response_bytes=8 * 1024 * 1024,
+            ),
+            site=self.site,
+        )
         if not locations:
             raise RuntimeError("FlinQ product sitemap contained no product URLs")
         urls = [url for url in locations if _is_product_url(url)]
@@ -43,6 +54,12 @@ class FlinqAdapter:
             products[product.url] = product
         if urls and not products:
             raise RuntimeError("FlinQ product pages could not be parsed: " + "; ".join(failures))
+        if not urls:
+            return verified_empty(
+                self,
+                source="official_product_sitemap",
+                signal="healthy sitemap contained zero mobile-airco candidates",
+            )
         return list(products.values())
 
 

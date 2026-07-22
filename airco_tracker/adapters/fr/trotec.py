@@ -8,8 +8,6 @@ from datetime import timedelta
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
-import requests
-
 from ...awin import AwinLinkBuilderClient
 from ...fetch import Fetcher
 from ...models import Product
@@ -47,18 +45,19 @@ class TrotecFranceAdapter:
         api_key = _required_string(config, "apiKey")
         index_name = _required_string(config, "baseIndexName") + "_products"
         params = urlencode({"query": "climatiseur", "hitsPerPage": 150, "page": 0})
-        response = self.fetcher.session.post(
+        payload = self.fetcher.request_json(
+            "POST",
             self.query_url.format(app_id=app_id.lower()),
             headers={
                 "Content-Type": "application/json",
                 "X-Algolia-Application-Id": app_id,
                 "X-Algolia-API-Key": api_key,
             },
-            json={"requests": [{"indexName": index_name, "params": params}]},
-            timeout=self.fetcher.timeout,
+            json_body={"requests": [{"indexName": index_name, "params": params}]},
+            # Algolia queries are read-only despite using POST.
+            retry_read_only_post=True,
+            maximum_response_bytes=4 * 1024 * 1024,
         )
-        response.raise_for_status()
-        payload = response.json()
         try:
             hits = payload["results"][0]["hits"]
         except (KeyError, TypeError, IndexError):
@@ -98,7 +97,7 @@ def _build_awin_client(fetcher: Fetcher) -> AwinLinkBuilderClient | None:
         return None
 
     common: dict[str, Any] = {
-        "session": _awin_session(fetcher),
+        "fetcher": fetcher,
         "cache": build_partner_feed_cache(),
         "cache_namespace": _AWIN_CACHE_NAMESPACE,
         "cache_key": _AWIN_CACHE_KEY,
@@ -111,16 +110,6 @@ def _build_awin_client(fetcher: Fetcher) -> AwinLinkBuilderClient | None:
         bearer_token=bearer_token,
         **common,
     )
-
-
-def _awin_session(fetcher: Fetcher) -> requests.Session:
-    session = requests.Session()
-    source_headers = getattr(fetcher.session, "headers", {})
-    for key in ("User-Agent", "Accept-Language"):
-        value = source_headers.get(key) if hasattr(source_headers, "get") else None
-        if isinstance(value, str) and value:
-            session.headers[key] = value
-    return session
 
 
 def _algolia_config(page: str) -> dict[str, Any]:

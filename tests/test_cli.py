@@ -6,9 +6,11 @@ from contextlib import contextmanager, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from airco_tracker.adapters.base import verified_empty
 from airco_tracker.adapters.registry import AdapterSpec
 from airco_tracker.cli import _mask_email, _parser, check
-from airco_tracker.models import Product
+from airco_tracker.inventory import empty_inventory, updated_inventory
+from airco_tracker.models import Product, product_state_key, site_id_for
 from airco_tracker.subscribers import AlertRecipient
 
 
@@ -49,6 +51,40 @@ class _AvailableAdapter:
 
     def fetch_products(self):
         return [Product(self.site, "Airco", "https://shop.test/1", True, 399.0, "Morgen", 7000)]
+
+
+class _SilentEmptyAdapter:
+    site = "Seasonal shop"
+
+    def __init__(self, _fetcher, *args, **kwargs) -> None:
+        pass
+
+    def fetch_products(self):
+        return []
+
+
+class _VerifiedEmptyAdapter(_SilentEmptyAdapter):
+    def fetch_products(self):
+        return verified_empty(
+            self,
+            source="authoritative_test_catalogue",
+            signal="validated total=0",
+        )
+
+
+class _RecoveredAvailableAdapter(_SilentEmptyAdapter):
+    def fetch_products(self):
+        return [
+            Product(
+                self.site,
+                "Airco",
+                "https://shop.test/seasonal",
+                True,
+                399.0,
+                "Morgen",
+                7000,
+            )
+        ]
 
 
 class _FutureDeliveryAdapter:
@@ -344,6 +380,129 @@ class CliTests(unittest.TestCase):
         snapshot = inventory_store.save.call_args.args[0]
         self.assertEqual(snapshot["site_count"], 28)
         self.assertEqual(snapshot["stale_site_count"], 28)
+
+    def test_unverified_empty_result_is_stale_and_recovery_does_not_realert(self) -> None:
+        config = self._config_with_alerts()
+        site_id = site_id_for("nl", "Seasonal shop")
+        previous = Product(
+            "Seasonal shop",
+            "Airco",
+            "https://shop.test/seasonal",
+            True,
+            399.0,
+            "Morgen",
+            7000,
+            country="nl",
+        )
+        old_state = {
+            "version": 1,
+            "products": {product_state_key("nl", previous.url): previous.to_dict()},
+        }
+        old_inventory = updated_inventory(
+            empty_inventory(),
+            [previous],
+            all_sites={
+                site_id: {
+                    "country": "nl",
+                    "site": "Seasonal shop",
+                    "site_id": site_id,
+                    "delivery_coverage": ["nl"],
+                }
+            },
+            checked_sites={site_id},
+        )
+        state_store = MagicMock()
+        state_store.load.return_value = old_state
+        inventory_store = MagicMock()
+        inventory_store.load.return_value = old_inventory
+
+        with (
+            patch(
+                "airco_tracker.cli.load_adapter_specs",
+                return_value=[AdapterSpec(country="nl", adapter_class=_SilentEmptyAdapter)],
+            ),
+            patch("airco_tracker.cli.build_state_store", return_value=state_store),
+            patch("airco_tracker.cli.build_inventory_store", return_value=inventory_store),
+            patch("airco_tracker.cli.send_message") as mock_send,
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(check(config, dry_run=False, show_all=False), 2)
+
+        state_store.save.assert_not_called()
+        mock_send.assert_not_called()
+        stale_snapshot = inventory_store.save.call_args.args[0]
+        self.assertTrue(stale_snapshot["sites"][site_id]["stale"])
+        self.assertEqual(stale_snapshot["sites"][site_id]["available_product_count"], 1)
+
+        inventory_store.reset_mock()
+        with (
+            patch(
+                "airco_tracker.cli.load_adapter_specs",
+                return_value=[
+                    AdapterSpec(country="nl", adapter_class=_RecoveredAvailableAdapter)
+                ],
+            ),
+            patch("airco_tracker.cli.build_state_store", return_value=state_store),
+            patch("airco_tracker.cli.build_inventory_store", return_value=inventory_store),
+            patch("airco_tracker.cli.send_message") as recovery_send,
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(check(config, dry_run=False, show_all=False), 0)
+
+        recovery_send.assert_not_called()
+        state_store.save.assert_called_once()
+
+    def test_verified_empty_result_clears_inventory_and_advances_state(self) -> None:
+        config = self._config_with_alerts()
+        site_id = site_id_for("nl", "Seasonal shop")
+        previous = Product(
+            "Seasonal shop",
+            "Airco",
+            "https://shop.test/seasonal",
+            True,
+            399.0,
+            "Morgen",
+            7000,
+            country="nl",
+        )
+        state_store = MagicMock()
+        state_store.load.return_value = {
+            "version": 1,
+            "products": {product_state_key("nl", previous.url): previous.to_dict()},
+        }
+        inventory_store = MagicMock()
+        inventory_store.load.return_value = updated_inventory(
+            empty_inventory(),
+            [previous],
+            all_sites={
+                site_id: {
+                    "country": "nl",
+                    "site": "Seasonal shop",
+                    "site_id": site_id,
+                    "delivery_coverage": ["nl"],
+                }
+            },
+            checked_sites={site_id},
+        )
+
+        with (
+            patch(
+                "airco_tracker.cli.load_adapter_specs",
+                return_value=[AdapterSpec(country="nl", adapter_class=_VerifiedEmptyAdapter)],
+            ),
+            patch("airco_tracker.cli.build_state_store", return_value=state_store),
+            patch("airco_tracker.cli.build_inventory_store", return_value=inventory_store),
+            patch("airco_tracker.cli.send_message") as mock_send,
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(check(config, dry_run=False, show_all=False), 0)
+
+        mock_send.assert_not_called()
+        snapshot = inventory_store.save.call_args.args[0]
+        self.assertFalse(snapshot["sites"][site_id]["stale"])
+        self.assertEqual(snapshot["sites"][site_id]["available_product_count"], 0)
+        saved_state = state_store.save.call_args.args[0]
+        self.assertFalse(saved_state["products"][product_state_key("nl", previous.url)]["available"])
 
 
 if __name__ == "__main__":

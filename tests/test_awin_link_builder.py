@@ -112,6 +112,16 @@ class _Session:
         return self.responses.pop(0)
 
 
+class _Fetcher:
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls = []
+
+    def request_json(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        return self.payload
+
+
 def _client(session, cache, **overrides):
     values = {
         "session": session,
@@ -158,6 +168,28 @@ class AwinLinkBuilderTests(unittest.TestCase):
         )
         self.assertEqual(cache.value["requested_urls"], [ONE, TWO])
         self.assertEqual(cache.value["source_row_count"], 2)
+
+    def test_production_fetcher_path_is_bounded_and_single_attempt(self):
+        fetcher = _Fetcher({"responses": [_item(ONE)]})
+        client = AwinLinkBuilderClient(
+            fetcher=fetcher,
+            cache=_Cache(),
+            cache_namespace="awin-trotec-fr-links-v1",
+            cache_key="links",
+            publisher_id=PUBLISHER,
+            advertiser_id=ADVERTISER,
+            bearer_token="test-secret-token",
+            now=lambda: NOW,
+        )
+
+        links = client.links_for([ONE])
+
+        self.assertEqual(set(links), {ONE})
+        method, endpoint, request = fetcher.calls[0]
+        self.assertEqual(method, "POST")
+        self.assertIn("/linkbuilder/generate-batch", endpoint)
+        self.assertEqual(request["maximum_response_bytes"], 2 * 1024 * 1024)
+        self.assertNotIn("retry_read_only_post", request)
 
     def test_accepts_documented_top_level_echo_shape(self):
         links = _client(

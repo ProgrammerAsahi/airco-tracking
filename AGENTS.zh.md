@@ -7,7 +7,7 @@
 
 ## 使命
 
-维护一个可靠、低成本的库存追踪器，追踪可配送到荷兰/法国等目标国家的真实便携压缩机空调。只在商品首次可购买或从不可购买变为可购买时通知，并为公开只读 dashboard 发布可信的私有库存快照。
+维护一个可靠、可扩展的库存追踪器，追踪可配送到当前支持国家（法国和荷兰）的真实便携压缩机空调。只在商品首次可购买或从不可购买变为可购买时通知有权益的订阅用户，并为需要登录的 Web 体验发布可信的私有库存快照。
 
 ## 先读
 
@@ -23,7 +23,7 @@
 - 第三方凭据放在 Azure Key Vault，并通过 Managed Identity 读取。
 - 优先使用官方 API。否则使用公开 server-rendered 页面或 robots-advertised sitemap。尊重 robots.txt 和条款；不要绕过 CAPTCHA、403 防护、登录墙或反爬控制。
 - 追踪真实压缩机空调。排除 air coolers、蒸发式冷风机、风扇、软管、窗户套件、遥控器、滤芯和其它配件。
-- `available=True` 表示当前可配送到目标地址。仅门店库存、仅自取、过期 deal、预售和多周交期不得触发提醒。
+- `available=True` 表示当前可配送到所请求的支持国家。仅门店库存、仅自取、过期 deal、预售和多周交期不得触发提醒。
 - 单个零售商失败不得阻止其它零售商检查。不要把失败检查当成缺货 transition。
 - 测试和 dry-run 不得发送邮件或更新生产状态。
 - Alert state 和 live inventory 必须分离。Alert filters 不得把范围内的可购买商品从 `inventory.json` 中移除。
@@ -45,9 +45,9 @@
 - Azure infrastructure：`infra/`
 - 部署脚本：`scripts/`
 - 测试：`tests/`
-- 生产：Azure Container Apps scheduled job、private Blob Storage alert state/inventory、Communication Services Email、Key Vault 和 Managed Identity。
+- 生产：相互隔离的 Azure Container Apps jobs，分别负责扫描、reconciliation、publication、fanout、邮件投递、delivery report 和 retention；private Blob/Table Storage；启用 partition 的 Azure Service Bus；Communication Services Email；Key Vault；以及独立的 least-privilege Managed Identities。
 - CI/CD：push 到 `main` 运行测试、构建 commit SHA tagged immutable image、部署并启动一次 verification execution。纯 Markdown/docs 改动被部署 workflow 忽略。
-- Consumer：`~/airco-tracking-web` 提供公开 dashboard，并通过共享 runtime identity 的 `/api/inventory` 读取私有 snapshot。
+- Consumer：`~/airco-tracking-web` 提供需要登录的库存体验，并通过其同源 `/api/inventory` endpoint 和独立 runtime identity 读取私有 snapshot。
 
 ## 标准验证
 

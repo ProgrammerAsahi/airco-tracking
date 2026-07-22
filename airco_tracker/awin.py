@@ -30,7 +30,8 @@ class AwinLinkBuilderClient:
     def __init__(
         self,
         *,
-        session: Any,
+        session: Any | None = None,
+        fetcher: Any | None = None,
         cache: PartnerFeedCache,
         cache_namespace: str,
         cache_key: str,
@@ -43,7 +44,10 @@ class AwinLinkBuilderClient:
     ) -> None:
         if ttl <= timedelta(0) or timeout <= 0:
             raise ValueError("Invalid Awin Link Builder configuration")
+        if (session is None) == (fetcher is None):
+            raise ValueError("Pass exactly one Awin HTTP transport")
         self._session = session
+        self._fetcher = fetcher
         self._cache = cache
         self._cache_namespace = cache_namespace
         self._cache_key = cache_key
@@ -128,29 +132,47 @@ class AwinLinkBuilderClient:
         return generated
 
     def _generate(self, destinations: tuple[str, ...]) -> dict[str, str]:
-        response = self._session.post(
-            self._batch_url,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self._bearer_token}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "requests": [
-                    {
-                        "advertiserId": int(self._advertiser_id),
-                        "destinationUrl": url,
-                    }
-                    for url in destinations
-                ]
-            },
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
-        try:
-            payload = response.json()
-        except (TypeError, ValueError) as exc:
-            raise RuntimeError("Awin Link Builder returned invalid JSON") from exc
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self._bearer_token}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "requests": [
+                {
+                    "advertiserId": int(self._advertiser_id),
+                    "destinationUrl": url,
+                }
+                for url in destinations
+            ]
+        }
+        if self._fetcher is not None:
+            # Link generation is deterministic for the same destinations but
+            # is not required for stock truth. Keep it single-attempt rather
+            # than treating every POST as retryable.
+            payload = self._fetcher.request_json(
+                "POST",
+                self._batch_url,
+                headers=headers,
+                json_body=body,
+                timeout=self._timeout,
+                minimum_response_bytes=1,
+                maximum_response_bytes=2 * 1024 * 1024,
+            )
+        else:
+            # Backwards-compatible injected transport used only by isolated
+            # client tests. Production construction always supplies Fetcher.
+            response = self._session.post(
+                self._batch_url,
+                headers=headers,
+                json=body,
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+            try:
+                payload = response.json()
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("Awin Link Builder returned invalid JSON") from exc
         if not isinstance(payload, dict) or not isinstance(
             payload.get("responses"), list
         ):

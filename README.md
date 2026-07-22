@@ -99,7 +99,7 @@ Scanner Job（每 10 分钟）
 
 Scanner 只负责抓取、更新私有 `state.json`/`inventory.json` 并持久化确定性的库存事件，不会枚举用户或等待邮件发送。Container Apps workers 通过 Azure Service Bus Standard 独立扩缩容；用户投影按 32 个 Azure Table partitions 分片并流式读取，因此 subscriber 数量不会拖慢库存扫描。
 
-生产通过相互分离的 Managed Identities 承担 scanner/shared web runtime、outbox publisher、fan-out 和 email delivery；新流水线权限尽量限制到具体 entity/table。Service Bus 消息只保存匿名 user UUID，不保存邮箱、昵称、Stripe/payment 或卡片数据；Email worker 在发送前重新读取最新邮箱、语言、配送国家和订阅权益。`EMAIL_TO` 只属于本地 direct/SMTP mode，不是生产 subscriber 数据源。
+Azure 设计通过按职责分离的 Managed Identities 承担 Web、scanner、后端 retention、Web 认证数据 retention、outbox publisher、fan-out 和 email delivery；新流水线权限尽量限制到具体 container/entity/table。Service Bus 消息只保存匿名 user UUID，不保存邮箱、昵称、Stripe/payment 或卡片数据；Email worker 在发送前重新读取最新邮箱、语言、配送国家和订阅权益。专用 Azure Table 会跨 replicas 预留 ACS 发送时隙；本地开发使用进程内 limiter，而禁用 distributed backend 时 Bicep 会把 replicas 强制限制为一个。`EMAIL_TO` 只属于本地 direct/SMTP mode，不是生产 subscriber 数据源。
 
 Azure Monitor 已启用四条 Service Bus metric alerts，分别监控 dead-letter messages、持续 backlog、throttled requests 和 server errors。生产通过 `aircontrack-operations-alerts` Action Group 通知运维。Receiver 地址只作为 secure foundation parameter `operationsAlertEmail` 传入，通常由本地 `AZURE_OPERATIONS_ALERT_EMAIL` 提供；它不会提交到仓库或保存为 GitHub Actions variable。重复部署 foundation 时，即使没有再次提供该环境变量，脚本也会保留 Action Group 现有 receiver。
 
@@ -177,23 +177,32 @@ tail -f ~/airco-tracking/tracker.log ~/airco-tracking/tracker.err.log
 - Azure CLI，并已执行 `az login`。
 - 当前账号可创建资源组、角色分配和相关 Azure 资源。
 
-部署命令：
+两个仓库共享的 foundation/RBAC 变更必须按以下顺序部署：
 
 ```bash
 cd ~/airco-tracking
-./scripts/deploy-azure.sh
+AZURE_FOUNDATION_ONLY=true ./scripts/deploy-azure.sh
 ./scripts/bootstrap-github-oidc.sh
+
+cd ~/airco-tracking-web
+./scripts/deploy.sh
+
+cd ~/airco-tracking
+./scripts/deploy-application.sh
+./scripts/migrate-runtime-identities.sh
+# 两个仓库 smoke tests 均通过后才执行：
+./scripts/migrate-runtime-identities.sh --apply
 ```
 
 脚本会：
 
 1. 注册所需 Azure resource providers，创建 ACR、Storage、Key Vault、Container Apps Environment、Service Bus Standard、ACS Email 和按职责分离的 Managed Identities。
-2. 创建 `alertoutbox`、`alertrecipients`、`alertdeliveries` Tables，topic/subscription、两条 queues、四条 Service Bus metric alerts 和已配置的运维 Action Group。
-3. 使用 ACR 云端构建镜像，本机不需要 Docker。
-4. 部署 scanner/publisher/reconciler/retention jobs 和三个按 backlog 扩缩容的 worker apps。
-5. 按依赖顺序验证 recipient reconciliation、scanner 和 outbox publisher。真实邮件使用定向的 `pipeline-test` 另行验证，部署脚本不会给全体用户发测试邮件。
+2. 创建 alert outbox/recipient/delivery Tables 和专用 `emailratelimit` Table，topic/subscription、两条 queues、四条 Service Bus metric alerts 和已配置的运维 Action Group。
+3. Foundation-only 模式不会移动 workload，方便 Web 仓库先用新 identity 部署并验证 cleanup job。
+4. Web 和后端 application scripts 会在 ACR 构建 immutable images、部署 workloads，并在完成前进行验证。已有后端环境会先用候选镜像运行一次 reconciler canary，失败时不会改动生产定义。
+5. 最后的 identity migration 先执行只读审计；只有两个仓库 smoke tests 均通过后才显式使用 `--apply` 删除已验证的旧 grants。真实邮件使用定向的 `pipeline-test` 另行验证，部署脚本不会给全体用户发测试邮件。
 
-Foundation 会创建 RBAC，必须由能创建 role assignments 的本地 Azure principal 运行。GitHub deployer 故意没有这项权限，只部署 application layer。Azure RBAC 新角色偶尔需要几分钟传播；首次出现 ACR、Storage、Service Bus 或 ACS 403 时，请等待后重跑 application deployment：
+Foundation 会创建 RBAC，必须由能创建 role assignments 的本地 Azure principal 运行。运行身份的 Key Vault 权限限制到具体 secret：Web 仅 unsubscribe/withdrawal/OTP pepper，scanner 仅 Awin/AliExpress，email worker 仅 unsubscribe；Web 清理 Job 使用专属 `${prefix}-web-retention` identity，它只能拉取镜像并写 `users`/`authcodes`/`authsessions`，后端 retention identity 无权访问这三张认证表。GitHub deployer 故意没有 role-assignment 权限，只部署 application layer。Azure RBAC 新角色偶尔需要几分钟传播；首次出现 ACR、Storage、Service Bus 或 ACS 403 时，请等待后重跑 application deployment：
 
 ```bash
 AZURE_RESOURCE_GROUP=airco-tracker-rg ./scripts/deploy-application.sh
@@ -306,11 +315,11 @@ git push -u origin main
 
 每次正式检查都会生成独立的 `inventory.json`，按网站保存当前所有可在线购买的便携式压缩机空调。快照不应用价格、BTU 或品牌提醒过滤；aircooler、风扇、配件、固定式分体空调等适配器级排除规则仍然有效。邮件仍只针对首次出现或恢复库存且通过上述提醒过滤的商品发送。
 
-成功检查的网站会完整替换自己的库存（包括清空为 0）；检查失败的网站保留上次成功库存，并标记为 `stale: true` 和 `status: error`。本地模式写入项目目录的 `inventory.json`，Azure 写入现有 `airco-tracker` Blob 容器的 `inventory.json`，无需新增云资源。`--dry-run` 不写快照或提醒状态。
+成功检查的网站会完整替换自己的库存（包括清空为 0）；检查失败的网站只把上次成功库存短期保留为诊断上下文，并标记为 `stale: true`、`status: error` 和 `counts_toward_totals: false`，stale 商品绝不会增加实时汇总。超过 24 小时诊断截止时间（或不存在可信的成功时间）后，生产端会清空旧商品列表，同时保留站点健康元数据。新增的 additive freshness 字段会提供已验证站点数、confidence、stale age 和该诊断截止时间，同时保持 schema version `1`。本地模式写入项目目录的 `inventory.json`，Azure 写入现有 `airco-tracker` Blob 容器的 `inventory.json`，无需新增云资源。`--dry-run` 不写快照或提醒状态。
 
 ## 维护与扩站
 
-每个网站位于 `airco_tracker/adapters/<country>/` 的独立适配器中。新增网站时继承 `Adapter`，在该国家包的 `ADAPTERS` 列表和 `adapters/registry.py` 中注册，并为站点维护保守的 `delivery_coverage` 配送覆盖（ISO-2 国家码或 `eu`/`eea`/`nordics`/`benelux`/`dach` 区域别名）。网页结构改变会在日志中报出“parser found no products”，不会静默假装成功。
+每个网站位于 `airco_tracker/adapters/<country>/` 的独立适配器中。新增网站时继承 `Adapter`，在该国家包的 `ADAPTERS` 列表和 `adapters/registry.py` 中注册，维护保守的 `delivery_coverage`，并把 canonical hosts 加入 `MERCHANT_HOSTS_BY_SITE_ID`；未知商家或 affiliate host 会 fail closed。完整的安全、数据保留、pending index 和 Owner-only 身份迁移流程见[运行时加固与迁移](./docs/HARDENING.zh.md)。网页结构改变会在日志中报出“parser found no products”，不会静默假装成功。
 
 请保持 10 分钟或更长的检查间隔。库存和配送信息最终以商品页面为准。
 

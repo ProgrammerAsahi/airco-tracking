@@ -155,7 +155,8 @@ class AliExpressClient:
     def __init__(
         self,
         *,
-        session: Any,
+        session: Any | None = None,
+        fetcher: Any | None = None,
         app_key: str,
         app_secret: str,
         timeout: float = 10,
@@ -163,7 +164,10 @@ class AliExpressClient:
         sleep: Callable[[float], None] | None = None,
         max_response_bytes: int = 5_000_000,
     ) -> None:
+        if (session is None) == (fetcher is None):
+            raise ValueError("Pass exactly one AliExpress HTTP transport")
         self._session = session
+        self._fetcher = fetcher
         self._app_key = _credential(app_key, "app key", max_length=128)
         self._app_secret = _credential(app_secret, "app secret", max_length=4_096)
         if not isinstance(timeout, (int, float)) or isinstance(timeout, bool):
@@ -243,6 +247,47 @@ class AliExpressClient:
         signed: Mapping[str, str],
     ) -> tuple[Any, bytes | None]:
         """POST a read-only request with two short, bounded retries."""
+
+        if self._fetcher is not None:
+            try:
+                result = self._fetcher.request(
+                    "POST",
+                    PRODUCTION_ENDPOINT,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": (
+                            "application/x-www-form-urlencoded; charset=utf-8"
+                        ),
+                    },
+                    form_data=signed,
+                    timeout=self._timeout,
+                    # Error responses may legitimately have no body; success
+                    # is still required to contain valid JSON below.
+                    minimum_response_bytes=0,
+                    maximum_response_bytes=self._max_response_bytes,
+                    # The Open Platform gateway has returned both JSON and
+                    # text/plain media types for JSON payloads. The body is
+                    # still strictly parsed as JSON immediately afterwards.
+                    allowed_content_types=(
+                        "application/json",
+                        "text/json",
+                        "text/plain",
+                    ),
+                    # Both approved Affiliate API methods are signed catalogue
+                    # reads. This explicit opt-in is the only reason their
+                    # POST transport is retried.
+                    retry_read_only_post=True,
+                    raise_for_status=False,
+                )
+            except (requests.Timeout, requests.ConnectionError, requests.RequestException):
+                LOG.warning("AliExpress transport failure method=%s", method)
+                raise AliExpressTransportError(
+                    f"AliExpress API transport failure for {method}"
+                ) from None
+            content = (
+                result.content if 200 <= result.status_code < 300 else None
+            )
+            return result, content
 
         for attempt in range(len(_RETRY_DELAYS_SECONDS) + 1):
             try:

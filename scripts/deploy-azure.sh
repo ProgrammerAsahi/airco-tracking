@@ -6,6 +6,12 @@ RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-airco-tracker-rg}"
 LOCATION="${AZURE_LOCATION:-westeurope}"
 PREFIX="${AZURE_PREFIX:-aircontrack}"
 IMAGE_TAG="${IMAGE_TAG:-bootstrap-$(date -u +%Y%m%d%H%M%S)}"
+FOUNDATION_ONLY="${AZURE_FOUNDATION_ONLY:-false}"
+
+if [[ "$FOUNDATION_ONLY" != "true" && "$FOUNDATION_ONLY" != "false" ]]; then
+  echo "AZURE_FOUNDATION_ONLY must be true or false." >&2
+  exit 1
+fi
 
 command -v az >/dev/null || { echo "Azure CLI (az) is required." >&2; exit 1; }
 az account show >/dev/null || { echo "Run 'az login' first." >&2; exit 1; }
@@ -121,14 +127,63 @@ if [[ -n "$OPERATIONS_ALERT_EMAIL" ]]; then
   FOUNDATION_PARAMETERS+=(operationsAlertEmail="$OPERATIONS_ALERT_EMAIL")
 fi
 
+# Existing production environments may have equivalent web-identity grants
+# under legacy random assignment IDs. Asking ARM to create the same
+# principal/role/scope tuple under a deterministic ID returns
+# RoleAssignmentExists, so preserve those assignments during the split. The
+# Owner-only migration script validates them before removing only obsolete
+# broad grants.
 if az identity show \
   --name "${PREFIX}-identity" \
   --resource-group "$RESOURCE_GROUP" \
   --output none 2>/dev/null; then
-  # Older environments provisioned these assignments outside Bicep with
-  # random names. Recreating the same principal/role/scope under deterministic
-  # names would fail with RoleAssignmentExists.
   FOUNDATION_PARAMETERS+=(manageSharedIdentityRbac=false)
+fi
+
+# Secret values are created and rotated outside Bicep. On an existing
+# environment, enable the per-secret RBAC resources only after every secret
+# referenced by a runtime is present. This avoids a greenfield foundation
+# deployment failing before operators have provisioned the initial values.
+SECRET_SCOPED_RBAC_MODE="${AZURE_MANAGE_SECRET_SCOPED_KEY_VAULT_RBAC:-auto}"
+if [[ "$SECRET_SCOPED_RBAC_MODE" != "auto" && "$SECRET_SCOPED_RBAC_MODE" != "true" && "$SECRET_SCOPED_RBAC_MODE" != "false" ]]; then
+  echo "AZURE_MANAGE_SECRET_SCOPED_KEY_VAULT_RBAC must be auto, true, or false." >&2
+  exit 1
+fi
+if [[ -n "$RESOURCE_TOKEN" && "$SECRET_SCOPED_RBAC_MODE" != "false" ]]; then
+  KEY_VAULT_ID="$(az keyvault show --resource-group "$RESOURCE_GROUP" --name "aircokv${RESOURCE_TOKEN}" --query id --output tsv 2>/dev/null || true)"
+  if [[ -n "$KEY_VAULT_ID" ]]; then
+    REQUIRED_SECRET_NAMES=(
+      unsubscribe-signing-key
+      withdrawal-signing-key
+      auth-code-hmac-pepper
+      awin-publisher-api-token
+      aliexpress-app-key
+      aliexpress-app-secret
+    )
+    missing_secrets=()
+    for secret_name in "${REQUIRED_SECRET_NAMES[@]}"; do
+      if ! az resource show \
+        --ids "$KEY_VAULT_ID/secrets/$secret_name" \
+        --api-version 2023-07-01 \
+        --output none 2>/dev/null; then
+        missing_secrets+=("$secret_name")
+      fi
+    done
+    if [[ "${#missing_secrets[@]}" -eq 0 ]]; then
+      FOUNDATION_PARAMETERS+=(manageSecretScopedKeyVaultRbac=true)
+    elif [[ "$SECRET_SCOPED_RBAC_MODE" == "true" ]]; then
+      echo "Cannot enable secret-scoped RBAC; missing Key Vault secrets: ${missing_secrets[*]}" >&2
+      exit 1
+    else
+      echo "Secret-scoped Key Vault RBAC deferred; missing: ${missing_secrets[*]}"
+    fi
+  elif [[ "$SECRET_SCOPED_RBAC_MODE" == "true" ]]; then
+    echo "Cannot enable secret-scoped RBAC before the Key Vault exists." >&2
+    exit 1
+  fi
+elif [[ "$SECRET_SCOPED_RBAC_MODE" == "true" ]]; then
+  echo "Set AZURE_RESOURCE_TOKEN when explicitly enabling secret-scoped RBAC." >&2
+  exit 1
 fi
 
 az deployment group create \
@@ -138,12 +193,37 @@ az deployment group create \
   --parameters "${FOUNDATION_PARAMETERS[@]}" \
   --output none
 
+if [[ "$FOUNDATION_ONLY" == "true" ]]; then
+  echo "Foundation complete. AZURE_FOUNDATION_ONLY=true; application deployment and identity-migration checks were intentionally skipped."
+  exit 0
+fi
+
 echo "Foundation complete. Building and deploying the application..."
 AZURE_RESOURCE_GROUP="$RESOURCE_GROUP" \
 AZURE_PREFIX="$PREFIX" \
 IMAGE_TAG="$IMAGE_TAG" \
   "$PROJECT_DIR/scripts/deploy-application.sh"
 
+# This full-infrastructure path is Owner-operated. Show the exact legacy
+# grants only after every replacement workload exists. A greenfield backend
+# bootstrap legitimately runs before the web repository has created its
+# cleanup job, so defer (rather than fail) that read-only audit in that case.
+# Apply always remains a separate explicit Owner action after both repos pass
+# smoke tests.
+WEB_RETENTION_JOB_NAME="${AZURE_WEB_RETENTION_JOB_NAME:-airco-web-retention-cleanup}"
+if az containerapp job show \
+  --name "$WEB_RETENTION_JOB_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --output none 2>/dev/null; then
+  AZURE_RESOURCE_GROUP="$RESOURCE_GROUP" \
+  AZURE_PREFIX="$PREFIX" \
+    "$PROJECT_DIR/scripts/migrate-runtime-identities.sh"
+else
+  echo "Identity-migration dry run deferred: $WEB_RETENTION_JOB_NAME is not deployed yet."
+  echo "Deploy the web repository, then run scripts/migrate-runtime-identities.sh before --apply."
+fi
+
 echo "Deployment complete."
+echo "After web smoke tests, remove verified legacy grants with: scripts/migrate-runtime-identities.sh --apply"
 echo "List executions: az containerapp job execution list -n airco-tracker-job -g $RESOURCE_GROUP -o table"
 echo "View logs: az containerapp job logs show -n airco-tracker-job -g $RESOURCE_GROUP --follow"

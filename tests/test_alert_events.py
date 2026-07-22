@@ -120,6 +120,24 @@ class AlertEventTests(unittest.TestCase):
                     "product": {**payload["product"], "url": "https://shop.test/tampered"},
                 }
             ),
+            json.dumps(
+                {
+                    **payload,
+                    "product": {
+                        **payload["product"],
+                        "affiliate_url": "https://evil.example/redirect",
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    **payload,
+                    "product": {
+                        **payload["product"],
+                        "affiliate_url": "https://www.awin1.com@evil.example/redirect",
+                    },
+                }
+            ),
         ]
 
         for invalid in invalid_payloads:
@@ -142,7 +160,7 @@ class AlertEventTests(unittest.TestCase):
             "user-a": 10,
             "user-b": 25,
             "00000000-0000-0000-0000-000000000000": 8,
-            "asahi": 25,
+            "sample-recipient": 11,
         }
         for recipient_id, shard in expected.items():
             with self.subTest(recipient_id=recipient_id):

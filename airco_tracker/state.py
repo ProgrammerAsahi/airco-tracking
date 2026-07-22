@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,8 +59,16 @@ def updated_state(
     products: list[Product],
     *,
     checked_sites: set[str] | None = None,
+    now: datetime | None = None,
+    compact_after_days: int = 90,
+    tombstone_retention_days: int = 365,
 ) -> dict[str, Any]:
-    now = datetime.now(timezone.utc).isoformat()
+    if compact_after_days <= 0:
+        raise ValueError("compact_after_days must be positive")
+    if tombstone_retention_days <= compact_after_days:
+        raise ValueError("tombstone_retention_days must exceed compact_after_days")
+    current_time = now or datetime.now(timezone.utc)
+    now_iso = current_time.isoformat()
     records = dict(old_state.get("products", {}))
     seen_keys = {product_state_key(product.country, product.url) for product in products}
     seen_urls = {product.url for product in products}
@@ -81,11 +89,12 @@ def updated_state(
                 record = dict(old_record)
                 record["available"] = False
                 record["delivery"] = "Niet meer in het actuele assortiment"
-                record["last_seen"] = now
+                record["last_seen"] = now_iso
+                record["unavailable_since"] = _unavailable_since(old_record, now_iso)
                 records[url] = record
     for product in products:
         record = product.to_dict()
-        record["last_seen"] = now
+        record["last_seen"] = now_iso
         key = product_state_key(product.country, product.url)
         old_record = records.get(key) or records.get(product.url)
         old_generation = _availability_generation(old_record)
@@ -94,10 +103,20 @@ def updated_state(
         record["availability_generation"] = (
             old_generation + 1 if new_alertable and not old_alertable else old_generation
         )
+        if product.available:
+            record.pop("unavailable_since", None)
+        else:
+            record["unavailable_since"] = _unavailable_since(old_record, now_iso)
         if key != product.url:
             records.pop(product.url, None)
         records[key] = record
-    return {"version": 1, "updated_at": now, "products": records}
+    records = _compact_records(
+        records,
+        now=current_time,
+        compact_after=timedelta(days=compact_after_days),
+        tombstone_retention=timedelta(days=tombstone_retention_days),
+    )
+    return {"version": 1, "updated_at": now_iso, "products": records}
 
 
 def save_state(path: Path, state: dict[str, Any]) -> None:
@@ -133,3 +152,64 @@ def _record_is_alertable(record: Any) -> bool:
         and bool(record.get("available", False))
         and not bool(record.get("presale", False))
     )
+
+
+def _unavailable_since(record: Any, fallback: str) -> str:
+    if isinstance(record, dict) and not bool(record.get("available", False)):
+        value = record.get("unavailable_since") or record.get("last_seen")
+        if isinstance(value, str) and _parse_time(value) is not None:
+            return value
+    return fallback
+
+
+def _compact_records(
+    records: dict[str, Any],
+    *,
+    now: datetime,
+    compact_after: timedelta,
+    tombstone_retention: timedelta,
+) -> dict[str, Any]:
+    compacted: dict[str, Any] = {}
+    for key, raw_record in records.items():
+        if not isinstance(raw_record, dict) or bool(raw_record.get("available", False)):
+            compacted[key] = raw_record
+            continue
+        unavailable_at = _parse_time(raw_record.get("unavailable_since"))
+        if unavailable_at is None:
+            compacted[key] = raw_record
+            continue
+        age = now.astimezone(timezone.utc) - unavailable_at
+        if age >= tombstone_retention:
+            # A bounded retention window prevents state.json from growing with
+            # products that disappeared years ago. A later reappearance is
+            # intentionally treated as a new catalogue entry.
+            continue
+        if age < compact_after:
+            compacted[key] = raw_record
+            continue
+        compacted[key] = {
+            "site": raw_record.get("site"),
+            "country": raw_record.get("country") or DEFAULT_COUNTRY,
+            "site_id": _record_site_id(raw_record),
+            "name": raw_record.get("name"),
+            "url": raw_record.get("url") or key.split(":", 1)[-1],
+            "available": False,
+            "presale": False,
+            "last_seen": raw_record.get("last_seen"),
+            "unavailable_since": raw_record.get("unavailable_since"),
+            "availability_generation": _availability_generation(raw_record),
+            "tombstone": True,
+        }
+    return compacted
+
+
+def _parse_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

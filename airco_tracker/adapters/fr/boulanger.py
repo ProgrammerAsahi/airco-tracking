@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 
-import requests
 from bs4 import BeautifulSoup, Tag
 
 from ...models import Product
@@ -28,20 +27,18 @@ class BoulangerAdapter(Adapter):
         container job timeout.
         """
         products: dict[str, Product] = {}
-        headers = dict(self.fetcher.session.headers)
-        headers.update(
-            {
-                "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
-                "Referer": "https://www.boulanger.com/",
-            }
-        )
+        headers = {
+            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+            "Referer": "https://www.boulanger.com/",
+        }
         for url in self.urls:
             LOG.info("Fetching %s", url)
-            response = requests.get(url, headers=headers, timeout=max(self.fetcher.timeout, self.timeout))
-            response.raise_for_status()
-            if len(response.content) < 10_000:
-                raise RuntimeError(f"Suspiciously small response from {url}")
-            soup = BeautifulSoup(response.text, "html.parser")
+            page = self.fetcher.get(
+                url,
+                headers=headers,
+                timeout=max(self.fetcher.timeout, self.timeout),
+            )
+            soup = BeautifulSoup(page, "html.parser")
             for product in self.parse(soup, url):
                 products[product.url] = product
         if not products:

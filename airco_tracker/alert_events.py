@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .models import Product, product_state_key
+from .url_security import validate_affiliate_url, validate_product_url
 
 
 EVENT_SCHEMA_VERSION = 1
@@ -136,17 +137,34 @@ class StockAvailableEvent:
             generation_value = data["availabilityGeneration"]
             if isinstance(generation_value, bool) or not isinstance(generation_value, int):
                 raise ValueError("availabilityGeneration must be an integer")
+            site = _required_string(product_data, "site")
+            country = _optional_string(product_data.get("country")) or "nl"
+            # Validate the serialized values before Product applies its
+            # adapter-boundary policy of dropping optional affiliate
+            # enrichment. A queued event is a trust boundary: tampering with
+            # either URL must fail closed instead of silently falling back to
+            # the merchant URL.
+            canonical_url = validate_product_url(
+                _required_string(product_data, "url"),
+                site_id=f"{country.strip().lower()}:{site.strip()}",
+            )
+            raw_affiliate_url = _optional_string(product_data.get("affiliate_url"))
+            affiliate_url = (
+                validate_affiliate_url(raw_affiliate_url)
+                if raw_affiliate_url
+                else None
+            )
             product = Product(
-                site=_required_string(product_data, "site"),
+                site=site,
                 name=_required_string(product_data, "name"),
-                url=_required_string(product_data, "url"),
+                url=canonical_url,
                 available=available,
                 price_eur=_optional_float(product_data.get("price_eur")),
                 delivery=_optional_string(product_data.get("delivery")),
                 btu=_optional_int(product_data.get("btu")),
                 presale=presale,
-                country=_optional_string(product_data.get("country")) or "nl",
-                affiliate_url=_optional_string(product_data.get("affiliate_url")),
+                country=country,
+                affiliate_url=affiliate_url,
             )
             coverage = _string_tuple(data.get("deliveryCoverage"), "deliveryCoverage")
             targets = _string_tuple(data.get("targetRecipientIds", []), "targetRecipientIds")
@@ -171,6 +189,12 @@ class StockAvailableEvent:
             not _DELIVERY_TOKEN.fullmatch(value) for value in event.delivery_coverage
         ):
             raise ValueError("Invalid stock-event delivery coverage")
+        try:
+            validate_product_url(event.product.url, site_id=event.product.site_id)
+            if event.product.affiliate_url:
+                validate_affiliate_url(event.product.affiliate_url)
+        except ValueError as exc:
+            raise ValueError("Invalid stock-event product URL") from exc
         _parse_created_at(event.created_at)
         if event.test_only and not event.target_recipient_ids:
             raise ValueError("Test events must contain explicit target recipients")

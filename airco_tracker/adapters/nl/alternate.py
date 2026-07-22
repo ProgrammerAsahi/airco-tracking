@@ -13,6 +13,7 @@ from ..base import (
     parse_cooling_watts_btu,
     parse_price,
     parse_product_page_btu,
+    verified_empty,
 )
 from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 from ..sitemap import sitemap_locations
@@ -33,7 +34,7 @@ class AlternateAdapter:
     def fetch_products(self) -> list[Product]:
         product_urls: set[str] = set()
         for sitemap_url in self._child_sitemaps():
-            for url in sitemap_locations(self._get_bytes(sitemap_url)):
+            for url in sitemap_locations(self._get_bytes(sitemap_url), site=self.site):
                 lower = url.lower()
                 if "/html/product/" in lower and (
                     "airconditioner" in lower or "mobiele-airco" in lower
@@ -55,16 +56,34 @@ class AlternateAdapter:
             products[product.url] = product
         if product_urls and not products:
             raise RuntimeError("Alternate product pages could not be parsed: " + "; ".join(failures))
+        if not product_urls:
+            return verified_empty(
+                self,
+                source="official_product_sitemap",
+                signal="validated article sitemaps contained zero portable-airco candidates",
+            )
         return list(products.values())
 
     def _child_sitemaps(self) -> list[str]:
-        locations = sitemap_locations(self._get_bytes(self.sitemap_url))
-        return [url for url in locations if "sitemap_article" in url]
+        locations = sitemap_locations(self._get_bytes(self.sitemap_url), site=self.site)
+        children = [url for url in locations if "sitemap_article" in url]
+        if not children:
+            raise RuntimeError("Alternate sitemap index listed no article sitemaps")
+        return children
 
     def _get_bytes(self, url: str) -> bytes:
-        response = self.fetcher.session.get(url, timeout=self.fetcher.timeout)
-        response.raise_for_status()
-        return response.content
+        return self.fetcher.get_bytes(
+            url,
+            allowed_content_types=(
+                "application/gzip",
+                "application/octet-stream",
+                "application/xml",
+                "application/x-gzip",
+                "text/xml",
+                "text/plain",
+            ),
+            maximum_response_bytes=32 * 1024 * 1024,
+        )
 
 
 def _parse_product_page(page: str, page_url: str) -> Product:

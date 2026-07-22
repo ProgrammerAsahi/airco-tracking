@@ -33,10 +33,15 @@ class ActionAdapter:
         self.fetcher = fetcher
 
     def fetch_products(self) -> list[Product]:
-        response = self.fetcher.session.get(self.sitemap_url, timeout=self.fetcher.timeout)
-        response.raise_for_status()
         urls = set(self.known_urls)
-        urls.update(url for url in sitemap_locations(response.content) if _is_product_url(url))
+        sitemap = self.fetcher.get_bytes(
+            self.sitemap_url,
+            allowed_content_types=("application/xml", "text/xml", "text/plain"),
+            maximum_response_bytes=8 * 1024 * 1024,
+        )
+        urls.update(
+            url for url in sitemap_locations(sitemap, site=self.site) if _is_product_url(url)
+        )
         products: dict[str, Product] = {}
         failures: list[str] = []
         for url in sorted(urls):

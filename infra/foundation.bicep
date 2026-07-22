@@ -14,8 +14,11 @@ param communicationDataLocation string = 'Europe'
 @maxLength(8)
 param resourceToken string = take(uniqueString(subscription().id, resourceGroup().id, prefix), 8)
 
-@description('Create legacy non-table RBAC assignments for the original shared runtime identity. Set false when upgrading an environment whose assignments were created manually.')
+@description('Create unchanged web-identity RBAC assignments. Set false when upgrading an environment whose equivalent assignments have legacy random IDs.')
 param manageSharedIdentityRbac bool = true
+
+@description('Create least-privilege Key Vault assignments at individual secret scopes. Enable only after all referenced secrets exist.')
+param manageSecretScopedKeyVaultRbac bool = false
 
 @description('Optional already-verified customer-managed Email Communication domain ID to preserve alongside the Azure-managed fallback.')
 param customEmailDomainId string = ''
@@ -37,7 +40,12 @@ param budgetStartDate string = '${utcNow('yyyy-MM')}-01'
 var token = resourceToken
 var acrName = 'aircotracker${token}'
 var storageName = 'aircostate${token}'
-var identityName = '${prefix}-identity'
+// Preserve the deployed web identity name for a zero-downtime migration, but
+// do not share it with scanner or retention workloads.
+var webIdentityName = '${prefix}-identity'
+var scannerIdentityName = '${prefix}-scanner'
+var retentionIdentityName = '${prefix}-retention'
+var webRetentionIdentityName = '${prefix}-web-retention'
 var environmentName = '${prefix}-env'
 var logName = '${prefix}-logs'
 var keyVaultName = 'aircokv${token}'
@@ -51,7 +59,22 @@ var deliveryReportIdentityName = '${prefix}-alert-delivery-report'
 var deliveryEventsSystemTopicName = '${prefix}-acs-email-events'
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: identityName
+  name: webIdentityName
+  location: location
+}
+
+resource scannerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: scannerIdentityName
+  location: location
+}
+
+resource retentionIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: retentionIdentityName
+  location: location
+}
+
+resource webRetentionIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: webRetentionIdentityName
   location: location
 }
 
@@ -166,6 +189,11 @@ resource alertOutboxTable 'Microsoft.Storage/storageAccounts/tableServices/table
   name: 'alertoutbox'
 }
 
+resource alertOutboxPendingTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: tableService
+  name: 'alertoutboxpending'
+}
+
 resource alertRecipientsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
   parent: tableService
   name: 'alertrecipients'
@@ -184,6 +212,11 @@ resource alertDeliveryIndexTable 'Microsoft.Storage/storageAccounts/tableService
 resource alertSuppressionsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
   parent: tableService
   name: 'alertsuppression'
+}
+
+resource emailRateLimitTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: tableService
+  name: 'emailratelimit'
 }
 
 resource authUsersTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
@@ -253,6 +286,39 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enablePurgeProtection: true
     tenantId: tenant().tenantId
   }
+}
+
+// Secret values are deliberately provisioned out of band. Declaring the
+// metadata as existing lets RBAC bind each workload only to the names it
+// consumes instead of granting read access to the whole vault.
+resource unsubscribeSigningKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: vault
+  name: 'unsubscribe-signing-key'
+}
+
+resource withdrawalSigningKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: vault
+  name: 'withdrawal-signing-key'
+}
+
+resource authCodeHmacPepperSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: vault
+  name: 'auth-code-hmac-pepper'
+}
+
+resource awinPublisherApiTokenSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: vault
+  name: 'awin-publisher-api-token'
+}
+
+resource aliexpressAppKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: vault
+  name: 'aliexpress-app-key'
+}
+
+resource aliexpressAppSecretSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: vault
+  name: 'aliexpress-app-secret'
 }
 
 resource emailService 'Microsoft.Communication/emailServices@2025-09-01' = {
@@ -831,6 +897,7 @@ resource adverseEmailOutcomeAlert 'Microsoft.Insights/scheduledQueryRules@2023-1
 
 var acrPullRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
 var blobContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+var blobReaderRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1')
 var keyVaultSecretsUserRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
 var tableDataContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
 var tableDataReaderRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '76199698-9eea-4c19-bc75-cec21354c6b6')
@@ -882,25 +949,19 @@ resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (mana
   }
 }
 
-// The shared runtime identity reads and writes only the private airco-tracker
-// container (alert state, the inventory snapshot, and the partner-feed cache
-// prefix). Keep the data-plane grant at that container instead of the whole
-// account so a compromised process cannot reach unrelated containers such as
-// the Event Grid dead-letter one.
-resource blobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSharedIdentityRbac) {
-  name: guid(stateContainer.id, identity.id, blobContributorRole)
+// The web app serves the inventory snapshot and does not mutate scanner state.
+resource webBlobReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(stateContainer.id, identity.id, blobReaderRole)
   scope: stateContainer
   properties: {
     principalId: identity.properties.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: blobContributorRole
+    roleDefinitionId: blobReaderRole
   }
 }
 
-// The web app and scanner intentionally share one legacy runtime identity,
-// but they do not need account-wide Table Data Contributor. Keep each data
-// plane grant at the concrete table resource so a future table is private by
-// default and a compromised web process cannot enumerate unrelated tables.
+// Web write access is limited to authentication/profile state and the alert
+// recipient projection maintained transactionally with profile changes.
 resource sharedUsersTableContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(authUsersTable.id, identity.id, tableDataContributorRole)
   scope: authUsersTable
@@ -941,46 +1002,6 @@ resource sharedAlertRecipientsTableContributor 'Microsoft.Authorization/roleAssi
   }
 }
 
-resource sharedAlertOutboxTableContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(alertOutboxTable.id, identity.id, tableDataContributorRole)
-  scope: alertOutboxTable
-  properties: {
-    principalId: identity.properties.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: tableDataContributorRole
-  }
-}
-
-resource sharedAlertDeliveriesTableContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(alertDeliveriesTable.id, identity.id, tableDataContributorRole)
-  scope: alertDeliveriesTable
-  properties: {
-    principalId: identity.properties.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: tableDataContributorRole
-  }
-}
-
-resource sharedAlertDeliveryIndexTableContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(alertDeliveryIndexTable.id, identity.id, tableDataContributorRole)
-  scope: alertDeliveryIndexTable
-  properties: {
-    principalId: identity.properties.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: tableDataContributorRole
-  }
-}
-
-resource sharedAlertSuppressionsTableContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(alertSuppressionsTable.id, identity.id, tableDataContributorRole)
-  scope: alertSuppressionsTable
-  properties: {
-    principalId: identity.properties.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: tableDataContributorRole
-  }
-}
-
 resource sharedI18nTableReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(i18nTable.id, identity.id, tableDataReaderRole)
   scope: i18nTable
@@ -991,9 +1012,29 @@ resource sharedI18nTableReader 'Microsoft.Authorization/roleAssignments@2022-04-
   }
 }
 
-resource vaultReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSharedIdentityRbac) {
-  name: guid(vault.id, identity.id, keyVaultSecretsUserRole)
-  scope: vault
+resource webUnsubscribeSecretReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSecretScopedKeyVaultRbac) {
+  name: guid(unsubscribeSigningKeySecret.id, identity.id, keyVaultSecretsUserRole)
+  scope: unsubscribeSigningKeySecret
+  properties: {
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRole
+  }
+}
+
+resource webWithdrawalSecretReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSecretScopedKeyVaultRbac) {
+  name: guid(withdrawalSigningKeySecret.id, identity.id, keyVaultSecretsUserRole)
+  scope: withdrawalSigningKeySecret
+  properties: {
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRole
+  }
+}
+
+resource webAuthCodePepperSecretReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSecretScopedKeyVaultRbac) {
+  name: guid(authCodeHmacPepperSecret.id, identity.id, keyVaultSecretsUserRole)
+  scope: authCodeHmacPepperSecret
   properties: {
     principalId: identity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -1018,6 +1059,190 @@ resource emailCommunicationAccess 'Microsoft.Authorization/roleAssignments@2022-
     principalId: emailIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: acsEmailSenderRole.id
+  }
+}
+
+resource scannerAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, scannerIdentity.id, acrPullRole)
+  scope: registry
+  properties: {
+    principalId: scannerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: acrPullRole
+  }
+}
+
+resource retentionAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, retentionIdentity.id, acrPullRole)
+  scope: registry
+  properties: {
+    principalId: retentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: acrPullRole
+  }
+}
+
+resource webRetentionAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, webRetentionIdentity.id, acrPullRole)
+  scope: registry
+  properties: {
+    principalId: webRetentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: acrPullRole
+  }
+}
+
+resource scannerBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(stateContainer.id, scannerIdentity.id, blobContributorRole)
+  scope: stateContainer
+  properties: {
+    principalId: scannerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: blobContributorRole
+  }
+}
+
+resource scannerAwinSecretReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSecretScopedKeyVaultRbac) {
+  name: guid(awinPublisherApiTokenSecret.id, scannerIdentity.id, keyVaultSecretsUserRole)
+  scope: awinPublisherApiTokenSecret
+  properties: {
+    principalId: scannerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRole
+  }
+}
+
+resource scannerAliexpressAppKeyReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSecretScopedKeyVaultRbac) {
+  name: guid(aliexpressAppKeySecret.id, scannerIdentity.id, keyVaultSecretsUserRole)
+  scope: aliexpressAppKeySecret
+  properties: {
+    principalId: scannerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRole
+  }
+}
+
+resource scannerAliexpressAppSecretReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSecretScopedKeyVaultRbac) {
+  name: guid(aliexpressAppSecretSecret.id, scannerIdentity.id, keyVaultSecretsUserRole)
+  scope: aliexpressAppSecretSecret
+  properties: {
+    principalId: scannerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRole
+  }
+}
+
+resource scannerOutboxContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertOutboxTable.id, scannerIdentity.id, tableDataContributorRole)
+  scope: alertOutboxTable
+  properties: {
+    principalId: scannerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource scannerPendingOutboxContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertOutboxPendingTable.id, scannerIdentity.id, tableDataContributorRole)
+  scope: alertOutboxPendingTable
+  properties: {
+    principalId: scannerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource retentionOutboxContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertOutboxTable.id, retentionIdentity.id, tableDataContributorRole)
+  scope: alertOutboxTable
+  properties: {
+    principalId: retentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource retentionPendingOutboxContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertOutboxPendingTable.id, retentionIdentity.id, tableDataContributorRole)
+  scope: alertOutboxPendingTable
+  properties: {
+    principalId: retentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource retentionDeliveriesContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertDeliveriesTable.id, retentionIdentity.id, tableDataContributorRole)
+  scope: alertDeliveriesTable
+  properties: {
+    principalId: retentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource retentionDeliveryIndexContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertDeliveryIndexTable.id, retentionIdentity.id, tableDataContributorRole)
+  scope: alertDeliveryIndexTable
+  properties: {
+    principalId: retentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource retentionSuppressionsContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertSuppressionsTable.id, retentionIdentity.id, tableDataContributorRole)
+  scope: alertSuppressionsTable
+  properties: {
+    principalId: retentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+// The web repository's scheduled cleanup job has its own identity. It needs
+// delete-capable access only to the three auth tables whose expired rows it
+// drains; it inherits neither backend-retention data access nor web ACS/Key
+// Vault privileges.
+resource webRetentionUsersContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(authUsersTable.id, webRetentionIdentity.id, tableDataContributorRole)
+  scope: authUsersTable
+  properties: {
+    principalId: webRetentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource webRetentionAuthCodesContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(authCodesTable.id, webRetentionIdentity.id, tableDataContributorRole)
+  scope: authCodesTable
+  properties: {
+    principalId: webRetentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource webRetentionAuthSessionsContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(authSessionsTable.id, webRetentionIdentity.id, tableDataContributorRole)
+  scope: authSessionsTable
+  properties: {
+    principalId: webRetentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource retentionRecipientsReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertRecipientsTable.id, retentionIdentity.id, tableDataReaderRole)
+  scope: alertRecipientsTable
+  properties: {
+    principalId: retentionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataReaderRole
   }
 }
 
@@ -1061,9 +1286,9 @@ resource deliveryReportAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-
   }
 }
 
-resource emailKeyVaultSecretsReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(vault.id, emailIdentity.id, keyVaultSecretsUserRole)
-  scope: vault
+resource emailUnsubscribeSecretReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (manageSecretScopedKeyVaultRbac) {
+  name: guid(unsubscribeSigningKeySecret.id, emailIdentity.id, keyVaultSecretsUserRole)
+  scope: unsubscribeSigningKeySecret
   properties: {
     principalId: emailIdentity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -1074,6 +1299,16 @@ resource emailKeyVaultSecretsReader 'Microsoft.Authorization/roleAssignments@202
 resource publisherTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(alertOutboxTable.id, publisherIdentity.id, tableDataContributorRole)
   scope: alertOutboxTable
+  properties: {
+    principalId: publisherIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource publisherPendingTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(alertOutboxPendingTable.id, publisherIdentity.id, tableDataContributorRole)
+  scope: alertOutboxPendingTable
   properties: {
     principalId: publisherIdentity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -1106,6 +1341,16 @@ resource fanoutTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 resource emailTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(alertDeliveriesTable.id, emailIdentity.id, tableDataContributorRole)
   scope: alertDeliveriesTable
+  properties: {
+    principalId: emailIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: tableDataContributorRole
+  }
+}
+
+resource emailRateLimitTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(emailRateLimitTable.id, emailIdentity.id, tableDataContributorRole)
+  scope: emailRateLimitTable
   properties: {
     principalId: emailIdentity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -1397,7 +1642,20 @@ output acrLoginServer string = registry.properties.loginServer
 output communicationServiceName string = communicationService.name
 output communicationEndpoint string = 'https://${communicationService.name}.communication.azure.com'
 output containerEnvironmentName string = containerEnvironment.name
+// Backward-compatible alias consumed by the current web deployment.
 output identityName string = identity.name
+output webIdentityName string = identity.name
+output webIdentityId string = identity.id
+output webIdentityClientId string = identity.properties.clientId
+output scannerIdentityName string = scannerIdentity.name
+output scannerIdentityId string = scannerIdentity.id
+output scannerIdentityClientId string = scannerIdentity.properties.clientId
+output retentionIdentityName string = retentionIdentity.name
+output retentionIdentityId string = retentionIdentity.id
+output retentionIdentityClientId string = retentionIdentity.properties.clientId
+output webRetentionIdentityName string = webRetentionIdentity.name
+output webRetentionIdentityId string = webRetentionIdentity.id
+output webRetentionIdentityClientId string = webRetentionIdentity.properties.clientId
 output publisherIdentityName string = publisherIdentity.name
 output fanoutIdentityName string = fanoutIdentity.name
 output emailIdentityName string = emailIdentity.name

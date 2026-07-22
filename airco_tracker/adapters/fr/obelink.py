@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
+from ...url_security import validate_discovered_merchant_url
 from ..base import canonical_url, parse_btu, parse_cooling_watts_btu, parse_product_page_btu
 from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 from .common import is_real_air_conditioner_fr
@@ -35,7 +36,10 @@ class ObelinkFranceAdapter:
     def fetch_products(self) -> list[Product]:
         urls: set[str] = set()
         for category_url in self.category_urls:
-            urls.update(_category_product_urls(self.fetcher.get(category_url)))
+            urls.update(
+                validate_discovered_merchant_url(url, site=self.site)
+                for url in _category_product_urls(self.fetcher.get(category_url))
+            )
         if not urls:
             raise RuntimeError(f"{self.site}: category JSON-LD contained no product URLs")
 

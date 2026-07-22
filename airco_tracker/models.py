@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+from .url_security import normalized_https_url, validate_affiliate_url, validate_product_url
+
 
 DEFAULT_COUNTRY = "nl"
 
@@ -37,6 +39,19 @@ class Product:
     # creating a false out-of-stock -> in-stock transition.
     affiliate_url: str | None = None
 
+    def __post_init__(self) -> None:
+        if not self.site.strip() or not self.name.strip():
+            raise ValueError("Product site and name are required")
+        object.__setattr__(self, "url", validate_product_url(self.url, site_id=self.site_id))
+        if self.affiliate_url:
+            try:
+                affiliate_url = validate_affiliate_url(self.affiliate_url)
+            except ValueError:
+                # Affiliate enrichment is optional. A malformed/unapproved
+                # redirect must never hide otherwise trustworthy inventory.
+                affiliate_url = None
+            object.__setattr__(self, "affiliate_url", affiliate_url)
+
     @property
     def site_id(self) -> str:
         return site_id_for(self.country, self.site)
@@ -61,7 +76,7 @@ def _is_https_url(value: str) -> bool:
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         return False
     try:
-        parsed = urlsplit(value)
+        parsed = urlsplit(normalized_https_url(value))
     except ValueError:
         return False
     return (

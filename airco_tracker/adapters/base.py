@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup, Tag
@@ -15,6 +15,79 @@ from .schema import product_json_ld
 
 
 LOG = logging.getLogger(__name__)
+
+_EXPLICIT_EMPTY_EVIDENCE_ATTR = "_airco_explicit_empty_evidence"
+
+
+@dataclass(frozen=True)
+class EmptyCatalogEvidence:
+    """Machine-readable proof that an empty retailer result is intentional.
+
+    Empty seasonal catalogues are valid for several retailers, but a parser
+    that silently returns ``[]`` after a markup change is not.  Adapters may
+    therefore acknowledge an empty result only after validating an
+    authoritative source and signal (for example a healthy sitemap with zero
+    matching product URLs, or an API response with an explicit total of zero).
+    """
+
+    source: str
+    signal: str
+
+    def __post_init__(self) -> None:
+        for name, value in (("source", self.source), ("signal", self.signal)):
+            cleaned = " ".join(value.split())
+            if not cleaned or len(cleaned) > 240:
+                raise ValueError(f"Empty-catalog evidence {name} must contain 1-240 characters")
+            object.__setattr__(self, name, cleaned)
+
+
+@dataclass(frozen=True)
+class AdapterFetchResult:
+    products: tuple[Product, ...]
+    empty_evidence: EmptyCatalogEvidence | None = None
+
+    def __post_init__(self) -> None:
+        if not self.products and self.empty_evidence is None:
+            raise ValueError("An empty adapter result requires explicit empty-catalog evidence")
+        if self.products and self.empty_evidence is not None:
+            raise ValueError("Empty-catalog evidence cannot accompany products")
+
+
+def verified_empty(
+    adapter: object,
+    *,
+    source: str,
+    signal: str,
+) -> list[Product]:
+    """Return an empty legacy list while attaching structured proof.
+
+    ``fetch_products`` remains list-compatible for parser unit tests and
+    downstream callers.  The scanner consumes it through
+    :func:`fetch_adapter_result`, which rejects an unacknowledged empty list.
+    """
+
+    evidence = EmptyCatalogEvidence(source=source, signal=signal)
+    setattr(adapter, _EXPLICIT_EMPTY_EVIDENCE_ATTR, evidence)
+    return []
+
+
+def fetch_adapter_result(adapter: object) -> AdapterFetchResult:
+    """Run one adapter and enforce the explicit-empty contract."""
+
+    setattr(adapter, _EXPLICIT_EMPTY_EVIDENCE_ATTR, None)
+    found = adapter.fetch_products()  # type: ignore[attr-defined]
+    if not isinstance(found, list) or any(not isinstance(item, Product) for item in found):
+        site = str(getattr(adapter, "site", type(adapter).__name__))
+        raise RuntimeError(f"{site}: adapter returned an invalid product collection")
+    if found:
+        return AdapterFetchResult(tuple(found))
+    evidence = getattr(adapter, _EXPLICIT_EMPTY_EVIDENCE_ATTR, None)
+    if not isinstance(evidence, EmptyCatalogEvidence):
+        site = str(getattr(adapter, "site", type(adapter).__name__))
+        raise RuntimeError(
+            f"{site}: adapter returned no products without explicit empty-catalog evidence"
+        )
+    return AdapterFetchResult((), evidence)
 
 # Delivery text markers that indicate a product is a presale or has a
 # multi-week lead time — not immediate stock. Used by is_presale_delivery()
@@ -266,6 +339,9 @@ class Adapter(ABC):
 
     def __init__(self, fetcher: Fetcher) -> None:
         self.fetcher = fetcher
+
+    def verified_empty(self, *, source: str, signal: str) -> list[Product]:
+        return verified_empty(self, source=source, signal=signal)
 
     def fetch_products(self) -> list[Product]:
         products: dict[str, Product] = {}

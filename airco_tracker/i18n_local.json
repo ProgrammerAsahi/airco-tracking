@@ -117,10 +117,10 @@
   },
   "web": {
     "hero_eyebrow": {
-      "zh": "荷兰 · 实时库存",
-      "nl": "Nederland · realtime voorraad",
-      "en": "Netherlands · live stock",
-      "fr": "Pays-Bas · stock en temps réel"
+      "zh": "荷兰 · 近实时库存（通常约每 10 分钟刷新）",
+      "nl": "Nederland · bijna-realtime voorraad (normaal ongeveer elke 10 minuten ververst)",
+      "en": "Netherlands · near-real-time stock (normally refreshed about every 10 minutes)",
+      "fr": "Pays-Bas · stock en quasi-temps réel (normalement toutes les 10 minutes environ)"
     },
     "hero_title": {
       "zh": "哪里还有空调，<br />一眼就知道。",
@@ -129,10 +129,10 @@
       "fr": "Où trouver un climatiseur,<br/>en un coup d’œil."
     },
     "hero_description": {
-      "zh": "每 10 分钟查看 {site_count} 家商店，聚合当前可以在线购买的便携空调。点击有货的商店查看具体型号。",
-      "nl": "Controleert elke 10 minuten {site_count} winkels en bundelt mobiele airco's die online bestelbaar zijn. Klik op een winkel met voorraad om modellen te zien.",
-      "en": "Checks {site_count} stores every 10 minutes and aggregates portable ACs available to order online. Click a stocked store to see models.",
-      "fr": "Vérifie {site_count} magasins toutes les 10 minutes et rassemble les climatiseurs mobiles disponibles à la commande en ligne. Cliquez sur un magasin approvisionné pour voir les modèles."
+      "zh": "通常约每 10 分钟查看 {site_count} 家商店，聚合最近一次成功检查中可在线购买的便携空调。点击有货的商店查看具体型号。",
+      "nl": "Controleert normaal ongeveer elke 10 minuten {site_count} winkels en bundelt mobiele airco's uit de recentste geslaagde controle die online bestelbaar zijn. Klik op een winkel met voorraad om modellen te zien.",
+      "en": "Normally checks {site_count} stores about every 10 minutes and aggregates portable ACs available to order in the latest successful scan. Click a stocked store to see models.",
+      "fr": "Vérifie normalement {site_count} magasins toutes les 10 minutes environ et rassemble les climatiseurs mobiles commandables lors du dernier contrôle réussi. Cliquez sur un magasin approvisionné pour voir les modèles."
     },
     "metric_in_stock": {
       "zh": "台空调有货",
@@ -171,10 +171,10 @@
       "fr": "magasin suivi"
     },
     "section_kicker": {
-      "zh": "实时概览",
-      "nl": "Live overzicht",
-      "en": "Live overview",
-      "fr": "Vue en temps réel"
+      "zh": "近实时概览",
+      "nl": "Bijna-realtime overzicht",
+      "en": "Near-real-time overview",
+      "fr": "Vue en quasi-temps réel"
     },
     "section_title": {
       "zh": "各网站库存",
@@ -183,10 +183,28 @@
       "fr": "Stock par magasin"
     },
     "updated_at": {
-      "zh": "更新于 {time}",
-      "nl": "Bijgewerkt om {time}",
-      "en": "Updated {time}",
-      "fr": "Mis à jour à {time}"
+      "zh": "本次库存快照最后检查于 {time}",
+      "nl": "Deze voorraadmomentopname is voor het laatst gecontroleerd om {time}",
+      "en": "This inventory snapshot was last checked {time}",
+      "fr": "Dernière vérification de cet instantané de stock : {time}"
+    },
+    "freshness_disclosure": {
+      "zh": "页面通常约每 10 分钟刷新一次。上方时间是当前快照最近一次完成检查的时间。过期或未验证的数据源在新检查成功前，不会计入数量或结果。",
+      "nl": "Deze pagina wordt normaal ongeveer elke 10 minuten ververst. De tijd hierboven is de laatst voltooide controle van de huidige momentopname. Verouderde of niet-geverifieerde bronnen tellen pas weer mee na een geslaagde nieuwe controle.",
+      "en": "This page normally refreshes about every 10 minutes. The timestamp above is the current snapshot’s last completed check. Stale or unverified sources are excluded from counts and results until a new check succeeds.",
+      "fr": "Cette page est normalement actualisée toutes les 10 minutes environ. L’heure ci-dessus correspond au dernier contrôle achevé de l’instantané actuel. Les sources obsolètes ou non vérifiées sont exclues des totaux et des résultats jusqu’à la réussite d’un nouveau contrôle."
+    },
+    "ranking_disclosure_title": {
+      "zh": "结果如何排序",
+      "nl": "Hoe resultaten worden gerangschikt",
+      "en": "How results are ranked",
+      "fr": "Comment les résultats sont classés"
+    },
+    "ranking_disclosure_body": {
+      "zh": "在当前选择的现货或预售视图中，零售商先按匹配商品数量从多到少排序，再按零售商名称排序。每家零售商内部，商品分为现货和预售两组，并按价格从低到高排序；价格未知的商品排在最后。联盟营销或赞助关系绝不会影响此排序。",
+      "nl": "Binnen de gekozen weergave voor voorraad of voorbestelling worden winkels eerst gerangschikt op het aantal overeenkomende producten (hoog naar laag) en daarna op winkelnaam. Binnen een winkel worden producten gesplitst in voorraad en voorbestelling en van lage naar hoge prijs gerangschikt; onbekende prijzen staan als laatste. Affiliate- of sponsorrelaties hebben nooit invloed op deze volgorde.",
+      "en": "Within the selected in-stock or pre-order view, retailers are ordered by the number of matching products (highest first), then by retailer name. Inside a retailer, products are split into in-stock and pre-order groups and sorted by price from low to high; unknown prices appear last. Affiliate or sponsored relationships never affect this order.",
+      "fr": "Dans la vue sélectionnée, stock ou précommande, les marchands sont classés par nombre de produits correspondants (du plus élevé au plus faible), puis par nom. Chez un marchand, les produits sont séparés entre stock et précommande, puis classés par prix croissant ; les prix inconnus apparaissent en dernier. Les relations d’affiliation ou de parrainage n’influencent jamais ce classement."
     },
     "waiting_first_update": {
       "zh": "等待第一次更新",
@@ -259,6 +277,18 @@
       "nl": "Voorraadgegevens konden niet worden opgehaald ({status})",
       "en": "Failed to fetch inventory data ({status})",
       "fr": "Impossible de récupérer les données de stock ({status})"
+    },
+    "inventory_confidence_partial": {
+      "zh": "部分商店本轮验证失败，以下统计仅包含本轮已确认的库存。",
+      "nl": "Sommige winkels konden deze ronde niet worden geverifieerd. De cijfers hieronder bevatten alleen bevestigde voorraad.",
+      "en": "Some stores could not be verified in this scan. The figures below include verified stock only.",
+      "fr": "Certains magasins n’ont pas pu être vérifiés lors de cette analyse. Les chiffres ci-dessous incluent uniquement les stocks confirmés."
+    },
+    "inventory_confidence_unavailable": {
+      "zh": "本轮暂时没有已验证的库存数据，请稍后再试。",
+      "nl": "Er zijn voor deze ronde nog geen geverifieerde voorraadgegevens. Probeer het later opnieuw.",
+      "en": "No verified inventory data is available for this scan yet. Please try again later.",
+      "fr": "Aucune donnée de stock vérifiée n’est encore disponible pour cette analyse. Veuillez réessayer plus tard."
     },
     "error_generic": {
       "zh": "无法读取库存数据",

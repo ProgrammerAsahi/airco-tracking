@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from ...fetch import Fetcher
 from ...models import Product
+from ...url_security import validate_discovered_merchant_url
 from ..base import canonical_url, clean_text, parse_btu
 from ..schema import first_offer, offer_price, product_json_ld, schema_in_stock
 
@@ -32,7 +33,10 @@ class VrijbuiterAdapter:
     def fetch_products(self) -> list[Product]:
         page = self.fetcher.get(self.category_url)
         soup = BeautifulSoup(page, "html.parser")
-        urls = _product_urls(soup, self.category_url)
+        urls = {
+            validate_discovered_merchant_url(url, site=self.site)
+            for url in _product_urls(soup, self.category_url)
+        }
         if not urls:
             raise RuntimeError("Vrijbuiter category contained no product links")
         products: dict[str, Product] = {}

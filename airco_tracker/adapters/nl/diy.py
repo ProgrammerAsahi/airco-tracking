@@ -4,7 +4,6 @@ from typing import Any
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
-import requests
 from bs4 import BeautifulSoup
 
 from ...models import Product
@@ -44,7 +43,10 @@ class DiyStoreAdapter(Adapter):
                     # source.  It can prove that the current catalogue has no
                     # portable-airco candidates, but a URL in it cannot prove
                     # that the product is in stock.
-                    return []
+                    return self.verified_empty(
+                        source="official_product_sitemap",
+                        signal="healthy sitemap contained zero portable-airco candidates",
+                    )
                 raise RuntimeError(
                     f"{self.site}: category was rate limited, the public catalogue "
                     "lookup failed, and the official product sitemap still lists "
@@ -68,7 +70,8 @@ class DiyStoreAdapter(Adapter):
     def _fetch_algolia_products(self) -> list[Product]:
         if not self.algolia_index or not self.algolia_category_facet:
             raise RuntimeError(f"{self.site}: public catalogue is not configured")
-        response = self.fetcher.session.post(
+        payload = self.fetcher.request_json(
+            "POST",
             (
                 f"https://{self.algolia_application_id.lower()}-dsn.algolia.net/1/indexes/"
                 f"{self.algolia_index}/query"
@@ -80,15 +83,16 @@ class DiyStoreAdapter(Adapter):
                 "X-Algolia-API-Key": self.algolia_search_key,
                 "Content-Type": "application/json",
             },
-            json={
+            json_body={
                 "query": "",
                 "hitsPerPage": 100,
                 "facetFilters": [f"slugs:{self.algolia_category_facet}"],
             },
-            timeout=self.fetcher.timeout,
+            # This Algolia POST is a read-only catalogue lookup. Opting into
+            # bounded POST retries is deliberate and safe.
+            retry_read_only_post=True,
+            maximum_response_bytes=4 * 1024 * 1024,
         )
-        response.raise_for_status()
-        payload = response.json()
         hits = _validated_catalog_hits(self.site, payload)
         products: dict[str, Product] = {}
         for hit in hits:
@@ -267,10 +271,11 @@ def _has_supported_product_tiles(soup: BeautifulSoup) -> bool:
 
 
 def _is_rate_limited(exc: Exception) -> bool:
-    if isinstance(exc, requests.exceptions.RetryError):
-        return "429" in str(exc) or "too many 429" in str(exc).lower()
-    return isinstance(exc, requests.exceptions.HTTPError) and bool(
-        exc.response is not None and exc.response.status_code == 429
+    response = getattr(exc, "response", None)
+    return bool(
+        getattr(response, "status_code", None) == 429
+        or "429" in str(exc)
+        or "too many 429" in str(exc).casefold()
     )
 
 

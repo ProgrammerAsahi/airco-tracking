@@ -58,29 +58,13 @@ class _Client:
         return [self.details[sku] for sku in requested if sku in self.details]
 
 
-class _Response:
-    def __init__(self, payload) -> None:
-        self.payload = payload
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self):
-        return self.payload
-
-
-class _Session:
+class _Transport:
     def __init__(self) -> None:
-        self.post_calls = []
-        self.get_calls = []
+        self.calls = []
 
-    def post(self, url, **kwargs):
-        self.post_calls.append((url, kwargs))
-        return _Response({"items": [], "count": 0, "total": 0})
-
-    def get(self, url, **kwargs):
-        self.get_calls.append((url, kwargs))
-        return _Response([])
+    def request_json(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        return {"items": [], "count": 0, "total": 0} if method == "POST" else []
 
 
 def _search_item(
@@ -182,15 +166,15 @@ class ELeclercFranceAdapterTests(unittest.TestCase):
         )
 
     def test_live_client_uses_filtered_discovery_and_repeated_bulk_sku_params(self) -> None:
-        session = _Session()
-        client = _ELeclercLiveApiClient(session, 25)
+        transport = _Transport()
+        client = _ELeclercLiveApiClient(transport, 25)
 
         client.search("climatiseur mobile", 1, 96)
         client.product_details(["8690842747755", "8436597490085"])
 
-        search = session.post_calls[0][1]
+        search = transport.calls[0][2]
         self.assertEqual(
-            search["json"],
+            search["json_body"],
             {
                 "text": "climatiseur mobile",
                 "page": 1,
@@ -199,9 +183,10 @@ class ELeclercFranceAdapterTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            session.get_calls[0][1]["params"],
+            transport.calls[1][2]["params"],
             [("skus", "8690842747755"), ("skus", "8436597490085")],
         )
+        self.assertTrue(search["retry_read_only_post"])
 
     def test_discovery_is_cached_for_twelve_hours_but_stock_is_always_refreshed(self) -> None:
         sku = "8690842747755"
@@ -376,7 +361,8 @@ class ELeclercFranceAdapterTests(unittest.TestCase):
         self.assertEqual(product.price_eur, 449.0)
         self.assertIn("Cheapest", product.delivery or "")
         self.assertEqual(product.btu, 9000)
-        query = parse_qs(urlsplit(product.url).query)
+        self.assertEqual(product.url, f"https://www.e.leclerc/fp/{sku}")
+        query = parse_qs(urlsplit(product.affiliate_url or "").query)
         self.assertEqual(query["awinmid"], ["15135"])
         self.assertEqual(query["awinaffid"], ["2981827"])
         self.assertEqual(query["cons"], ["0"])
@@ -447,9 +433,7 @@ class ELeclercFranceAdapterTests(unittest.TestCase):
             now=lambda: NOW,
         ).fetch_products()
         by_name = {
-            urlsplit(parse_qs(urlsplit(product.url).query)["ued"][0]).path.rsplit("/", 1)[
-                -1
-            ]: product
+            urlsplit(product.url).path.rsplit("/", 1)[-1]: product
             for product in products
         }
 
